@@ -294,6 +294,38 @@ export class Sfx {
     }
   }
 
+  // --- 규칙 이벤트 ---
+  /** 공물 줍기: 맑은 종 한 번 */
+  pickup() {
+    if (!this.ready()) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime;
+    for (const [f, g, d] of [[1046, 0.22, 0.9], [2093, 0.09, 0.6], [1568, 0.06, 0.5]] as [number, number, number][]) {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+      const e = ctx.createGain(); e.gain.setValueAtTime(0.0001, t0); e.gain.exponentialRampToValueAtTime(g, t0 + 0.005); e.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+      o.connect(e).connect(this.master!); o.start(t0); o.stop(t0 + d + 0.05);
+    }
+  }
+  /** 봉납: 낮은 종(梵鐘) 울림 */
+  offer() {
+    if (!this.ready()) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime;
+    for (const [f, g] of [[110, 0.5], [220, 0.25], [331, 0.12], [552, 0.05]] as [number, number][]) {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+      const e = ctx.createGain(); e.gain.setValueAtTime(0.0001, t0); e.gain.exponentialRampToValueAtTime(g, t0 + 0.02); e.gain.exponentialRampToValueAtTime(0.0001, t0 + 4.5);
+      o.connect(e).connect(this.master!); o.start(t0); o.stop(t0 + 4.6);
+    }
+  }
+  /** 탈출: 새벽 — 높은 지속음 + 새 소리 한 마디 */
+  escape() {
+    if (!this.ready()) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = 880;
+    const e = ctx.createGain(); e.gain.setValueAtTime(0.0001, t0); e.gain.exponentialRampToValueAtTime(0.12, t0 + 1.5); e.gain.exponentialRampToValueAtTime(0.0001, t0 + 6);
+    o.connect(e).connect(this.master!); o.start(t0); o.stop(t0 + 6.1);
+    for (let i = 0; i < 4; i++) { const t = t0 + 1.2 + i * 0.18; const b = ctx.createOscillator(); b.type = 'sine'; b.frequency.setValueAtTime(2600 + i * 200, t); b.frequency.exponentialRampToValueAtTime(3400, t + 0.08);
+      const be = ctx.createGain(); be.gain.setValueAtTime(0.0001, t); be.gain.exponentialRampToValueAtTime(0.08, t + 0.01); be.gain.exponentialRampToValueAtTime(0.0001, t + 0.12); b.connect(be).connect(this.master!); b.start(t); b.stop(t + 0.15); }
+  }
+
   // --- 연출형 요괴 스팅어 ---
   /** 놋페라보가 돌아본다: 낮은 현 한 번 + 종이 옷자락 */
   nopperaTurn() {

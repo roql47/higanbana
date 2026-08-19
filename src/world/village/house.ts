@@ -247,6 +247,7 @@ function makeRoof(): THREE.BufferGeometry {
   idx.push(1, 2, 5);            // 우 박공
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array((v.length / 3) * 2).fill(0), 2));
   g.setIndex(idx);
   g.computeVertexNormals();
   return g;

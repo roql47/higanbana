@@ -37,6 +37,7 @@ import { Hunter } from '@/ai/hunter';
 import { Dorotabo } from '@/ai/dorotabo';
 import { Matsuri } from '@/audio/matsuri';
 import { Scares } from '@/world/village/scares';
+import { Rules, type OfferingDef } from '@/game/rules';
 
 interface CharacterVisual {
   update(dt: number, ctrl: CharacterController): void;
@@ -230,6 +231,72 @@ async function main() {
     void scares.load().catch((e) => console.warn('[scares]', e));
   }
 
+  // --- 게임 규칙: 공물 5 → 봉납 → 탈출 ---
+  let rules: Rules | null = null;
+  const hudEl = document.createElement('div'); hudEl.className = 'game-hud';
+  hudEl.innerHTML = '<div class="offerings"></div><div class="prompt-line"></div>';
+  document.getElementById('hud')!.appendChild(hudEl);
+  const offeringsEl = hudEl.querySelector('.offerings') as HTMLElement;
+  const promptLine = hudEl.querySelector('.prompt-line') as HTMLElement;
+  const endEl = document.createElement('div'); endEl.className = 'ending';
+  document.body.appendChild(endEl);
+  const toastEl = document.createElement('div'); toastEl.className = 'pickup-toast'; document.body.appendChild(toastEl);
+  let toastT = 0;
+  const renderHud = () => {
+    if (!rules) return;
+    offeringsEl.innerHTML = rules.offerings.map((o) => `<span class="off ${rules!.collected.has(o.id) ? 'got' : ''}" style="--c:#${o.color.toString(16).padStart(6, '0')}">${o.name}</span>`).join('');
+  };
+  if (village) {
+    const g = village.ground;
+    const stall = village.square.stalls[4] ?? village.square.stalls[0]!;
+    // 쌀: 논 한가운데 (배미 중앙) — 논 은신 구역으로 유인
+    const cell = g.paddyCells()[Math.floor(g.paddyCells().length / 2)];
+    const ricePos = cell ? new THREE.Vector3((cell.x0 + cell.x1) / 2, g.heightAt((cell.x0 + cell.x1) / 2, (cell.z0 + cell.z1) / 2), (cell.z0 + cell.z1) / 2) : new THREE.Vector3(-12, 0, 20);
+    // 소금: 폐가 봉당 부뚜막 옆 (실내)
+    const hp = village.house.entrance.clone(); // 현관 앞에서 집 안쪽으로 6 m
+    const saltPos = new THREE.Vector3(-19.5, 0.12, 24.0); // 봉당 안쪽(부뚜막 근처)
+    // 비쭈기나무: 신사 경내 서쪽 거목 아래 (피안화 군락은 H4 — 지금은 어신목 아래)
+    const sakakiPos = village.shrine.center.clone().add(new THREE.Vector3(-7, 0, 1.8));
+    sakakiPos.y = g.heightAt(sakakiPos.x, sakakiPos.z);
+    // 물: 초즈야 수반
+    const waterPos = village.shrine.chozuya.clone(); waterPos.y = g.heightAt(waterPos.x, waterPos.z);
+    const offerings: OfferingDef[] = [
+      { id: 'sake', name: '신주(神酒)', desc: '노점에 남겨진 술병', color: 0xf2e0a0, pos: new THREE.Vector3(stall.pos.x, stall.pos.y, stall.pos.z).add(new THREE.Vector3(Math.sin(stall.yaw) * 1.2, 0, Math.cos(stall.yaw) * 1.2)) },
+      { id: 'rice', name: '쌀', desc: '논 한가운데 볏단 위', color: 0xe8e8d0, pos: ricePos },
+      { id: 'salt', name: '소금', desc: '폐가 부엌', color: 0xd8f0ff, pos: saltPos },
+      { id: 'water', name: '물', desc: '초즈야 수반', color: 0x80c8ff, pos: waterPos },
+      { id: 'sakaki', name: '비쭈기나무(榊)', desc: '어신목 아래', color: 0x60d080, pos: sakakiPos },
+    ];
+    // 출구: 참배로 남쪽 끝(스폰 뒤) 다리
+    const ex = g.roadAt(4);
+    const exitPos = new THREE.Vector3(ex.x, g.heightAt(ex.x, ex.z), ex.z);
+    rules = new Rules(scene, offerings, village.shrine.altar, exitPos, {
+      onPrompt: (t) => { promptLine.textContent = t ?? ''; promptLine.classList.toggle('show', !!t); },
+      onPickup: (o, n) => {
+        renderHud(); sfx.pickup();
+        toastEl.textContent = n >= 5 ? `${o.name} — 마지막이다. 본전으로.` : `${o.name} (${n}/5)`;
+        toastEl.classList.add('show'); toastT = 3.2;
+        // 여우 요괴가 마을로 내려온다 (공물 2개부터) — 참배로 전체 + 광장
+        if (n === 2 && hunters[1] && village) {
+          const a: THREE.Vector3[] = [];
+          for (const t of [20, 40, 60, 80, 98]) { const rp = village.ground.roadAt(Math.min(t, village.ground.roadLength - 3)); a.push(new THREE.Vector3(rp.x, 0, rp.z)); }
+          a.push(new THREE.Vector3(40, 0, 24));
+          hunters[1].setAnchors(a);
+          toastEl.textContent += '  …토리이 쪽에서 방울 소리가 난다';
+        }
+      },
+      onOffer: () => { sfx.offer(); toastEl.textContent = '축제가 끝났다. 남쪽 다리가 열렸다.'; toastEl.classList.add('show'); toastT = 5; matsuri?.onOffered(); },
+      onEscape: () => {
+        endEl.innerHTML = '<div class="ending-title">새벽</div><div class="ending-sub">마을을 나왔다.</div><div class="ending-hint">R — 다시</div>';
+        endEl.classList.add('show'); sfx.escape();
+      },
+    });
+    renderHud();
+    // 출구 보이지 않는 벽 (봉납 전) — 얇은 박스, 봉납 후 제거
+    const gateBody = physics.addStaticBox(exitPos.clone().add(new THREE.Vector3(0, 1.2, 0)), new THREE.Vector3(2.4, 1.2, 0.15));
+    rules.onGateOpen = () => physics.world.removeRigidBody(gateBody.body);
+  }
+
   // --- 인벤토리 · 장비 · 전투 · 허수아비 (전투는 sandbox 전용) ---
   const inventory = new Inventory();
   const invUI = new InventoryUI(inventory);
@@ -307,7 +374,8 @@ async function main() {
       sfx.equip();
     }
     if (e.code === 'KeyQ' && chochin && !invUI.isOpen) { chochin.cycle(); sfx.lanternToggle(chochin.level); }
-    if (e.code === 'KeyR') { controller.teleport(spawn); for (const h of hunters) h.reset(); dorotabo?.reset(); }
+    if (e.code === 'KeyE' && rules && deathT <= 0) rules.interact(controller.position);
+    if (e.code === 'KeyR') { controller.teleport(spawn); for (const h of hunters) h.reset(); dorotabo?.reset(); rules?.reset(); renderHud(); endEl.classList.remove('show'); }
     if (e.code === 'KeyM') { muted = !muted; sfx.setMaster(muted ? 0 : settings.audio.master); }
     if (e.code === 'KeyF') { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.(); }
   });
@@ -369,7 +437,7 @@ async function main() {
   window.addEventListener('keydown', (e) => { if (e.code === 'Enter' || e.code === 'Space') start(); }, { once: false });
 
   if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri, scares };
+    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri, scares, rules };
   }
 
   // --- 리사이즈 ---
@@ -432,6 +500,7 @@ async function main() {
           controller.teleport(spawn);
           for (const h of hunters) h.reset();
           dorotabo?.reset();
+          rules?.reset(); renderHud();
           deathEl.classList.remove('show');
         }
       } else {
@@ -452,6 +521,13 @@ async function main() {
       // 초칭 깜빡임 = 위협 근접도 (24 m 부터 서서히, 4 m 에서 최대)
       if (chochin) chochin.threat = THREE.MathUtils.clamp((24 - nd) / 20, 0, 1);
       scares?.update(dt, controller.position, camera, chochin?.threat ?? 0);
+      // 규칙: 수집 수 → 난이도
+      if (rules) {
+        rules.update(dt, controller.position);
+        for (const h of hunters) { h.chaseSpeedOverride = rules.hunterSpeed; h.detectionMul = rules.detectionMul; }
+        if (rules.escaped) { for (const h of hunters) h.reset(); }
+      }
+      if (toastT > 0) { toastT -= dt; if (toastT <= 0) toastEl.classList.remove('show'); }
     }
     // 오래 안 쓰면 칼집으로
     if (equipment?.hasWeapon) equipment.setDrawn(combat!.sinceLastAttack < 8);

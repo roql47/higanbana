@@ -61,6 +61,9 @@ export class Matsuri {
   }
 
   onLost() { this.chase = false; }
+  private offered = false;
+  /** 봉납 — 축제가 끝난다. 음악도 끝난다 */
+  onOffered() { this.offered = true; this.chase = false; if (this.layers) for (const g of Object.values(this.layers)) g.gain.value = 0; }
 
   /**
    * @param hunterPos 요괴 월드 위치 (소리의 근원)
@@ -98,6 +101,7 @@ export class Matsuri {
     }
 
     if (this.silence > 0) { this.silence -= dt; return; }
+    if (this.offered) return; // 축제는 끝났다 — 심장만 남는다
 
     if (this.chase) {
       // 추격: 음악 없음. "뽀… 뽀… 뽀…" + 빠른 북

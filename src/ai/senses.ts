@@ -49,9 +49,9 @@ export class Senses {
   }
 
   /** 현재 감지 거리(m) — 초칭 밝기가 다이얼이다 */
-  detectionRange(playerMoving: boolean): number {
+  detectionRange(playerMoving: boolean, extraMul = 1): number {
     const mul = settings.chochin.detectionMul[settings.chochin.level] ?? 1;
-    return settings.ai.baseDetection * mul * (playerMoving ? 1.2 : 1);
+    return settings.ai.baseDetection * mul * (playerMoving ? 1.2 : 1) * extraMul;
   }
 
   private dir = new THREE.Vector3();
@@ -60,10 +60,10 @@ export class Senses {
    * @param eye     요괴 눈 위치(월드)
    * @param facing  요괴가 바라보는 방향(정규화, 수평)
    */
-  canSee(eye: THREE.Vector3, facing: THREE.Vector3, playerPos: THREE.Vector3, playerMoving: boolean): boolean {
+  canSee(eye: THREE.Vector3, facing: THREE.Vector3, playerPos: THREE.Vector3, playerMoving: boolean, extraMul = 1): boolean {
     this.dir.copy(playerPos).setY(playerPos.y + 1.2).sub(eye);
     const dist = this.dir.length();
-    if (dist > this.detectionRange(playerMoving)) return false;
+    if (dist > this.detectionRange(playerMoving, extraMul)) return false;
     this.dir.normalize();
     // 시야콘 90° (전방 ±45°) — 아주 가까우면(2 m) 뒤라도 알아챈다
     const flat = Math.atan2(this.dir.x, this.dir.z);

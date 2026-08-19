@@ -61,6 +61,12 @@ export class Hunter {
   private freezeT = 0;
 
   private facing = new THREE.Vector3(0, 0, 1);
+  /** 규칙(수집 수)에 따른 추격 속도 배율 — Rules 가 매 프레임 넣어준다 */
+  chaseSpeedOverride: number | null = null;
+  /** 감지 거리 배율(난이도) */
+  detectionMul = 1;
+  /** 순찰 앵커를 런타임에 교체(여우가 마을로 내려올 때) */
+  setAnchors(a: THREE.Vector3[]) { this.opts.patrolAnchors = a; this.path = []; }
   private eye = new THREE.Vector3();
   private tmp = new THREE.Vector3();
   loaded = false;
@@ -163,7 +169,7 @@ export class Hunter {
     this.stateT += dt;
     this.eye.copy(this.position).add(this.tmp.set(0, this.opts.height * 0.9, 0));
     const playerMoving = playerSpeed > 0.3;
-    const seen = this.state !== 'GRAB' && this.senses.canSee(this.eye, this.facing, playerPos, playerMoving);
+    const seen = this.state !== 'GRAB' && this.senses.canSee(this.eye, this.facing, playerPos, playerMoving, this.detectionMul);
     const dist = this.position.distanceTo(playerPos);
 
     // --- 전이 ---
@@ -209,7 +215,7 @@ export class Hunter {
     if (this.state === 'PATROL') wantSpeed = ai.patrolSpeed;
     else if (this.state === 'INVESTIGATE') wantSpeed = ai.patrolSpeed * 1.35;
     else if (this.state === 'SEARCH') wantSpeed = ai.patrolSpeed * 1.2;
-    else if (this.state === 'CHASE') wantSpeed = this.mercyT > 0 ? ai.patrolSpeed : ai.chaseSpeed;
+    else if (this.state === 'CHASE') wantSpeed = this.mercyT > 0 ? ai.patrolSpeed : (this.chaseSpeedOverride ?? ai.chaseSpeed);
 
     if (this.state !== 'GRAB') {
       this.repathT -= dt;
