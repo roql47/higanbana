@@ -45,6 +45,11 @@ export class ThirdPersonCamera {
   startIntro(duration = 3.2) { this.introDur = duration; this.introT = duration; this.introYaw0 = this.yaw; }
   get inIntro() { return this.introT > 0; }
 
+  /** 좁은 통로에서 바깥이 눌러주는 최대 거리(m). null 이면 사용자 줌 값 그대로 */
+  constrainDistance: number | null = null;
+  /** 좁은 통로에서 바깥이 눌러주는 최대 피치(rad, 위로 보는 각). null 이면 제한 없음 */
+  constrainPitch: number | null = null;
+
   // --- 카메라 흔들림(타격 피드백) ---
   private shakeAmt = 0;
   shake(intensity: number) { this.shakeAmt = Math.min(1, this.shakeAmt + intensity); }
@@ -65,6 +70,8 @@ export class ThirdPersonCamera {
       this.pitch = clamp(this.pitch + mouse.y * c.sensitivity, c.minPitch, c.maxPitch);
       if (wheel !== 0) this.targetDistance = clamp(this.targetDistance + wheel * 0.0035, c.minDistance, c.maxDistance);
     }
+    if (this.constrainPitch !== null) this.pitch = Math.min(this.pitch, this.constrainPitch);
+    const wanted = this.constrainDistance !== null ? Math.min(this.targetDistance, this.constrainDistance) : this.targetDistance;
 
     // --- 피벗 추적 ---
     this.tmpPivot.set(targetPos.x, targetPos.y + c.pivotHeight, targetPos.z);
@@ -81,10 +88,10 @@ export class ThirdPersonCamera {
     // --- 카메라 방향 & 충돌 ---
     const cp = Math.cos(this.pitch);
     this.tmpDir.set(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp);
-    let allowed = this.targetDistance;
+    let allowed = wanted;
     const hit = this.physics.world.castShape(
       pivotOff, { x: 0, y: 0, z: 0, w: 1 }, this.tmpDir, this.ball,
-      0, this.targetDistance, true,
+      0, wanted, true,
       undefined, undefined, undefined, this.excludeBody,
     );
     if (hit) allowed = Math.max(c.minCollisionDistance, hit.time_of_impact - 0.05);

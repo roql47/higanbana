@@ -12,12 +12,12 @@ import { clamp, lerp, smoothstep } from '@/core/math';
  *   base(잔노이즈) + hill(북쪽 언덕) → 참배로 근처는 중심선 높이로 평탄화 → 논 격자는 파냄
  */
 
-export const SIZE = 200;
-export const RES = 200; // 1 m 격자
+export const SIZE = 140;
+export const RES = 140; // 1 m 격자
 
 // --- 논 격자 (남쪽) ---
-const PX0 = -42, PX1 = 42, PZ0 = 8, PZ1 = 72;
-const CELL_X = 18.2, CELL_Z = 14.2, BUND = 2.2; // 한 배미 16×12 m, 논두렁 2.2 m
+const PX0 = -26, PX1 = 26, PZ0 = 6, PZ1 = 48;
+const CELL_X = 17.6, CELL_Z = 14.2, BUND = 2.2; // 한 배미 15.4×12 m, 논두렁 2.2 m
 const PADDY_DEPTH = 0.45;
 /** 논 수면 높이 (지면 0 기준) — 바닥 −0.45 이므로 물 깊이 약 23 cm */
 export const PADDY_WATER = -0.22;
@@ -25,12 +25,25 @@ export const PADDY_WATER = -0.22;
 export interface PaddyRect { x0: number; z0: number; x1: number; z1: number }
 
 // --- 참배로: 남(스폰) → 북(신사 언덕) ---
-const ROAD: [number, number][] = [[0, 84], [0, 46], [-2, 26], [0, 10], [2, -8], [0, -26], [0, -46], [0, -64]];
+const ROAD: [number, number][] = [[0, 58], [0, 40], [-2, 26], [0, 10], [1.5, -6], [0, -20], [0, -34], [0, -46]];
 const ROAD_W = 1.9; // 반폭
 const ROAD_BLEND = 2.4; // 가장자리 블렌드 폭
 
-/** 신사 언덕: z 가 −24 → −58 로 갈수록 8.5 m 상승 (평균 경사 14°) */
-function hillAt(z: number) { return smoothstep(-24, -58, z) * 8.5; }
+/** 신사 언덕: z 가 −16 → −42 로 갈수록 8 m 상승 (평균 경사 17°) */
+function hillAt(z: number) { return smoothstep(-16, -42, z) * 8.0; }
+
+/**
+ * 마을을 감싸는 지형. **개활지는 공포가 안 된다** — 지평선을 가깝게 끌어당기는 게 목적이다.
+ *  · rim   : 좌우·남쪽 산자락이 분지를 만든다
+ *  · valley: 참배로 양옆이 솟아올라 토리이 터널이 계곡을 거슬러 오르게 된다
+ */
+function rimAt(x: number, z: number) {
+  const ax = Math.abs(x);
+  return smoothstep(26, 48, ax) * 16 + smoothstep(42, 58, z) * 14;
+}
+function valleyAt(x: number, z: number) {
+  return smoothstep(5, 21, Math.abs(x)) * 9.5 * smoothstep(-2, -18, z);
+}
 
 export class VillageGround {
   readonly mesh: THREE.Mesh;
@@ -131,7 +144,10 @@ export class VillageGround {
 
   // --- 높이 ---
   private baseAt(x: number, z: number) {
-    return (this.noise.fbm(x / 26, z / 26, 2) * 0.35 + this.noise.fbm(x / 7 + 5, z / 7 - 3, 2) * 0.07) * 0.45 + hillAt(z);
+    const n = this.noise.fbm(x / 26, z / 26, 2) * 0.35 + this.noise.fbm(x / 7 + 5, z / 7 - 3, 2) * 0.07;
+    const relief = hillAt(z) + rimAt(x, z) + valleyAt(x, z);
+    // 굴곡은 지대가 높을수록 크게 (산자락은 울퉁불퉁, 논은 평평)
+    return n * (0.45 + relief * 0.14) + relief;
   }
 
   heightAt(x: number, z: number): number {

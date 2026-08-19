@@ -81,9 +81,9 @@ async function main() {
     scene.fog = new THREE.Fog(0xd7e3ec, 70, 240);
   } else if (isVillage) {
     const tex = await loadTerrainTextures(renderer);
-    village = new Village(scene, physics, tex, { riceBudget: Math.round(quality.grassCount * 0.8) });
+    village = new Village(scene, physics, tex, { riceBudget: Math.round(quality.grassCount * 0.8), treeBudget: Math.round(700 * quality.treeScale) });
     spawn.copy(village.spawn);
-    console.info('[village] 논 배미', village.ground.paddyCells().length, '· 벼', village.paddy.riceCount, '· 토리이', village.torii.count);
+    console.info('[village] 논 배미', village.ground.paddyCells().length, '· 벼', village.paddy.riceCount, '· 토리이', village.torii.count, '· 삼나무', village.cedars.count);
   } else {
     const tex = await loadTerrainTextures(renderer);
     island = new Island(scene, physics, tex, { size: 180, resolution: 180, waterLevel: 0 });
@@ -128,7 +128,7 @@ async function main() {
       if (model.clipNames.includes('idle')) model.play('idle', 0);
       if (model.clipNames.length > 0) {
         animator = new CharacterAnimator(model, {
-          onFootstep: (_foot, speed) => sfx.footstep(speed, surfaceAt(controller.position)),
+          onFootstep: (foot, speed) => sfx.footstep(speed, surfaceAt(controller.position), foot),
           onJump: () => sfx.jump(),
           onLand: (impact) => sfx.land(impact),
         });
@@ -351,7 +351,12 @@ async function main() {
     village?.update(dt, controller.position);
     sfx.updateNight(dt);
 
-    // 카메라
+    // 카메라 — 토리이 통로에서는 거리를 조이고 위로 보는 각을 제한한다(빔이 화면을 가로지르지 않게)
+    if (village) {
+      const inTunnel = village.inToriiCorridor(controller.position);
+      tpCam.constrainDistance = inTunnel ? 1.95 : null;
+      tpCam.constrainPitch = inTunnel ? 0.20 : null;
+    }
     const mouse = input.consumeMouseDelta();
     tpCam.update(dt, uiOpen ? { x: 0, y: 0 } : mouse, uiOpen ? 0 : input.consumeWheel(), controller.position, controller.horizontalSpeed, controller.grounded);
     village?.torii.update(camera.position); // 카메라가 확정된 뒤 코앞의 토리이를 접는다

@@ -73,9 +73,10 @@ export class ToriiPath {
         const off = new THREE.Vector3(PILLAR_X * sx * sc, 0, 0).applyQuaternion(q);
         physics.addStaticBox(new THREE.Vector3(rp.x + off.x, y + 1.5 * sc, rp.z + off.z), half, q);
       }
-      // 관(貫)·입목 콜라이더: 캐릭터(1.7 m)보다 높아 이동은 막지 않지만,
-      // 3인칭 스프링암이 여기 부딪혀 터널 안에서 카메라가 저절로 바짝 당겨진다 (D1 대응)
-      physics.addStaticBox(new THREE.Vector3(rp.x, y + 2.02 * sc, rp.z), new THREE.Vector3(1.68 * sc, 0.13 * sc, 0.12 * sc), q);
+      // 입목(笠木) 콜라이더만 둔다 — 카메라가 터널 위로 넘어가는 것을 막는 용도.
+      // 관(貫, y≈2.0)에도 콜라이더를 달았더니 3인칭 스프링암이 매 프레임 걸려
+      // 카메라가 최소거리(0.65 m)까지 무너졌다 → 통로에서는 콜라이더가 아니라
+      // Village.inToriiCorridor + camera.constrainDistance 로 명시적으로 조인다 (2026-08-19)
       physics.addStaticBox(new THREE.Vector3(rp.x, y + 3.06 * sc, rp.z), new THREE.Vector3(1.95 * sc, 0.28 * sc, 0.20 * sc), q);
       n++;
     }

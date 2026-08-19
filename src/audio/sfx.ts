@@ -3,6 +3,27 @@ import { settings } from '@/core/settings';
 /** 발밑 표면 — 발소리 합성에 쓴다 */
 export type Surface = 'grass' | 'sand' | 'water' | 'dirt' | 'gravel' | 'wood';
 
+interface FootProfile {
+  heelHz: number; heelDur: number; heel: number;      // ① 굽 임팩트
+  bodyHz: number; bodyQ: number; bodyDur: number; body: number; bodyType: BiquadFilterType; // ② 발볼 질감
+  scuffHz: number; scuffDur: number; scuffAt: number; scuff: number; // ③ 스커프
+  grains: number;                                      // 알갱이 미세 버스트 개수
+}
+
+/** 표면별 발소리 성격. water 는 별도 경로(첨벙) */
+const FOOT_PROFILE: Record<Exclude<Surface, 'water'>, FootProfile> = {
+  // 마른 흙 논두렁 — 둔탁하고 짧다. 고역이 거의 없다
+  dirt:   { heelHz: 54, heelDur: 0.075, heel: 1.0,  bodyHz: 380,  bodyQ: 1.3, bodyDur: 0.05,  body: 0.5,  bodyType: 'lowpass',  scuffHz: 2400, scuffDur: 0.035, scuffAt: 0.026, scuff: 0.14, grains: 0 },
+  // 참배로 자갈 — 알갱이가 부딪히는 소리가 본체다
+  gravel: { heelHz: 66, heelDur: 0.05,  heel: 0.55, bodyHz: 1700, bodyQ: 1.8, bodyDur: 0.035, body: 0.5,  bodyType: 'bandpass', scuffHz: 5400, scuffDur: 0.05,  scuffAt: 0.02,  scuff: 0.42, grains: 4 },
+  // 들풀 — 부드럽고 스치는 소리
+  grass:  { heelHz: 60, heelDur: 0.055, heel: 0.5,  bodyHz: 900,  bodyQ: 1.0, bodyDur: 0.045, body: 0.5,  bodyType: 'bandpass', scuffHz: 3200, scuffDur: 0.055, scuffAt: 0.022, scuff: 0.36, grains: 0 },
+  // 모래
+  sand:   { heelHz: 56, heelDur: 0.06,  heel: 0.5,  bodyHz: 1300, bodyQ: 0.7, bodyDur: 0.07,  body: 0.55, bodyType: 'bandpass', scuffHz: 4200, scuffDur: 0.06,  scuffAt: 0.025, scuff: 0.3,  grains: 0 },
+  // 툇마루·다리 — 판이 울린다
+  wood:   { heelHz: 130, heelDur: 0.1,  heel: 0.85, bodyHz: 820,  bodyQ: 4.5, bodyDur: 0.07,  body: 0.42, bodyType: 'bandpass', scuffHz: 3000, scuffDur: 0.03,  scuffAt: 0.02,  scuff: 0.18, grains: 0 },
+};
+
 /**
  * 프로시저럴 효과음 (Web Audio 합성 — 외부 에셋 없음).
  * 첫 사용자 제스처 후에만 AudioContext 가 재생 가능하므로 `unlock()` 을 pointerdown/keydown 에 연결한다.
@@ -90,42 +111,80 @@ export class Sfx {
     o.start(t0); o.stop(t0 + dur + 0.05);
   }
 
-  /** 발소리 — 표면별 합성 (풀/흙/자갈: 노이즈 성격, 물: 첨벙) */
-  footstep(speed: number, surface: Surface = 'grass') {
+  // --- 발소리 ---------------------------------------------------------------
+  // 발소리는 "노이즈 한 방"이 아니라 세 겹이다:
+  //   ① 굽(heel)  — 짧은 저역 임팩트. 사인만 쓰면 킥드럼이 되므로 로우패스 노이즈를 섞는다
+  //   ② 발볼(body) — 표면의 재질감. 공진(Q)이 재질을 만든다. 감쇠가 아주 빨라야 "탁" 소리가 난다
+  //   ③ 스커프     — 20~40 ms 뒤 발이 끌리며 나는 고역. 달릴수록 커진다
+  // 자갈처럼 알갱이가 있는 표면은 ②를 잘게 쪼갠 미세 버스트를 추가로 뿌린다.
+  // (프로시저럴의 한계는 있다 — H5 에서 실제 샘플로 교체할 자리)
+
+  /** 임의 시각 t 에 예약하는 노이즈 탭 (짧고 빠르게 감쇠) */
+  private tap(t: number, freq: number, q: number, dur: number, gain: number, type: BiquadFilterType = 'bandpass', freqEnd?: number) {
+    if (!this.ready() || gain <= 0.0002) return;
+    const ctx = this.ctx!;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise!;
+    src.loop = true;
+    src.playbackRate.value = 0.7 + Math.random() * 0.6;
+    // 버퍼의 임의 지점에서 시작해 매번 다른 노이즈가 나오게
+    const off = Math.random() * (this.noise!.duration - dur - 0.05);
+    const f = ctx.createBiquadFilter();
+    f.type = type; f.frequency.setValueAtTime(freq, t); f.Q.value = q;
+    if (freqEnd) f.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.0025); // 거의 즉시 최대 → 타격감
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f).connect(g).connect(this.master!);
+    src.start(t, off); src.stop(t + dur + 0.03);
+  }
+
+  /** 굽 임팩트: 저역 사인 + 로우패스 노이즈 (사인만 쓰면 킥드럼처럼 들린다) */
+  private impact(t: number, freq: number, dur: number, gain: number) {
+    if (!this.ready() || gain <= 0.0002) return;
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(freq * 1.7, t);
+    o.frequency.exponentialRampToValueAtTime(freq * 0.72, t + dur * 0.8);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(this.master!);
+    o.start(t); o.stop(t + dur + 0.03);
+    this.tap(t, freq * 4.5, 0.6, dur * 0.7, gain * 0.5, 'lowpass');
+  }
+
+  /** 발소리 — 표면별 3단 합성. `foot` 으로 좌우 음색을 미세하게 바꿔 반복감을 줄인다 */
+  footstep(speed: number, surface: Surface = 'grass', foot: 'L' | 'R' = 'L') {
+    if (!this.ready()) return;
     const s = settings.audio;
-    const k = Math.min(1, speed / 5);
-    if (surface === 'water') {
-      this.noiseBurst({ dur: 0.16 + k * 0.08, gain: s.footstep * (0.5 + 0.6 * k), type: 'bandpass', freq: 900 + Math.random() * 600, q: 0.5, attack: 0.008 });
-      this.noiseBurst({ dur: 0.22, gain: s.footstep * 0.35 * k, type: 'highpass', freq: 3000, attack: 0.02 });
-      this.thump(90, 0.08, s.footstep * 0.2 * k);
+    const ctx = this.ctx!;
+    const t0 = ctx.currentTime + 0.001;
+    const k = Math.min(1, Math.max(0, speed / 3.6)); // 걷기 ≈ 0.42, 달리기 = 1
+    const vol = s.footstep * (0.5 + 0.8 * k);
+    const vary = 0.9 + Math.random() * 0.2;
+    const side = foot === 'R' ? 0.93 : 1.07; // 좌우 발 음색 차
+
+    if (surface === 'water') { // 논물 — 첨벙
+      this.tap(t0, 1500 * vary, 0.5, 0.09 + k * 0.05, vol * 0.9, 'bandpass', 380);
+      this.tap(t0 + 0.012, 5200 * vary, 0.7, 0.16, vol * 0.5 * (0.4 + 0.6 * k), 'highpass');
+      this.impact(t0 + 0.004, 78, 0.07, vol * 0.35);
+      for (let i = 0; i < 3; i++) this.tap(t0 + 0.03 + Math.random() * 0.09, 2200 + Math.random() * 3500, 4, 0.03, vol * 0.18 * Math.random(), 'bandpass');
       return;
     }
-    if (surface === 'gravel') { // 참배로 자갈 — 잘게 부서지는 고역
-      this.noiseBurst({ dur: 0.11 + k * 0.04, gain: s.footstep * (0.45 + 0.6 * k), type: 'bandpass', freq: 2200 + Math.random() * 1400, q: 0.9, attack: 0.003 });
-      this.noiseBurst({ dur: 0.06, gain: s.footstep * 0.3 * k, type: 'highpass', freq: 5200, attack: 0.002 });
-      this.thump(72 + Math.random() * 18, 0.06, s.footstep * 0.22 * k);
-      return;
+
+    const P = FOOT_PROFILE[surface] ?? FOOT_PROFILE.grass;
+    this.impact(t0, P.heelHz * vary * side, P.heelDur, vol * P.heel);
+    this.tap(t0 + 0.004, P.bodyHz * vary * side, P.bodyQ, P.bodyDur, vol * P.body, P.bodyType);
+    if (P.scuff > 0) {
+      this.tap(t0 + P.scuffAt, P.scuffHz * vary, 0.8, P.scuffDur, vol * P.scuff * (0.35 + 0.65 * k), 'highpass');
     }
-    if (surface === 'dirt') { // 마른 흙 논두렁 — 둔탁하고 짧게
-      this.noiseBurst({ dur: 0.10 + k * 0.03, gain: s.footstep * (0.4 + 0.6 * k), type: 'lowpass', freq: 900 + Math.random() * 400, q: 0.7, attack: 0.004 });
-      this.noiseBurst({ dur: 0.05, gain: s.footstep * 0.16 * k, type: 'bandpass', freq: 1800, q: 1.2, attack: 0.002 });
-      this.thump(58 + Math.random() * 16, 0.08, s.footstep * 0.32 * k);
-      return;
+    for (let i = 0; i < P.grains; i++) {
+      this.tap(t0 + 0.005 + Math.random() * 0.055, 2600 + Math.random() * 5200, 3.5, 0.014, vol * 0.3 * (0.4 + Math.random() * 0.6), 'bandpass');
     }
-    if (surface === 'wood') { // 툇마루·다리 — 울리는 중역
-      this.thump(150 + Math.random() * 40, 0.12, s.footstep * 0.5 * (0.4 + 0.6 * k));
-      this.noiseBurst({ dur: 0.09, gain: s.footstep * 0.3 * k, type: 'bandpass', freq: 1100, q: 1.6, attack: 0.002 });
-      return;
-    }
-    if (surface === 'sand') {
-      this.noiseBurst({ dur: 0.13 + k * 0.04, gain: s.footstep * (0.4 + 0.6 * k), type: 'bandpass', freq: 1400 + Math.random() * 800, q: 0.6, attack: 0.006 });
-      this.noiseBurst({ dur: 0.08, gain: s.footstep * 0.2 * k, type: 'highpass', freq: 4000, attack: 0.003 });
-      this.thump(65 + Math.random() * 15, 0.07, s.footstep * 0.28 * k);
-      return;
-    }
-    this.noiseBurst({ dur: 0.09 + k * 0.03, gain: s.footstep * (0.35 + 0.65 * k), type: 'bandpass', freq: 500 + Math.random() * 500, q: 0.7, attack: 0.004 });
-    this.noiseBurst({ dur: 0.05, gain: s.footstep * 0.25 * k, type: 'highpass', freq: 2500 + Math.random() * 1500, attack: 0.002 });
-    this.thump(70 + Math.random() * 20, 0.06, s.footstep * 0.25 * k);
   }
 
   /** 검 휘두름 — 밴드패스 노이즈 스윕 */

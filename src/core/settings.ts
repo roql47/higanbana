@@ -88,14 +88,14 @@ export const settings = {
     color: 0xffb063,
     rangeLow: 4.5,
     rangeHigh: 11,
-    intensityLow: 1.6,
-    intensityHigh: 7.0,
+    intensityLow: 1.3,
+    intensityHigh: 4.6,
     /** 감지 배율(H2 에서 senses 가 읽는다) — 끔/약/강 */
     detectionMul: [0.6, 1.4, 3.0],
     flicker: 0.14, // 0..1 불꽃 흔들림 세기
     swayLag: 9, // 1/s — 손을 따라가는 진자 감쇠(작을수록 크게 흔들림)
-    /** L_Hand 본 기준 로컬 오프셋(m) */
-    gripPos: [0.02, -0.1, 0.05] as [number, number, number],
+    /** 손 위치에 더하는 오프셋(m): [몸 바깥쪽, 위+/아래−, 앞+]. 바깥쪽은 골반→손 방향 */
+    gripPos: [0.13, -0.21, 0.0] as [number, number, number],
     size: 0.34, // 초칭 전체 높이(m)
   },
   physics: {

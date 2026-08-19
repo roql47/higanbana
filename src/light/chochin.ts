@@ -18,6 +18,12 @@ export class Chochin {
   readonly light: THREE.PointLight;
   private paperMat: THREE.MeshStandardMaterial;
   private handBone: THREE.Object3D | null = null;
+  private hipBone: THREE.Object3D | null = null;
+  private modelRoot: THREE.Object3D;
+  private rootScale = 1;
+  private tmpW = new THREE.Vector3();
+  private tmpH = new THREE.Vector3();
+  private outward = new THREE.Vector3();
   private t = 0;
   private swing = 0;
   private swingV = 0;
@@ -28,8 +34,10 @@ export class Chochin {
   private euler = new THREE.Euler();
 
   constructor(modelRoot: THREE.Object3D, shadowMapSize = 1024) {
+    this.modelRoot = modelRoot;
     modelRoot.traverse((o) => {
       if (/^(L_Hand|mixamorig:LeftHand)$/.test(o.name)) this.handBone = o;
+      if (/^(Hip|Hips|mixamorig:Hips)$/.test(o.name)) this.hipBone = o;
     });
 
     const size = settings.chochin.size;
@@ -43,13 +51,15 @@ export class Chochin {
     this.light.shadow.bias = -0.004;
     this.light.shadow.normalBias = 0.035;
     this.light.shadow.camera.near = 0.06;
-    this.light.position.set(0, -size * 0.45, 0);
+    // 광원은 **종이 몸통 한가운데**. 아래에 두면 등이 안에서 빛나지 않고 밑으로만 샌다 (2026-08-19 수정)
+    this.light.position.set(0, 0, 0);
     this.body.add(this.light);
 
     this.root.add(this.body);
     this.root.name = 'chochin-mount';
-    if (this.handBone) this.handBone.add(this.root);
-    else modelRoot.add(this.root); // 본을 못 찾으면 루트에 매달아 최소한 불은 켜지게
+    // 손 본에 직접 붙이면 본 로컬 축을 알 수 없어 오프셋이 제멋대로가 된다.
+    // 루트(= 캐릭터 공간)에 붙이고, 매 프레임 손 위치를 캐릭터 공간으로 변환해 따라가게 한다.
+    modelRoot.add(this.root);
     this.applyOffsets();
     this.setLevel(settings.chochin.level);
   }
@@ -59,17 +69,42 @@ export class Chochin {
   get detectionMul() { return settings.chochin.detectionMul[settings.chochin.level] ?? 1; }
   get lit() { return settings.chochin.level > 0; }
 
-  /** 본 스케일을 상쇄해 월드에서 settings.chochin.size 미터가 되게 한다 */
+  /** 루트 스케일을 상쇄해 월드에서 settings.chochin.size 미터가 되게 한다 */
   applyOffsets() {
-    const g = settings.chochin.gripPos;
     const ws = new THREE.Vector3(1, 1, 1);
+    this.modelRoot.updateWorldMatrix(true, false);
+    this.modelRoot.getWorldScale(ws);
+    this.rootScale = Math.max(1e-6, ws.x);
+    this.root.scale.setScalar(1 / this.rootScale);
+  }
+
+  /**
+   * 손을 따라가되 위치는 미터 단위로 직접 지정한다.
+   * "바깥쪽"은 리그의 로컬 축을 가정하지 않고 **골반→손 방향**에서 구한다 —
+   * 손 본에 그냥 붙이면 등불이 배 안에 박히고, 축을 추측하면 리그가 바뀔 때 깨진다.
+   */
+  private follow() {
+    const m2u = 1 / this.rootScale; // m → 루트 로컬 단위
+    const g = settings.chochin.gripPos;
     if (this.handBone) {
-      this.handBone.updateWorldMatrix(true, false);
-      this.handBone.getWorldScale(ws);
+      this.handBone.getWorldPosition(this.tmpW);
+      this.modelRoot.worldToLocal(this.tmpW);
+      if (this.hipBone) {
+        this.hipBone.getWorldPosition(this.tmpH);
+        this.modelRoot.worldToLocal(this.tmpH);
+        this.outward.set(this.tmpW.x - this.tmpH.x, 0, this.tmpW.z - this.tmpH.z);
+        if (this.outward.lengthSq() > 1e-6) this.outward.normalize();
+        else this.outward.set(1, 0, 0);
+      } else this.outward.set(1, 0, 0);
+    } else {
+      this.tmpW.set(-0.34 * m2u, 0.98 * m2u, 0.10 * m2u);
+      this.outward.set(1, 0, 0);
     }
-    const k = 1 / Math.max(1e-6, ws.x);
-    this.root.position.set(g[0] * k, g[1] * k, g[2] * k);
-    this.root.scale.setScalar(k);
+    this.root.position.set(
+      this.tmpW.x + this.outward.x * g[0] * m2u,
+      this.tmpW.y + g[1] * m2u,
+      this.tmpW.z + this.outward.z * g[0] * m2u + g[2] * m2u,
+    );
   }
 
   setLevel(n: number) {
@@ -78,7 +113,7 @@ export class Chochin {
     this.light.color.set(c.color);
     this.light.visible = c.level > 0;
     this.light.distance = c.level === 2 ? c.rangeHigh : c.rangeLow;
-    this.paperMat.emissiveIntensity = c.level === 0 ? 0.0 : c.level === 1 ? 0.5 : 1.6;
+    this.paperMat.emissiveIntensity = c.level === 0 ? 0.0 : c.level === 1 ? 0.35 : 0.85;
     this.paperMat.opacity = c.level === 0 ? 0.85 : 0.98;
   }
 
@@ -98,6 +133,7 @@ export class Chochin {
   update(dt: number, yaw: number, speed: number) {
     this.t += dt;
     const c = settings.chochin;
+    this.follow();
 
     // --- 진자: 목표 각도로 스프링, 걸음에 맞춰 앞뒤로 ---
     const drive = Math.sin(this.t * (3.2 + speed * 0.8)) * (0.05 + speed * 0.035);
@@ -126,7 +162,7 @@ export class Chochin {
       const base = c.level === 2 ? c.intensityHigh : c.intensityLow;
       this.light.intensity = Math.max(0, base * this.flickerVal);
       this.light.distance = (c.level === 2 ? c.rangeHigh : c.rangeLow) * (0.94 + 0.06 * this.flickerVal);
-      this.paperMat.emissiveIntensity = (c.level === 1 ? 0.5 : 1.6) * this.flickerVal;
+      this.paperMat.emissiveIntensity = (c.level === 1 ? 0.35 : 0.85) * this.flickerVal;
     }
   }
 }
