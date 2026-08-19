@@ -30,7 +30,7 @@ const ROAD_W = 1.9; // 반폭
 const ROAD_BLEND = 2.4; // 가장자리 블렌드 폭
 
 /** 폐가 터: 이 사각형 안은 평탄하게 고른다 (집이 지형에 파묻히지 않도록) */
-export const HOUSE_PAD = { x0: -25.5, z0: 19.0, x1: -11.0, z1: 31.5, y: 0.06 };
+export const HOUSE_PAD = { x0: -26.0, z0: 16.4, x1: -11.0, z1: 33.8, y: 0.06 }; // 집 15×11 확장에 맞춤 (2026-08-19)
 
 /** 신사 언덕: z 가 −16 → −42 로 갈수록 8 m 상승 (평균 경사 17°) */
 function hillAt(z: number) { return smoothstep(-16, -42, z) * 8.0; }

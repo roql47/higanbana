@@ -461,8 +461,8 @@ async function main() {
     if (village) {
       const inTunnel = village.inToriiCorridor(controller.position);
       const indoors = village.isIndoors(controller.position);
-      tpCam.constrainDistance = indoors ? 1.55 : inTunnel ? 1.95 : null;
-      tpCam.constrainPitch = indoors ? 0.32 : inTunnel ? 0.20 : null;
+      tpCam.constrainDistance = indoors ? 2.0 : inTunnel ? 1.95 : null; // 실내 확장(15×11)에 맞춰 1.55 → 2.0
+      tpCam.constrainPitch = indoors ? 0.42 : inTunnel ? 0.20 : null;
     }
     const mouse = input.consumeMouseDelta();
     tpCam.update(dt, uiOpen ? { x: 0, y: 0 } : mouse, uiOpen ? 0 : input.consumeWheel(), controller.position, controller.horizontalSpeed, controller.grounded);

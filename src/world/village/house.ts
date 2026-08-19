@@ -16,19 +16,19 @@ import type { Surface } from '@/audio/sfx';
  * 실제 민가 치수를 따른다 — 1칸(間) ≈ 1.82 m, 천장 2.4 m 로 낮게(낮은 천장이 압박감을 만든다).
  */
 
-const W = 11.0;   // 정면 폭
-const D = 8.0;    // 안쪽 깊이
+const W = 15.0;   // 정면 폭 (2026-08-19 확장: 11 → 15, "실내가 좁다" 피드백)
+const D = 11.0;   // 안쪽 깊이 (8 → 11)
 const FLOOR = 0.30;      // 봉당 → 마루 단차. 실제 민가는 40 cm 지만 오토스텝(0.35 m)이 못 올라간다
-const CEIL = 2.42;       // 마루에서 천장까지
+const CEIL = 2.75;       // 마루에서 천장까지 (2.42 → 2.75)
 const WALL_T = 0.12;
 const POST = 0.13;       // 기둥 반각
 
 // 로컬 좌표: x ∈ [−W/2, W/2], z ∈ [−D/2, D/2]
 const X0 = -W / 2, X1 = W / 2, Z0 = -D / 2, Z1 = D / 2;
-const DOMA_X = X0 + 3.4;        // 봉당과 마루의 경계
-const CORR_Z = Z0 + 1.7;        // 툇복도 안쪽 경계
-const ROOM_SPLIT = X0 + 7.6;    // 座敷 A / B 경계
-const CLOSET_Z = Z1 - 0.95;     // 벽장 깊이
+const DOMA_X = X0 + 4.4;        // 봉당과 마루의 경계
+const CORR_Z = Z0 + 2.1;        // 툇복도 안쪽 경계
+const ROOM_SPLIT = X0 + 10.2;   // 座敷 A / B 경계 (A 가 큰 방 — 이로리가 있다)
+const CLOSET_Z = Z1 - 1.1;      // 벽장 깊이
 
 export interface HouseOptions {
   position: THREE.Vector3;
@@ -100,9 +100,9 @@ export class House {
     };
 
     // 정면(−Z): 봉당 쪽은 현관 개구부, 마루 쪽은 전부 바깥 장지문
-    wall(X0, Z0, X0 + 0.9, Z0);                        // 현관 좌
-    wall(X0 + 2.6, Z0, DOMA_X, Z0);                    // 현관 우
-    wall(X0 + 0.9, Z0, X0 + 2.6, Z0, 2.1, wallTop + 0.6); // 현관 상인방
+    wall(X0, Z0, X0 + 1.0, Z0);                        // 현관 좌
+    wall(X0 + 3.2, Z0, DOMA_X, Z0);                    // 현관 우
+    wall(X0 + 1.0, Z0, X0 + 3.2, Z0, 2.15, wallTop + 0.6); // 현관 상인방
     // 배면(+Z) · 좌측(−X) · 우측(+X)
     wall(X0, Z1, X1, Z1);
     wall(X0, Z0, X0, Z1);
@@ -141,6 +141,31 @@ export class House {
       const pot = new THREE.CylinderGeometry(0.34, 0.26, 0.3, 12);
       pot.translate(X0 + 1.1, 1.0, Z1 - 1.2);
       parts.push({ geo: pot, mat: tex.timber });
+    }
+
+    // ---------- 이로리(囲炉裏) — 큰 방의 랜드마크 ----------
+    {
+      const cx = (DOMA_X + ROOM_SPLIT) / 2, cz = (CORR_Z + CLOSET_Z) / 2;
+      const S = 1.5; // 화덕 틀 한 변
+      // 나무 틀 4변
+      for (const [dx, dz, w, dep] of [[0, -S/2, S + 0.24, 0.24], [0, S/2, S + 0.24, 0.24], [-S/2, 0, 0.24, S - 0.24], [S/2, 0, 0.24, S - 0.24]] as [number, number, number, number][]) {
+        const g = new THREE.BoxGeometry(w, 0.14, dep);
+        g.translate(cx + dx, FLOOR + 0.07, cz + dz);
+        parts.push({ geo: g, mat: tex.timber });
+      }
+      // 재(灰) 바닥 — 마루보다 낮게
+      const ash = new THREE.BoxGeometry(S - 0.2, 0.05, S - 0.2);
+      ash.translate(cx, FLOOR + 0.02, cz);
+      parts.push({ geo: ash, mat: tex.mud });
+      // 자재걸이(自在鉤): 천장에서 내려온 막대 + 갈고리의 주전자 실루엣
+      const rod = new THREE.CylinderGeometry(0.03, 0.03, CEIL - 0.9, 6);
+      rod.translate(cx, FLOOR + CEIL - (CEIL - 0.9) / 2, cz);
+      parts.push({ geo: rod, mat: tex.timber });
+      const pot = new THREE.CylinderGeometry(0.2, 0.16, 0.22, 10);
+      pot.translate(cx, FLOOR + 0.95, cz);
+      parts.push({ geo: pot, mat: tex.timber });
+      // 오토스텝(0.35 m)이 틀(0.15 m)을 밟고 넘어 화덕·주전자를 관통한다 → 보이지 않는 벽을 0.6 m 로 (2026-08-19)
+      collide(cx - S/2 - 0.12, cz - S/2 - 0.12, cx + S/2 + 0.12, cz + S/2 + 0.12, FLOOR, FLOOR + 0.6);
     }
 
     // ---------- 병합(정적 지오메트리) ----------
@@ -208,7 +233,7 @@ export class House {
 function makeRoof(): THREE.BufferGeometry {
   const eave = 0.9;                 // 처마 내밀기
   const hw = W / 2 + eave, hd = D / 2 + eave;
-  const base = FLOOR + CEIL + 0.15, peak = base + 3.2;
+  const base = FLOOR + CEIL + 0.15, peak = base + 3.9;
   const v: number[] = [], idx: number[] = [];
   // 용마루는 X 방향으로 뻗는다
   const P = [
