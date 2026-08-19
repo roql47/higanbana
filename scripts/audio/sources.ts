@@ -46,6 +46,8 @@ export interface SourceSpec {
   slices?: [number, number][];  // 한 파일에서 여러 원샷을 잘라낸다 (trim 대신)
   loop?: LoopSpec;              // 크로스페이드 루프 구간 (loop 종류일 때)
   gainDb?: number;              // 정규화 뒤 추가 보정
+  fadeIn?: number;              // 초 (원샷 기본 0)
+  fadeOut?: number;             // 초 (원샷 기본 0.006 — 잘라낸 구간이 울림 중간이면 길게)
   rate?: number;                // 재생속도 배율 (피치도 같이 변함) — 0.9 = 10% 느리고 낮게
   hp?: number;                  // 하이패스 Hz
   lp?: number;                  // 로우패스 Hz
@@ -153,36 +155,65 @@ export const SOUNDS: SoundDef[] = [
   { key: 'combat/down', kind: 'oneshot', gain: 0.8, note: '허수아비 쓰러짐', sources: [KENNEY_IMPACT(seq('impactWood_heavy_', 5))] },
   { key: 'combat/equip', kind: 'oneshot', gain: 0.6, note: '장착/줍기', sources: [KENNEY_RPG(['drawKnife1', 'drawKnife2', 'drawKnife3'])] },
 
+  // ───────────────────────── H3 규칙: 던지기·소금·은신·숨 ─────────────────────────
+  {
+    key: 'throw/whoosh', kind: 'oneshot', gain: 0.7, note: '돌·오미쿠지 던지기 — 가벼운 휘익',
+    sources: [
+      { provider: 'freesound', query: 'whoosh throw light swish', filter: 'tag:whoosh', pick: 4, minDur: 0.15, maxDur: 1.2 },
+      { provider: 'zip', url: 'https://opengameart.org/sites/default/files/swishes.zip', files: ['swishes/swish-1.wav', 'swishes/swish-2.wav', 'swishes/swish-3.wav', 'swishes/swish-4.wav'], license: CC0, author: 'artisticdude', source: 'https://opengameart.org/content/swishes-sound-pack', title: 'Swishes Sound Pack (light)' },
+    ],
+  },
+  {
+    key: 'salt/hit', kind: 'oneshot', gain: 0.8, note: '소금이 요괴에 닿음 — 치익',
+    sources: [
+      { provider: 'freesound', query: 'salt sprinkle sizzle', pick: 3, minDur: 0.3, maxDur: 2.5 },
+      { provider: 'freesound', query: 'sand pour short', pick: 3, minDur: 0.3, maxDur: 2.5 },
+    ],
+  },
+  {
+    key: 'hide/cloth', kind: 'oneshot', gain: 0.7, note: '은신 들어가고 나올 때 옷자락',
+    sources: [
+      { provider: 'freesound', query: 'cloth rustle movement short', filter: 'tag:cloth', pick: 4, minDur: 0.2, maxDur: 1.5 },
+      KENNEY_RPG(['cloth1', 'cloth2', 'cloth3']),
+    ],
+  },
+  {
+    key: 'breath/heavy', kind: 'oneshot', gain: 0.6, note: '스태미나 바닥 — 헐떡이는 숨 한 번(들숨+날숨)',
+    sources: [
+      { provider: 'freesound', query: 'heavy breathing exhausted single breath', filter: 'tag:breathing', pick: 4, minDur: 0.5, maxDur: 3 },
+    ],
+  },
+
   // ───────────────────────── 여름밤 앰비언스 ─────────────────────────
   {
-    key: 'amb/higurashi', kind: 'loop', gain: 0.5, note: '쓰르라미(히구라시) 합창 — 숲·언덕 쪽에서 크게',
+    key: 'amb/higurashi', kind: 'loop', gain: 0.3, note: '쓰르라미(히구라시) 합창 — 숲·언덕 쪽에서 크게',
     sources: [
       { provider: 'wikimedia', wmTitle: 'File:Tanna japonensis v01.ogg', loop: { start: 14, end: 74, xfade: 4 }, hp: 1200 },
       { provider: 'freesound', query: 'higurashi cicada evening', pick: 1, minDur: 20, maxDur: 240, loop: { start: 2, end: 60, xfade: 4 } },
     ],
   },
   {
-    key: 'amb/suzumushi', kind: 'loop', gain: 0.4, note: '방울벌레(스즈무시) — 풀밭·논두렁',
+    key: 'amb/suzumushi', kind: 'loop', gain: 0.22, note: '방울벌레(스즈무시) — 풀밭·논두렁',
     sources: [
       { provider: 'wikimedia', wmTitle: 'File:Suzumushi 06z3286.ogg', loop: { start: 0.5, end: 15.5, xfade: 2 }, hp: 1500 },
     ],
   },
   {
-    key: 'amb/crickets', kind: 'loop', gain: 0.35, note: '귀뚜라미 바탕 — 어디서나 아주 작게',
+    key: 'amb/crickets', kind: 'loop', gain: 0.18, note: '귀뚜라미 바탕 — 어디서나 아주 작게',
     sources: [
       { provider: 'freesound', query: 'crickets night loop', filter: 'tag:crickets', pick: 1, minDur: 15, maxDur: 180, loop: { start: 1, end: 40, xfade: 3 } },
       { provider: 'url', url: 'https://opengameart.org/sites/default/files/crickets_1.mp3', license: CC0, author: 'Wolfgang_', source: 'https://opengameart.org/content/crickets-ambient-noise-loopable', title: 'Crickets Ambient Noise', loop: { start: 0.3, end: 11.2, xfade: 1.5 }, hp: 1500 },
     ],
   },
   {
-    key: 'amb/frogs', kind: 'loop', gain: 0.45, note: '개구리 합창 — 논 가까이서',
+    key: 'amb/frogs', kind: 'loop', gain: 0.3, note: '개구리 합창 — 논 가까이서',
     sources: [
       { provider: 'freesound', query: 'frogs chorus night pond', filter: 'tag:frogs', pick: 1, minDur: 20, maxDur: 240, loop: { start: 2, end: 50, xfade: 4 } },
       { provider: 'wikimedia', wmTitle: 'File:Nature sounds ambience in a Dordogne pond.ogg', loop: { start: 3, end: 54, xfade: 4 }, hp: 150 },
     ],
   },
   {
-    key: 'amb/wind', kind: 'loop', gain: 0.35, note: '밤바람 — 삼나무 숲을 스치는 소리',
+    key: 'amb/wind', kind: 'loop', gain: 0.22, note: '밤바람 — 삼나무 숲을 스치는 소리',
     sources: [
       { provider: 'freesound', query: 'wind trees night gentle', filter: 'tag:wind', pick: 1, minDur: 30, maxDur: 300, loop: { start: 2, end: 60, xfade: 5 } },
       { provider: 'wikimedia', wmTitle: 'File:Howling wind.ogg', loop: { start: 5, end: 65, xfade: 5 }, lp: 900, gainDb: -3 },
@@ -192,13 +223,13 @@ export const SOUNDS: SoundDef[] = [
     key: 'amb/furin', kind: 'oneshot', gain: 0.5, mono: true, note: '풍경(風鈴) — 폐가 툇마루에서 가끔',
     sources: [
       { provider: 'freesound', query: 'furin wind chime japanese', pick: 4, minDur: 0.5, maxDur: 6 },
-      { provider: 'wikimedia', wmTitle: 'File:Windchime.ogg', slices: [[5.9, 9.4], [10.9, 14.4], [22.9, 26.4], [36.9, 40.4], [46.9, 50.4], [51.9, 55.4]], hp: 500 },
+      { provider: 'wikimedia', wmTitle: 'File:Windchime.ogg', slices: [[5.9, 9.4], [10.9, 14.4], [22.9, 26.4], [36.9, 40.4], [46.9, 50.4], [51.9, 55.4]], hp: 500, fadeIn: 0.02, fadeOut: 1.6 },
     ],
   },
   {
     key: 'amb/bonsho', kind: 'oneshot', gain: 0.6, mono: true, note: '먼 절의 범종 — 아주 가끔 한 번',
     sources: [
-      { provider: 'wikimedia', wmTitle: 'File:Bonsyou5599.ogg', trim: [0, 14], hp: 60 },
+      { provider: 'wikimedia', wmTitle: 'File:Bonsyou5599.ogg', trim: [0, 14], hp: 60, fadeOut: 4 },
     ],
   },
   {
@@ -265,8 +296,8 @@ export const SOUNDS: SoundDef[] = [
   {
     key: 'heart/beat', kind: 'oneshot', gain: 0.9, note: '심장 두근(lub-dub) 한 번',
     sources: [
-      { provider: 'url', url: 'https://opengameart.org/sites/default/files/heartbeat.mp3_.flac', license: CC0, author: 'Independent.nu', source: 'https://opengameart.org/content/heartbeat-single-sound', title: 'Heartbeat (single sound)', trim: [0.08, 1.3], lp: 500, hp: 30 },
-      { provider: 'wikimedia', wmTitle: 'File:Human heart rate.flac', slices: [[0.28, 1.05]], lp: 450, hp: 30 },
+      { provider: 'url', url: 'https://opengameart.org/sites/default/files/heartbeat.mp3_.flac', license: CC0, author: 'Independent.nu', source: 'https://opengameart.org/content/heartbeat-single-sound', title: 'Heartbeat (single sound)', trim: [0.08, 1.3], lp: 500, hp: 30, fadeOut: 0.3 },
+      { provider: 'wikimedia', wmTitle: 'File:Human heart rate.flac', slices: [[0.28, 1.05]], lp: 450, hp: 30, fadeOut: 0.25 },
     ],
   },
 ];

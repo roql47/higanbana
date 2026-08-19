@@ -1,0 +1,819 @@
+{
+ "foot/gravel": [
+  {
+   "key": "foot/gravel",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — gravel — 0.ogg",
+   "author": "Ali_6868 (Freesound \"Gravel Footsteps\" pack) · mastered by congusbongus",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "foot/gravel",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — gravel — 1.ogg",
+   "author": "Ali_6868 (Freesound \"Gravel Footsteps\" pack) · mastered by congusbongus",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "foot/gravel",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — gravel — 2.ogg",
+   "author": "Ali_6868 (Freesound \"Gravel Footsteps\" pack) · mastered by congusbongus",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "foot/gravel",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — gravel — 3.ogg",
+   "author": "Ali_6868 (Freesound \"Gravel Footsteps\" pack) · mastered by congusbongus",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "foot/gravel",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — gravel — 4.ogg",
+   "author": "Ali_6868 (Freesound \"Gravel Footsteps\" pack) · mastered by congusbongus",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "foot/gravel",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — gravel — 5.ogg",
+   "author": "Ali_6868 (Freesound \"Gravel Footsteps\" pack) · mastered by congusbongus",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "foot/gravel",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — gravel — 6.ogg",
+   "author": "Ali_6868 (Freesound \"Gravel Footsteps\" pack) · mastered by congusbongus",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "foot/gravel",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — gravel — 7.ogg",
+   "author": "Ali_6868 (Freesound \"Gravel Footsteps\" pack) · mastered by congusbongus",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "foot/gravel",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — gravel — 8.ogg",
+   "author": "Ali_6868 (Freesound \"Gravel Footsteps\" pack) · mastered by congusbongus",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "foot/gravel",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — gravel — 9.ogg",
+   "author": "Ali_6868 (Freesound \"Gravel Footsteps\" pack) · mastered by congusbongus",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  }
+ ],
+ "foot/dirt": [
+  {
+   "key": "foot/dirt",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_carpet_000.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/dirt",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_carpet_001.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/dirt",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_carpet_002.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/dirt",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_carpet_003.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/dirt",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_carpet_004.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  }
+ ],
+ "foot/grass": [
+  {
+   "key": "foot/grass",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_grass_000.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/grass",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_grass_001.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/grass",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_grass_002.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/grass",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_grass_003.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/grass",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_grass_004.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  }
+ ],
+ "foot/wood": [
+  {
+   "key": "foot/wood",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_wood_000.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/wood",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_wood_001.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/wood",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_wood_002.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/wood",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_wood_003.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/wood",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_wood_004.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  }
+ ],
+ "foot/water": [
+  {
+   "key": "foot/water",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — water — 0.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "foot/water",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — water — 1.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "foot/water",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — water — 2.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "foot/water",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — water — 3.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "foot/water",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — water — 4.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  }
+ ],
+ "foot/sand": [
+  {
+   "key": "foot/sand",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_snow_000.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/sand",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_snow_001.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/sand",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_snow_002.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/sand",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_snow_003.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/sand",
+   "provider": "kenney",
+   "title": "impact-sounds — footstep_snow_004.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  }
+ ],
+ "foot/creak": [
+  {
+   "key": "foot/creak",
+   "provider": "kenney",
+   "title": "rpg-audio — creak1.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "foot/creak",
+   "provider": "kenney",
+   "title": "rpg-audio — creak2.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "foot/creak",
+   "provider": "kenney",
+   "title": "rpg-audio — creak3.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  }
+ ],
+ "foot/jump": [
+  {
+   "key": "foot/jump",
+   "provider": "kenney",
+   "title": "rpg-audio — cloth1.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "foot/jump",
+   "provider": "kenney",
+   "title": "rpg-audio — cloth2.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "foot/jump",
+   "provider": "kenney",
+   "title": "rpg-audio — cloth3.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  }
+ ],
+ "foot/land": [
+  {
+   "key": "foot/land",
+   "provider": "kenney",
+   "title": "impact-sounds — impactSoft_heavy_000.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/land",
+   "provider": "kenney",
+   "title": "impact-sounds — impactSoft_heavy_001.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/land",
+   "provider": "kenney",
+   "title": "impact-sounds — impactSoft_heavy_002.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/land",
+   "provider": "kenney",
+   "title": "impact-sounds — impactSoft_heavy_003.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "foot/land",
+   "provider": "kenney",
+   "title": "impact-sounds — impactSoft_heavy_004.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  }
+ ],
+ "chochin/toggle": [
+  {
+   "key": "chochin/toggle",
+   "provider": "kenney",
+   "title": "rpg-audio — cloth1.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "chochin/toggle",
+   "provider": "kenney",
+   "title": "rpg-audio — cloth2.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "chochin/toggle",
+   "provider": "kenney",
+   "title": "rpg-audio — cloth3.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "chochin/toggle",
+   "provider": "kenney",
+   "title": "rpg-audio — cloth4.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  }
+ ],
+ "combat/swing": [
+  {
+   "key": "combat/swing",
+   "provider": "zip",
+   "title": "Swishes Sound Pack — swish-5.wav",
+   "author": "artisticdude",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/swishes-sound-pack",
+   "files": []
+  },
+  {
+   "key": "combat/swing",
+   "provider": "zip",
+   "title": "Swishes Sound Pack — swish-6.wav",
+   "author": "artisticdude",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/swishes-sound-pack",
+   "files": []
+  },
+  {
+   "key": "combat/swing",
+   "provider": "zip",
+   "title": "Swishes Sound Pack — swish-7.wav",
+   "author": "artisticdude",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/swishes-sound-pack",
+   "files": []
+  },
+  {
+   "key": "combat/swing",
+   "provider": "zip",
+   "title": "Swishes Sound Pack — swish-8.wav",
+   "author": "artisticdude",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/swishes-sound-pack",
+   "files": []
+  },
+  {
+   "key": "combat/swing",
+   "provider": "zip",
+   "title": "Swishes Sound Pack — swish-9.wav",
+   "author": "artisticdude",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/swishes-sound-pack",
+   "files": []
+  }
+ ],
+ "combat/hit": [
+  {
+   "key": "combat/hit",
+   "provider": "kenney",
+   "title": "impact-sounds — impactPlank_medium_000.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "combat/hit",
+   "provider": "kenney",
+   "title": "impact-sounds — impactPlank_medium_001.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "combat/hit",
+   "provider": "kenney",
+   "title": "impact-sounds — impactPlank_medium_002.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "combat/hit",
+   "provider": "kenney",
+   "title": "impact-sounds — impactPlank_medium_003.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "combat/hit",
+   "provider": "kenney",
+   "title": "impact-sounds — impactPlank_medium_004.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  }
+ ],
+ "combat/down": [
+  {
+   "key": "combat/down",
+   "provider": "kenney",
+   "title": "impact-sounds — impactWood_heavy_000.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "combat/down",
+   "provider": "kenney",
+   "title": "impact-sounds — impactWood_heavy_001.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "combat/down",
+   "provider": "kenney",
+   "title": "impact-sounds — impactWood_heavy_002.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "combat/down",
+   "provider": "kenney",
+   "title": "impact-sounds — impactWood_heavy_003.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  },
+  {
+   "key": "combat/down",
+   "provider": "kenney",
+   "title": "impact-sounds — impactWood_heavy_004.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/impact-sounds",
+   "files": []
+  }
+ ],
+ "combat/equip": [
+  {
+   "key": "combat/equip",
+   "provider": "kenney",
+   "title": "rpg-audio — drawKnife1.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "combat/equip",
+   "provider": "kenney",
+   "title": "rpg-audio — drawKnife2.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "combat/equip",
+   "provider": "kenney",
+   "title": "rpg-audio — drawKnife3.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  }
+ ],
+ "amb/higurashi": [
+  {
+   "key": "amb/higurashi",
+   "provider": "wikimedia",
+   "title": "Tanna japonensis v01.ogg",
+   "author": "Σ64",
+   "license": "CC BY 4.0",
+   "source": "https://commons.wikimedia.org/wiki/File%3ATanna_japonensis_v01.ogg",
+   "files": []
+  }
+ ],
+ "amb/suzumushi": [
+  {
+   "key": "amb/suzumushi",
+   "provider": "wikimedia",
+   "title": "Suzumushi 06z3286.ogg",
+   "author": "ISAKA Yoji (cory)",
+   "license": "CC BY 2.1 jp",
+   "source": "https://commons.wikimedia.org/wiki/File%3ASuzumushi_06z3286.ogg",
+   "files": []
+  }
+ ],
+ "amb/crickets": [
+  {
+   "key": "amb/crickets",
+   "provider": "url",
+   "title": "Crickets Ambient Noise",
+   "author": "Wolfgang_",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/crickets-ambient-noise-loopable",
+   "files": []
+  }
+ ],
+ "amb/frogs": [
+  {
+   "key": "amb/frogs",
+   "provider": "wikimedia",
+   "title": "Nature sounds ambience in a Dordogne pond.ogg",
+   "author": "Glaneur de sons.",
+   "license": "CC BY 3.0",
+   "source": "https://commons.wikimedia.org/wiki/File%3ANature_sounds_ambience_in_a_Dordogne_pond.ogg",
+   "files": []
+  }
+ ],
+ "amb/wind": [
+  {
+   "key": "amb/wind",
+   "provider": "wikimedia",
+   "title": "Howling wind.ogg",
+   "author": "Tvabutzku1234",
+   "license": "CC0",
+   "source": "https://commons.wikimedia.org/wiki/File%3AHowling_wind.ogg",
+   "files": []
+  }
+ ],
+ "amb/furin": [
+  {
+   "key": "amb/furin",
+   "provider": "wikimedia",
+   "title": "Windchime.ogg",
+   "author": "stephan",
+   "license": "Public domain",
+   "source": "https://commons.wikimedia.org/wiki/File%3AWindchime.ogg",
+   "files": []
+  }
+ ],
+ "amb/bonsho": [
+  {
+   "key": "amb/bonsho",
+   "provider": "wikimedia",
+   "title": "Bonsyou5599.ogg",
+   "author": "日:Jnn",
+   "license": "CC BY 2.1 jp",
+   "source": "https://commons.wikimedia.org/wiki/File%3ABonsyou5599.ogg",
+   "files": []
+  }
+ ],
+ "amb/hototogisu": [
+  {
+   "key": "amb/hototogisu",
+   "provider": "wikimedia",
+   "title": "Hototogisu 07b8051.ogg",
+   "author": "ISAKA Yoji ( cory )[ Recent works / Other works ]",
+   "license": "CC BY 2.1 jp",
+   "source": "https://commons.wikimedia.org/wiki/File%3AHototogisu_07b8051.ogg",
+   "files": []
+  }
+ ],
+ "matsuri/bed": [
+  {
+   "key": "matsuri/bed",
+   "provider": "wikimedia",
+   "title": "Drums and flute at Sanja Matsuri.ogg",
+   "author": "Torsodog",
+   "license": "CC BY 3.0",
+   "source": "https://commons.wikimedia.org/wiki/File%3ADrums_and_flute_at_Sanja_Matsuri.ogg",
+   "files": []
+  }
+ ],
+ "heart/beat": [
+  {
+   "key": "heart/beat",
+   "provider": "url",
+   "title": "Heartbeat (single sound)",
+   "author": "Independent.nu",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/heartbeat-single-sound",
+   "files": []
+  }
+ ],
+ "throw/whoosh": [
+  {
+   "key": "throw/whoosh",
+   "provider": "zip",
+   "title": "Swishes Sound Pack (light) — swish-1.wav",
+   "author": "artisticdude",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/swishes-sound-pack",
+   "files": []
+  },
+  {
+   "key": "throw/whoosh",
+   "provider": "zip",
+   "title": "Swishes Sound Pack (light) — swish-2.wav",
+   "author": "artisticdude",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/swishes-sound-pack",
+   "files": []
+  },
+  {
+   "key": "throw/whoosh",
+   "provider": "zip",
+   "title": "Swishes Sound Pack (light) — swish-3.wav",
+   "author": "artisticdude",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/swishes-sound-pack",
+   "files": []
+  },
+  {
+   "key": "throw/whoosh",
+   "provider": "zip",
+   "title": "Swishes Sound Pack (light) — swish-4.wav",
+   "author": "artisticdude",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/swishes-sound-pack",
+   "files": []
+  }
+ ],
+ "hide/cloth": [
+  {
+   "key": "hide/cloth",
+   "provider": "kenney",
+   "title": "rpg-audio — cloth1.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "hide/cloth",
+   "provider": "kenney",
+   "title": "rpg-audio — cloth2.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "hide/cloth",
+   "provider": "kenney",
+   "title": "rpg-audio — cloth3.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  }
+ ]
+}

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { settings } from '@/core/settings';
 import type { Sfx } from './sfx';
+import type { LoopVoice } from './bank';
 
 /**
  * 마츠리바야시(祭囃子) = 이 게임의 심박. **축제 음악이 요괴 근접도다.**
@@ -8,13 +9,20 @@ import type { Sfx } from './sfx';
  *   40 m: 북(太鼓)만 아득하게 → 25 m: 피리 가락 → 15 m: 스즈(방울) → 8 m: 게타 발소리
  *   발각(CHASE): 음악이 뚝 끊기고 0.6 s 정적 → "뽀… 뽀… 뽀…"
  *
- * 전부 프로시저럴 합성(H5 에서 샘플 교체). 소리는 요괴 위치의 PannerNode(HRTF)에서 난다 —
- * 헤드폰이면 방향이 들린다.
+ * 소리는 요괴 위치의 PannerNode(HRTF)에서 난다 — 헤드폰이면 방향이 들린다.
+ *
+ * 샘플 우선 + 합성 폴백:
+ *  · `matsuri/bed` (마츠리바야시 실녹음 루프)가 있으면 북·피리 합성 대신 그 루프를 **거리 로우패스**로 돌린다 —
+ *    45 m 에서는 160 Hz 아래 북만 웅웅, 가까워질수록 컷오프가 열려 피리가 뚫고 나온다
+ *  · 스즈(`matsuri/suzu`)·게타(`matsuri/geta`)·추격 북(`matsuri/taiko`)·뽀뽀뽀(`yokai/po`)·심장(`heart/beat`)도
+ *    샘플이 있으면 샘플, 없으면 합성
  */
 export class Matsuri {
   private panner: PannerNode | null = null;
   private bus: GainNode | null = null;
-  private layers: { drum: GainNode; flute: GainNode; bells: GainNode; geta: GainNode } | null = null;
+  private layers: { drum: GainNode; flute: GainNode; bells: GainNode; geta: GainNode; bed: GainNode } | null = null;
+  private bed: LoopVoice | null = null;
+  private bedLp: BiquadFilterNode | null = null;
   private started = false;
   private beatT = 0;
   private beatN = 0;
@@ -41,9 +49,18 @@ export class Matsuri {
     this.bus = ctx.createGain();
     this.bus.gain.value = settings.audio.matsuri;
     const mk = () => { const g = ctx.createGain(); g.gain.value = 0; g.connect(this.panner!); return g; };
-    this.layers = { drum: mk(), flute: mk(), bells: mk(), geta: mk() };
+    this.layers = { drum: mk(), flute: mk(), bells: mk(), geta: mk(), bed: mk() };
     this.panner.connect(this.bus).connect(master);
     this.started = true;
+  }
+
+  /** 실녹음 bed 루프 — 샘플 뱅크가 준비되는 시점이 늦을 수 있어 매 프레임 시도 (있으면 한 번만 시작) */
+  private ensureBed(ctx: AudioContext) {
+    if (this.bed || this.offered || !this.layers || !this.sfx.bank.has('matsuri/bed')) return;
+    this.bedLp = ctx.createBiquadFilter();
+    this.bedLp.type = 'lowpass'; this.bedLp.frequency.value = 160; this.bedLp.Q.value = 0.7;
+    this.bedLp.connect(this.layers.bed);
+    this.bed = this.sfx.bank.loop('matsuri/bed', { dest: this.bedLp, fadeIn: 1.5 });
   }
 
   /** 발각 순간 — 음악을 끊는다 */
@@ -63,7 +80,11 @@ export class Matsuri {
   onLost() { this.chase = false; }
   private offered = false;
   /** 봉납 — 축제가 끝난다. 음악도 끝난다 */
-  onOffered() { this.offered = true; this.chase = false; if (this.layers) for (const g of Object.values(this.layers)) g.gain.value = 0; }
+  onOffered() {
+    this.offered = true; this.chase = false;
+    if (this.layers) for (const g of Object.values(this.layers)) g.gain.value = 0;
+    this.bed?.stop(1.5); this.bed = null;
+  }
 
   /**
    * @param hunterPos 요괴 월드 위치 (소리의 근원)
@@ -103,6 +124,9 @@ export class Matsuri {
     if (this.silence > 0) { this.silence -= dt; return; }
     if (this.offered) return; // 축제는 끝났다 — 심장만 남는다
 
+    this.ensureBed(ctx);
+    const live = !!this.bed; // 실녹음 bed 가 돌면 북·피리 합성은 쉰다
+
     if (this.chase) {
       // 추격: 음악 없음. "뽀… 뽀… 뽀…" + 빠른 북
       this.poT -= dt;
@@ -110,16 +134,23 @@ export class Matsuri {
       this.beatT -= dt;
       if (this.beatT <= 0) { this.beatT = 0.42; this.drum(ctx, 1.0, 72); }
       this.layers.drum.gain.value = 0.9;
+      this.layers.bed.gain.value = 0;
       return;
     }
 
     // --- 거리 게이트 (부드럽게) ---
     const g = this.layers;
     const fade = (gain: GainNode, target: number) => { gain.gain.value += (target - gain.gain.value) * Math.min(1, dt * 3); };
-    fade(g.drum, THREE.MathUtils.smoothstep(45 - dist, 0, 14) * 0.75);
-    fade(g.flute, THREE.MathUtils.smoothstep(28 - dist, 0, 10) * 0.6);
+    fade(g.drum, live ? 0 : THREE.MathUtils.smoothstep(45 - dist, 0, 14) * 0.75);
+    fade(g.flute, live ? 0 : THREE.MathUtils.smoothstep(28 - dist, 0, 10) * 0.6);
     fade(g.bells, THREE.MathUtils.smoothstep(16 - dist, 0, 7) * 0.55);
     fade(g.geta, THREE.MathUtils.smoothstep(9 - dist, 0, 4) * 0.8);
+    if (live) {
+      // bed: 50 m 부터 들리기 시작. 로우패스 컷오프 = 거리 → 멀면 북의 저역만, 8 m 안쪽이면 전부
+      fade(g.bed, THREE.MathUtils.smoothstep(50 - dist, 0, 16) * 0.95);
+      const k = THREE.MathUtils.clamp((46 - dist) / 38, 0, 1);
+      this.bedLp!.frequency.setTargetAtTime(160 * Math.pow(55, k), ctx.currentTime, 0.3); // 160 Hz → 8.8 kHz
+    }
 
     // --- 패턴 ---
     this.beatT -= dt;
@@ -127,7 +158,7 @@ export class Matsuri {
       // 돈-돈-카 돈-카 (2박 + 잔박)
       const pat = [0.62, 0.62, 0.31, 0.62, 0.31];
       this.beatT = pat[this.beatN % pat.length]!;
-      this.drum(ctx, this.beatN % 5 < 2 ? 1 : 0.55, this.beatN % 5 === 2 ? 130 : 62);
+      if (!live) this.drum(ctx, this.beatN % 5 < 2 ? 1 : 0.55, this.beatN % 5 === 2 ? 130 : 62);
       this.beatN++;
       // 게타는 북에 반박 어긋나게
       if (this.layers.geta.gain.value > 0.05) {
@@ -137,7 +168,7 @@ export class Matsuri {
     if (this.getaT > 0) { this.getaT -= dt; if (this.getaT <= 0) this.geta(ctx); }
 
     this.fluteT -= dt;
-    if (this.fluteT <= 0 && this.layers.flute.gain.value > 0.02) {
+    if (!live && this.fluteT <= 0 && this.layers.flute.gain.value > 0.02) {
       // 미야코부시(도-레♭-파-솔-라♭) 계열 음계를 느리게
       const scale = [523, 554, 698, 784, 831, 698, 554];
       this.fluteT = 0.5 + Math.random() * 0.7;
@@ -151,10 +182,11 @@ export class Matsuri {
     }
   }
 
-  /** 두근(lub-dub): 저역 사인 2연타. 마스터 직결(무지향) */
+  /** 두근(lub-dub): 샘플(`heart/beat`) 또는 저역 사인 2연타. 마스터 직결(무지향) */
   private heartbeat(ctx: AudioContext, vol: number) {
     if (vol < 0.01) return;
     const master = this.sfx.masterGain!;
+    if (this.sfx.bank.play('heart/beat', { gain: vol * 1.4, rate: 0.97 + Math.random() * 0.06 + (this.chase ? 0.06 : 0) })) return;
     const beat = (t: number, freq: number, v: number) => {
       const o = ctx.createOscillator(); o.type = 'sine';
       o.frequency.setValueAtTime(freq, t);
@@ -171,8 +203,9 @@ export class Matsuri {
     beat(t0 + 0.17, 50, vol * 0.6); // dub
   }
 
-  // --- 악기 합성 ---
+  // --- 악기: 샘플 우선, 없으면 합성 ---
   private drum(ctx: AudioContext, vel: number, freq: number) {
+    if (this.sfx.bank.play('matsuri/taiko', { gain: vel, rate: (freq > 100 ? 1.25 : 0.92) * (0.97 + Math.random() * 0.06), dest: this.layers!.drum })) return;
     const t = ctx.currentTime;
     const o = ctx.createOscillator(); o.type = 'sine';
     o.frequency.setValueAtTime(freq, t);
@@ -202,6 +235,7 @@ export class Matsuri {
   }
 
   private bell(ctx: AudioContext) {
+    if (this.sfx.bank.play('matsuri/suzu', { gain: 0.8, rate: 0.97 + Math.random() * 0.06, dest: this.layers!.bells })) return;
     const t = ctx.currentTime;
     for (const [mul, gv] of [[1, 0.3], [2.71, 0.14], [4.95, 0.06]] as [number, number][]) {
       const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = 2380 * mul;
@@ -215,6 +249,7 @@ export class Matsuri {
   }
 
   private geta(ctx: AudioContext) {
+    if (this.sfx.bank.play('matsuri/geta', { gain: 0.9, rate: 0.95 + Math.random() * 0.1, dest: this.layers!.geta })) return;
     const t = ctx.currentTime;
     const o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = 660 + Math.random() * 120;
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400;
@@ -226,8 +261,12 @@ export class Matsuri {
     o.start(t); o.stop(t + 0.1);
   }
 
-  /** "뽀… 뽀… 뽀…" — 여성 험 근사(포먼트 밴드패스). 추격 중 반복 */
+  /** "뽀… 뽀… 뽀…" — 샘플(`yokai/po`) 3연발 또는 여성 험 근사(포먼트 밴드패스). 추격 중 반복 */
   private po(ctx: AudioContext) {
+    if (this.sfx.bank.has('yokai/po')) {
+      for (let i = 0; i < 3; i++) this.sfx.bank.play('yokai/po', { gain: 0.9, rate: 0.96 + Math.random() * 0.08, at: i * 0.36, dest: this.layers!.drum, duration: 0.32 });
+      return;
+    }
     for (let i = 0; i < 3; i++) {
       const t = ctx.currentTime + i * 0.34;
       const o = ctx.createOscillator(); o.type = 'sawtooth';

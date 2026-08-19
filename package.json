@@ -12,7 +12,9 @@
     "tripo:generate": "node scripts/tripo/generate.ts",
     "tripo:rig": "node scripts/tripo/rig.ts",
     "tripo:animate": "node scripts/tripo/animate.ts",
-    "build:character": "node scripts/build-character.ts"
+    "build:character": "node scripts/build-character.ts",
+    "audio:fetch": "node scripts/audio/fetch.ts",
+    "audio:search": "node scripts/audio/fetch.ts --search"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",

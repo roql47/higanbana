@@ -4,6 +4,7 @@
  *   npm run audio:fetch                    # 전부 (이미 있으면 건너뜀)
  *   npm run audio:fetch -- --only foot/gravel,amb/wind --force
  *   npm run audio:fetch -- --report        # 다운로드 없이 현재 상태표만
+ *   npm run audio:fetch -- --sync          # sources.ts 의 gain 만 manifest 에 반영 (볼륨 튜닝 — 다운로드/가공 없음)
  *   npm run audio:fetch -- --dry-run       # 소스 해석까지만 (다운로드는 하되 가공·출력 없음)
  *   npm run audio:search -- "taiko hit" --max-dur 3   # Freesound 검색 (키 필요)
  *
@@ -48,6 +49,7 @@ const ONLY = flags['only'] ? String(flags['only']).split(',').map((s) => s.trim(
 const FORCE = !!flags['force'];
 const DRY = !!flags['dry-run'];
 const REPORT = !!flags['report'];
+const SYNC = !!flags['sync'];
 const CC0_ONLY = !!flags['cc0'];
 const VERBOSE = !!flags['verbose'];
 
@@ -169,7 +171,14 @@ async function resolveWikimedia(s: SourceSpec): Promise<Resolved[]> {
   const em = ii.extmetadata ?? {};
   const strip = (h?: string) => (h ?? '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
   const license = strip(em['LicenseShortName']?.value) || '?';
-  const author = strip(em['Artist']?.value) || strip(em['Credit']?.value) || '?';
+  let author = strip(em['Artist']?.value) || strip(em['Credit']?.value) || '';
+  if (!author) {
+    // 메타데이터에 저자가 없으면 위키텍스트의 "Author:" 줄을 읽는다
+    const wt = await (await fetch(`https://commons.wikimedia.org/w/api.php?action=query&prop=revisions&rvprop=content&rvslots=main&format=json&titles=${encodeURIComponent(s.wmTitle!)}`, { headers: { 'User-Agent': UA } })).json() as { query: { pages: Record<string, { revisions?: { slots: { main: { '*': string } } }[] }> } };
+    const text = Object.values(wt.query.pages)[0]?.revisions?.[0]?.slots.main['*'] ?? '';
+    const m = text.match(/\bAuthor[:：]\s*([^\n<]+)/) ?? text.match(/(?:撮影者|作者|author)[:：]\s*([^\n<]+)/);
+    author = strip(m?.[1]?.replace(/\[\[[^\]|]*\|([^\]]+)\]\]/g, '$1').replace(/\[\[|\]\]/g, '') ?? '') || '?';
+  }
   const f = await download(ii.url.split('?')[0]!);
   return [{ path: f, title: page!.title.replace(/^File:/, ''), author, license, source: `https://commons.wikimedia.org/wiki/${encodeURIComponent(page!.title.replace(/ /g, '_'))}`, provider: 'wikimedia' }];
 }
@@ -259,7 +268,7 @@ function duration(file: string): number {
   return parseFloat(r.stdout) || 0;
 }
 
-interface Job { input: string; out: string; kind: 'oneshot' | 'loop'; mono: boolean; tight: boolean; trim?: [number, number]; loop?: LoopSpec; hp?: number; lp?: number; rate?: number; gainDb?: number }
+interface Job { input: string; out: string; kind: 'oneshot' | 'loop'; mono: boolean; tight: boolean; trim?: [number, number]; loop?: LoopSpec; hp?: number; lp?: number; rate?: number; gainDb?: number; fadeIn?: number; fadeOut?: number }
 
 /** 1단계: 필터 → 임시 WAV, 2단계: 정규화 측정, 3단계: MP3 인코딩 */
 function render(job: Job) {
@@ -292,7 +301,8 @@ function render(job: Job) {
   gain = Math.max(-40, Math.min(40, gain));
   const dur = duration(tmp);
   const post: string[] = [`volume=${gain.toFixed(2)}dB`];
-  if (job.kind === 'oneshot') post.push(`afade=t=out:st=${Math.max(0, dur - 0.006).toFixed(3)}:d=0.006`);
+  if (job.fadeIn && job.fadeIn > 0) post.push(`afade=t=in:st=0:d=${job.fadeIn}`);
+  if (job.kind === 'oneshot') { const fo = Math.min(dur * 0.9, job.fadeOut ?? 0.006); post.push(`afade=t=out:st=${Math.max(0, dur - fo).toFixed(3)}:d=${fo.toFixed(3)}`); }
   post.push('alimiter=limit=0.98:level=false:latency=1');
   ffmpeg(['-i', tmp, '-af', post.join(','), '-c:a', 'libmp3lame', '-q:a', job.kind === 'oneshot' ? '3' : '4', job.out]);
   rmSync(tmp, { force: true });
@@ -300,7 +310,7 @@ function render(job: Job) {
 }
 
 // ───────────────────────── 매니페스트·크레딧 ─────────────────────────
-interface ManifestEntry { files: string[]; gain: number; loop: boolean; license: string }
+interface ManifestEntry { files: string[]; gain: number; loop: boolean; license: string; durations: number[] }
 interface Manifest { version: number; generated: string; sounds: Record<string, ManifestEntry> }
 interface CreditEntry { key: string; provider: string; title: string; author: string; license: string; source: string; files: string[]; note?: string }
 
@@ -372,11 +382,12 @@ async function handle(def: SoundDef): Promise<Status> {
     rmSync(outDir, { recursive: true, force: true });
     mkdirSync(outDir, { recursive: true });
     const files: string[] = [];
+    const durs: number[] = [];
     const credit: CreditEntry[] = [];
     const max = def.max ?? 12;
     let n = 0;
     const jobsFor = (r: Resolved): Job[] => {
-      const base: Omit<Job, 'out' | 'trim'> = { input: r.path, kind: def.kind, mono: def.mono ?? (def.kind === 'oneshot'), tight: def.tight ?? true, hp: src.hp, lp: src.lp, rate: src.rate, gainDb: src.gainDb, loop: src.loop };
+      const base: Omit<Job, 'out' | 'trim'> = { input: r.path, kind: def.kind, mono: def.mono ?? (def.kind === 'oneshot'), tight: def.tight ?? true, hp: src.hp, lp: src.lp, rate: src.rate, gainDb: src.gainDb, loop: src.loop, fadeIn: src.fadeIn, fadeOut: src.fadeOut };
       if (src.slices) return src.slices.map((sl) => ({ ...base, out: '', trim: sl }));
       return [{ ...base, out: '', trim: src.trim }];
     };
@@ -389,6 +400,7 @@ async function handle(def: SoundDef): Promise<Status> {
           const { dur } = render(job);
           if (dur < 0.02) { rmSync(out, { force: true }); vlog('너무 짧음, 제외', r.title); continue; }
           files.push(`${def.key}/${n}.mp3`);
+          durs.push(Math.round(dur * 1000) / 1000);
           n++;
         } catch (e) {
           vlog('가공 실패', r.title, (e as Error).message.split('\n')[0]);
@@ -398,7 +410,7 @@ async function handle(def: SoundDef): Promise<Status> {
     }
     if (files.length === 0) { errors.push(`${src.provider}: 가공 결과 없음`); continue; }
     const licenses = [...new Set(credit.map((c) => c.license))].join(' / ');
-    manifest.sounds[def.key] = { files, gain: def.gain ?? 1, loop: def.kind === 'loop', license: licenses };
+    manifest.sounds[def.key] = { files, gain: def.gain ?? 1, loop: def.kind === 'loop', license: licenses, durations: durs };
     credits[def.key] = credit;
     save();
     return { key: def.key, status: 'ok', detail: `${files.length}개 ← ${src.provider} · ${licenses}${pendingFreesound ? ' (freesound 키 생기면 교체 가능)' : ''}` };
@@ -425,6 +437,13 @@ async function main() {
   }
   if (!which('ffmpeg')) { console.error('ffmpeg 가 필요합니다 (brew install ffmpeg)'); process.exit(1); }
   const defs = SOUNDS.filter((d) => !ONLY || ONLY.includes(d.key) || ONLY.some((o) => o.endsWith('/') && d.key.startsWith(o)));
+  if (SYNC) {
+    let n = 0;
+    for (const d of defs) { const e = manifest.sounds[d.key]; if (e && e.gain !== (d.gain ?? 1)) { e.gain = d.gain ?? 1; n++; } }
+    save();
+    log(`gain 동기화: ${n}개 변경 → ${MANIFEST.replace(ROOT + '/', '')}`);
+    return;
+  }
   if (REPORT) {
     const rows: Status[] = defs.map((d) => {
       const e = manifest.sounds[d.key];

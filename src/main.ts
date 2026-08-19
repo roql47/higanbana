@@ -36,6 +36,7 @@ import { Senses } from '@/ai/senses';
 import { Hunter } from '@/ai/hunter';
 import { Dorotabo } from '@/ai/dorotabo';
 import { Matsuri } from '@/audio/matsuri';
+import { Ambience } from '@/audio/ambience';
 import { Scares } from '@/world/village/scares';
 import { Rules, type OfferingDef } from '@/game/rules';
 
@@ -110,9 +111,18 @@ async function main() {
   }
 
   const sfx = new Sfx();
+  void sfx.preload(); // 샘플(public/audio) 선로드 — 로딩 바에 같이 잡힌다. 없으면 프로시저럴 폴백
   const unlockAudio = () => sfx.unlock();
   window.addEventListener('pointerdown', unlockAudio);
   window.addEventListener('keydown', unlockAudio);
+  // 구역별 실녹음 앰비언스 (쓰르라미·방울벌레·개구리·바람·풍경·범종) — 마을에서만
+  const ambience = village ? new Ambience(sfx, {
+    paddyMask: (x, z) => village!.ground.paddyMask(x, z),
+    heightAt: (x, z) => village!.heightAt(x, z),
+    isIndoors: (p) => village!.isIndoors(p),
+    house: village.house.entrance,
+    shrine: village.shrine.center,
+  }) : null;
 
   const controller = new CharacterController(physics, spawn);
   const tpCam = new ThirdPersonCamera(camera, physics, controller.body);
@@ -437,7 +447,7 @@ async function main() {
   window.addEventListener('keydown', (e) => { if (e.code === 'Enter' || e.code === 'Space') start(); }, { once: false });
 
   if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri, scares, rules };
+    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri, scares, rules, ambience };
   }
 
   // --- 리사이즈 ---
@@ -542,6 +552,7 @@ async function main() {
     grass?.update(dt);
     village?.update(dt, controller.position);
     sfx.updateNight(dt);
+    ambience?.update(dt, controller.position, camera);
 
     // 카메라 — 좁은 공간에서는 거리·피치를 명시적으로 조인다
     //   토리이 통로: 빔이 화면을 가로지르지 않게 / 실내: 벽에 밀려 캐릭터에 코를 박지 않게
