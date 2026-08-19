@@ -221,8 +221,23 @@ export class Hunter {
         const p = findPath(this.grid, this.position, goal);
         if (p && p.length) { this.path = p; this.pathI = 0; }
       }
-      // 웨이포인트 따라가기
-      if (this.pathI < this.path.length) {
+      // 근접 직진: 추격 중 목표(마지막 목격 지점)가 가까우면 격자 경로 대신 직진한다.
+      // 경로 웨이포인트는 셀 중심(1.5 m)이라 최종 셀 중심이 잡기 거리(1.15 m) 밖이면
+      // "코앞까지 와놓고 멈춰 서는" 버그가 된다 — 플레이어가 셀 구석에 있을 때 간헐 발생 (2026-08-19 수정)
+      this.tmp.set(this.target.x - this.position.x, 0, this.target.z - this.position.z);
+      const dTarget = this.tmp.length();
+      if (this.state === 'CHASE' && (dTarget < 5 || this.pathI >= this.path.length)) {
+        if (dTarget > 0.25) {
+          const targetYaw = Math.atan2(this.tmp.x, this.tmp.z);
+          this.yaw = dampAngle(this.yaw, targetYaw, 8, dt);
+          this.speed = damp(this.speed, wantSpeed, 3.5, dt);
+          this.position.x += Math.sin(this.yaw) * this.speed * dt;
+          this.position.z += Math.cos(this.yaw) * this.speed * dt;
+        } else {
+          this.speed = damp(this.speed, 0, 8, dt); // 마지막 목격 지점 도착 — 시야 없으면 SEARCH 로 넘어간다
+        }
+      } else if (this.pathI < this.path.length) {
+        // 웨이포인트 따라가기
         const wp = this.path[this.pathI]!;
         this.tmp.set(wp.x - this.position.x, 0, wp.z - this.position.z);
         const d = this.tmp.length();
