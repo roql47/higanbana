@@ -294,6 +294,33 @@ export class Sfx {
     }
   }
 
+  // --- 연출형 요괴 스팅어 ---
+  /** 놋페라보가 돌아본다: 낮은 현 한 번 + 종이 옷자락 */
+  nopperaTurn() {
+    if (!this.ready()) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(72, t0); o.frequency.exponentialRampToValueAtTime(58, t0 + 0.9);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; lp.Q.value = 4;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.55, t0 + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.1);
+    o.connect(lp).connect(g).connect(this.master!); o.start(t0); o.stop(t0 + 1.2);
+    this.noiseBurst({ dur: 0.35, gain: 0.25, type: 'bandpass', freq: 1800, q: 0.8, attack: 0.05 });
+  }
+  /** 놋페라보 소멸: 짧은 역재생 느낌의 고역 슬라이드 */
+  nopperaVanish() {
+    this.noiseBurst({ dur: 0.45, gain: 0.35, type: 'bandpass', freq: 600, freqEnd: 5200, q: 2.5, attack: 0.2 });
+  }
+  /** 초칭오바케 눈 뜸: 젖은 눈 깜빡임 — 아주 짧은 고역 틱 두 번 */
+  eyeOpen() {
+    if (!this.ready()) return;
+    this.noiseBurst({ dur: 0.04, gain: 0.5, type: 'highpass', freq: 4000, attack: 0.002 });
+    const ctx = this.ctx!, t0 = ctx.currentTime + 0.07;
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(1900, t0); o.frequency.exponentialRampToValueAtTime(900, t0 + 0.09);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.3, t0 + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.1);
+    o.connect(g).connect(this.master!); o.start(t0); o.stop(t0 + 0.12);
+  }
+
   /** 초칭 밝기 전환 — 종이가 부스럭거리고 불이 커지는 소리 */
   lanternToggle(level: number) {
     if (!this.ready()) return;

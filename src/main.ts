@@ -36,6 +36,7 @@ import { Senses } from '@/ai/senses';
 import { Hunter } from '@/ai/hunter';
 import { Dorotabo } from '@/ai/dorotabo';
 import { Matsuri } from '@/audio/matsuri';
+import { Scares } from '@/world/village/scares';
 
 interface CharacterVisual {
   update(dt: number, ctrl: CharacterController): void;
@@ -87,6 +88,7 @@ async function main() {
   } else if (isVillage) {
     const tex = await loadTerrainTextures(renderer);
     village = new Village(scene, physics, tex, { riceBudget: Math.round(quality.grassCount * 0.8), treeBudget: Math.round(700 * quality.treeScale) });
+    await village.loadAssets();
     spawn.copy(village.spawn);
     if (new URLSearchParams(location.search).get('at') === 'house') {
       spawn.copy(village.house.entrance);
@@ -182,7 +184,9 @@ async function main() {
       anchors.push(new THREE.Vector3(rp.x, 0, rp.z));
     }
     anchors.push(village.house.entrance.clone());
-    anchors.push(new THREE.Vector3(-20, 0, 12), new THREE.Vector3(18, 0, 30));
+    anchors.push(new THREE.Vector3(-20, 0, 12));
+    // 마츠리 광장 — 불 켜진 빈 축제를 팔척귀신이 가로지른다
+    anchors.push(new THREE.Vector3(40, 0, 24), new THREE.Vector3(32, 0, 30));
     const events = {
       onSpotted: () => matsuri?.onSpotted(),
       onLost: () => { if (!hunters.some((h) => h.state === 'CHASE')) matsuri?.onLost(); },
@@ -218,6 +222,12 @@ async function main() {
     // 도로타보: 논의 주인 — 추격자가 아니라 영역 규칙 (논 은신 남용 → 출현 + 소음으로 추격자를 부른다)
     dorotabo = new Dorotabo(village.ground, senses, sfx, { url: '/models/yokai-dorotabo.glb', height: 1.7 });
     scene.add(dorotabo.root);
+  }
+  // --- 연출형 요괴: 움직이는 지장 · 놋페라보 · 초칭오바케 ---
+  let scares: Scares | null = null;
+  if (village) {
+    scares = new Scares(scene, village.landmarks, village.square, chochin, sfx);
+    void scares.load().catch((e) => console.warn('[scares]', e));
   }
 
   // --- 인벤토리 · 장비 · 전투 · 허수아비 (전투는 sandbox 전용) ---
@@ -359,7 +369,7 @@ async function main() {
   window.addEventListener('keydown', (e) => { if (e.code === 'Enter' || e.code === 'Space') start(); }, { once: false });
 
   if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri };
+    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri, scares };
   }
 
   // --- 리사이즈 ---
@@ -441,6 +451,7 @@ async function main() {
       matsuri.update(dt, nearest.position, camera, nd);
       // 초칭 깜빡임 = 위협 근접도 (24 m 부터 서서히, 4 m 에서 최대)
       if (chochin) chochin.threat = THREE.MathUtils.clamp((24 - nd) / 20, 0, 1);
+      scares?.update(dt, controller.position, camera, chochin?.threat ?? 0);
     }
     // 오래 안 쓰면 칼집으로
     if (equipment?.hasWeapon) equipment.setDrawn(combat!.sinceLastAttack < 8);

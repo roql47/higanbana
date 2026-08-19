@@ -31,6 +31,8 @@ const ROAD_BLEND = 2.4; // 가장자리 블렌드 폭
 
 /** 폐가 터: 이 사각형 안은 평탄하게 고른다 (집이 지형에 파묻히지 않도록) */
 export const HOUSE_PAD = { x0: -26.0, z0: 16.4, x1: -11.0, z1: 33.8, y: 0.06 }; // 집 15×11 확장에 맞춤 (2026-08-19)
+/** 마츠리 광장 터 (참배로 동쪽, 논두렁 너머) — 평탄화 + 논 제외 */
+export const SQUARE_PAD = { x0: 28.0, z0: 12.0, x1: 52.0, z1: 36.0, y: 0.10 }; // 논(x≤26) 동쪽 바깥. 처음 x 9~35 로 잡았다가 배미 7→1 로 잡아먹혀 이동 (2026-08-19)
 
 /** 신사 언덕: z 가 −16 → −42 로 갈수록 8 m 상승 (평균 경사 17°) */
 function hillAt(z: number) { return smoothstep(-16, -42, z) * 8.0; }
@@ -41,8 +43,10 @@ function hillAt(z: number) { return smoothstep(-16, -42, z) * 8.0; }
  *  · valley: 참배로 양옆이 솟아올라 토리이 터널이 계곡을 거슬러 오르게 된다
  */
 function rimAt(x: number, z: number) {
-  const ax = Math.abs(x);
-  return smoothstep(26, 48, ax) * 16 + smoothstep(42, 58, z) * 14;
+  // 동쪽(x>0)은 마츠리 광장 자리를 비우기 위해 산자락을 뒤로 민다
+  const west = smoothstep(26, 48, -x) * 16;
+  const east = smoothstep(52, 66, x) * 16;
+  return Math.max(west, east) + smoothstep(42, 58, z) * 14;
 }
 function valleyAt(x: number, z: number) {
   return smoothstep(5, 21, Math.abs(x)) * 9.5 * smoothstep(-2, -18, z);
@@ -153,11 +157,23 @@ export class VillageGround {
     return n * (0.45 + relief * 0.14) + relief;
   }
 
-  /** 폐가 터 안이면 1, 밖으로 2 m 에 걸쳐 0 */
+  /** 평탄화 패드 안이면 1, 밖으로 2 m 에 걸쳐 0 (폐가 터·광장 터 중 큰 값) */
   private padMask(x: number, z: number) {
-    const p = HOUSE_PAD;
-    const m = Math.min(x - p.x0, p.x1 - x, z - p.z0, p.z1 - z);
-    return clamp((m + 2) / 2, 0, 1);
+    let best = 0;
+    for (const p of [HOUSE_PAD, SQUARE_PAD]) {
+      const m = Math.min(x - p.x0, p.x1 - x, z - p.z0, p.z1 - z);
+      best = Math.max(best, clamp((m + 2) / 2, 0, 1));
+    }
+    return best;
+  }
+  private padY(x: number, z: number) {
+    // 가장 가까운(안쪽 깊이가 큰) 패드의 y
+    let bestM = -Infinity, y = HOUSE_PAD.y;
+    for (const p of [HOUSE_PAD, SQUARE_PAD]) {
+      const m = Math.min(x - p.x0, p.x1 - x, z - p.z0, p.z1 - z);
+      if (m > bestM) { bestM = m; y = p.y; }
+    }
+    return y;
   }
 
   heightAt(x: number, z: number): number {
@@ -173,7 +189,7 @@ export class VillageGround {
     if (pm > 0) h -= PADDY_DEPTH * pm;
     // 폐가 터 평탄화
     const pad = this.padMask(x, z);
-    if (pad > 0) h = lerp(h, HOUSE_PAD.y, pad);
+    if (pad > 0) h = lerp(h, this.padY(x, z), pad);
     return h;
   }
 
@@ -212,8 +228,11 @@ export class VillageGround {
         }
         if (x1 - x0 < 3) continue;
         // 폐가 터와 겹치는 배미는 만들지 않는다 (지형은 평탄한데 물·벼만 남으면 깨진다)
-        const P = HOUSE_PAD;
-        if (x0 < P.x1 + 2 && x1 > P.x0 - 2 && z0 < P.z1 + 2 && z1 > P.z0 - 2) continue;
+        let overlap = false;
+        for (const P of [HOUSE_PAD, SQUARE_PAD]) {
+          if (x0 < P.x1 + 2 && x1 > P.x0 - 2 && z0 < P.z1 + 2 && z1 > P.z0 - 2) overlap = true;
+        }
+        if (overlap) continue;
         this.cells.set(`${cx},${cz}`, { x0, z0, x1, z1 });
       }
     }
