@@ -99,6 +99,28 @@ export class Hunter {
     for (const clip of gltf.animations) {
       this.actions.set(clip.name, this.mixer.clipAction(clip));
     }
+    // 애니메이션 좌표계 보정 (주인공과 동일한 문제): Tripo 클립은 Hip 을 원점에 두므로
+    // 바인드 포즈로 잰 오프셋 그대로 재생하면 몸이 내려가 하반신이 땅에 묻힌다.
+    // idle 첫 프레임을 적용해 스킨 바운딩박스로 발바닥·중심을 다시 맞춘다.
+    {
+      const idle = this.actions.get('idle');
+      let sk: THREE.SkinnedMesh | null = null;
+      inner.traverse((o) => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) sk = o as THREE.SkinnedMesh; });
+      if (idle && sk) {
+        const skinned = sk as THREE.SkinnedMesh;
+        idle.reset().play();
+        idle.time = 0;
+        this.mixer.update(0);
+        this.root.updateMatrixWorld(true);
+        skinned.computeBoundingBox(); // 스키닝 적용된 로컬 바운딩박스
+        const toInnerChild = new THREE.Matrix4().copy(inner.matrixWorld).invert().multiply(skinned.matrixWorld);
+        const pb = skinned.boundingBox!.clone().applyMatrix4(toInnerChild);
+        const c = pb.getCenter(new THREE.Vector3());
+        inner.position.set(-c.x * s, -pb.min.y * s, -c.z * s);
+        idle.stop();
+        console.info('[hunter] calibrated offset by idle', { posedMinY: +pb.min.y.toFixed(3), posedH: +(pb.max.y - pb.min.y).toFixed(2) });
+      }
+    }
     this.play('idle', 0);
     this.loaded = true;
     console.info('[hunter] loaded', this.opts.url, 'clips:', gltf.animations.map((c) => c.name));
