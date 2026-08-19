@@ -70,6 +70,7 @@ export const settings = {
     land: 0.6,
     ambient: 0.12,
     combat: 0.7,
+    matsuri: 0.5,
   },
   night: {
     fogDensity: 0.018, // FogExp2 — 실질 시야 약 55 m (맵 경계 200 m 는 완전히 잠긴다)
@@ -97,6 +98,19 @@ export const settings = {
     /** 손 위치에 더하는 오프셋(m): [몸 바깥쪽, 위+/아래−, 앞+]. 바깥쪽은 골반→손 방향 */
     gripPos: [0.13, -0.21, 0.0] as [number, number, number],
     size: 0.34, // 초칭 전체 높이(m)
+  },
+  ai: {
+    baseDetection: 6, // m — 시야 기본 거리. 초칭 배율·이동 배율이 곱해진다
+    patrolSpeed: 1.0, // m/s
+    chaseSpeed: 3.2, // m/s (플레이어 달리기 3.6 — 초반엔 도망 가능)
+    investigateTime: 8, // s — 소음 지점 배회
+    searchTime: 12, // s — 마지막 목격 지점 수색
+    loseSightTime: 3, // s — 시야가 이 시간 끊기면 추격 포기
+    mercyTime: 1.2, // s — 발견 직후 가속 금지
+    grabDistance: 1.15, // m
+    noiseWalk: 4, // m — 걷기 발소리 소음 반경
+    noiseRun: 12, // m — 달리기
+    gaitJitter: 0.35, // 0..1 — 걸음 어긋남(재생 속도 요동)
   },
   physics: {
     controllerOffset: 0.02, // Rapier 캐릭터 컨트롤러가 장애물과 유지하는 간격

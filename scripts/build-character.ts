@@ -11,7 +11,8 @@ import { readdirSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
 import { NodeIO, type Document, type Node } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { dedup, prune, resample, textureCompress, meshopt, reorder, mergeDocuments, unpartition } from '@gltf-transform/functions';
+import { dedup, prune, resample, simplify, textureCompress, meshopt, reorder, mergeDocuments, unpartition } from '@gltf-transform/functions';
+import { MeshoptSimplifier } from 'meshoptimizer';
 import { MeshoptEncoder } from 'meshoptimizer';
 import sharp from 'sharp';
 import { parseArgs, ROOT } from './tripo/lib.ts';
@@ -26,6 +27,8 @@ const texSize = Number(a['tex'] ?? 2048);
 const rotOnly = new Set(String(a['rot-only'] ?? 'sword_combo').split(',').map((x) => x.trim()).filter(Boolean));
 const HIP_BONES = ['Hip', 'Hips', 'mixamorig:Hips'];
 const quality = Number(a['quality'] ?? 85);
+// 정점 감축 비율 (0 = 안 함). 여우 요괴처럼 face_limit 없이 생성돼 정점이 수십만 개인 모델용
+const simplifyRatio = Number(a['simplify'] ?? 0);
 
 await MeshoptEncoder.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
@@ -86,10 +89,12 @@ for (const f of clipFiles) {
   console.log(`  + ${clipName}: ${merged.length} anim, channels retargeted ${retargeted}, dropped ${missing}`);
 }
 
+await MeshoptSimplifier.ready;
 await doc.transform(
   unpartition(),
   prune(),
   dedup(),
+  ...(simplifyRatio > 0 ? [simplify({ simplifier: MeshoptSimplifier, ratio: simplifyRatio, error: 0.0008 })] : []),
   resample({ tolerance: 1e-4 }),
   textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [texSize, texSize], quality }),
   reorder({ encoder: MeshoptEncoder }),

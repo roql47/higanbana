@@ -31,6 +31,10 @@ import { Combat } from '@/character/combat';
 import { Dummies } from '@/world/dummies';
 import { Popups } from '@/ui/popups';
 import { Props } from '@/world/props';
+import { NavGrid } from '@/ai/navgrid';
+import { Senses } from '@/ai/senses';
+import { Hunter } from '@/ai/hunter';
+import { Matsuri } from '@/audio/matsuri';
 
 interface CharacterVisual {
   update(dt: number, ctrl: CharacterController): void;
@@ -132,7 +136,13 @@ async function main() {
       if (model.clipNames.includes('idle')) model.play('idle', 0);
       if (model.clipNames.length > 0) {
         animator = new CharacterAnimator(model, {
-          onFootstep: (foot, speed) => sfx.footstep(speed, surfaceAt(controller.position), foot),
+          onFootstep: (foot, speed) => {
+            sfx.footstep(speed, surfaceAt(controller.position), foot);
+            // 발소리 = 소음 이벤트. 논물 첨벙은 반경 2배 (기획 3.4)
+            const base = speed > 2.5 ? settings.ai.noiseRun : settings.ai.noiseWalk;
+            const inWater = surfaceAt(controller.position) === 'water';
+            senses?.emitNoise(controller.position, base * (inWater ? 2 : 1));
+          },
           onJump: () => sfx.jump(),
           onLand: (impact) => sfx.land(impact),
         });
@@ -148,6 +158,46 @@ async function main() {
   if (isVillage && model) {
     chochin = new Chochin(model.root, quality.shadowMap >= 3072 ? 1024 : 512);
     console.info('[chochin] level', chochin.level);
+  }
+
+  // --- 팔척귀신 (H2) ---
+  let senses: Senses | null = null;
+  let hunter: Hunter | null = null;
+  let matsuri: Matsuri | null = null;
+  const deathEl = document.createElement('div');
+  deathEl.className = 'death-fade';
+  deathEl.innerHTML = '<div class="death-text">잡혔다</div>';
+  document.body.appendChild(deathEl);
+  let deathT = 0;
+  if (village && model) {
+    const grid = new NavGrid(physics, village.ground);
+    senses = new Senses(physics);
+    matsuri = new Matsuri(sfx);
+    // 순찰 앵커: 참배로 위 4지점 + 폐가 현관 + 논두렁 모서리
+    const anchors: THREE.Vector3[] = [];
+    for (const t of [30, 55, 75, 95]) {
+      const rp = village.ground.roadAt(Math.min(t, village.ground.roadLength - 4));
+      anchors.push(new THREE.Vector3(rp.x, 0, rp.z));
+    }
+    anchors.push(village.house.entrance.clone());
+    anchors.push(new THREE.Vector3(-20, 0, 12), new THREE.Vector3(18, 0, 30));
+    // 스폰: 참배로 북쪽 끝(신사 쪽) — 플레이어 스폰에서 약 80 m (자비 규칙 15 m 을 크게 상회)
+    const hs = village.ground.roadAt(village.ground.roadLength - 6);
+    hunter = new Hunter(physics, village.ground, grid, senses, {
+      url: '/models/yokai-hasshaku.glb',
+      height: 2.4,
+      spawn: new THREE.Vector3(hs.x, 0, hs.z),
+      patrolAnchors: anchors,
+      events: {
+        onSpotted: () => matsuri?.onSpotted(),
+        onLost: () => matsuri?.onLost(),
+        onGrab: () => {
+          deathT = 3.0;
+          deathEl.classList.add('show');
+        },
+      },
+    });
+    scene.add(hunter.root);
   }
 
   // --- 인벤토리 · 장비 · 전투 · 허수아비 (전투는 sandbox 전용) ---
@@ -227,7 +277,7 @@ async function main() {
       sfx.equip();
     }
     if (e.code === 'KeyQ' && chochin && !invUI.isOpen) { chochin.cycle(); sfx.lanternToggle(chochin.level); }
-    if (e.code === 'KeyR') controller.teleport(spawn);
+    if (e.code === 'KeyR') { controller.teleport(spawn); hunter?.reset(); }
     if (e.code === 'KeyM') { muted = !muted; sfx.setMaster(muted ? 0 : settings.audio.master); }
     if (e.code === 'KeyF') { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.(); }
   });
@@ -289,7 +339,7 @@ async function main() {
   window.addEventListener('keydown', (e) => { if (e.code === 'Enter' || e.code === 'Space') start(); }, { once: false });
 
   if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin };
+    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin, hunter, senses, matsuri };
   }
 
   // --- 리사이즈 ---
@@ -341,6 +391,23 @@ async function main() {
     });
     physics.step(dt);
     dummies?.update(dt);
+
+    // --- 팔척귀신 ---
+    if (hunter && senses && matsuri && village) {
+      senses.update(dt);
+      if (deathT > 0) {
+        // 사망 연출: 3 s 후 리스폰
+        deathT -= dt;
+        if (deathT <= 0) {
+          controller.teleport(spawn);
+          hunter.reset();
+          deathEl.classList.remove('show');
+        }
+      } else {
+        hunter.update(dt, controller.position, controller.horizontalSpeed);
+      }
+      matsuri.update(dt, hunter.position, camera, hunter.position.distanceTo(controller.position));
+    }
     // 오래 안 쓰면 칼집으로
     if (equipment?.hasWeapon) equipment.setDrawn(combat!.sinceLastAttack < 8);
     // 줍기 프롬프트

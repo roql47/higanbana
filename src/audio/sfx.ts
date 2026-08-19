@@ -52,6 +52,10 @@ export class Sfx {
 
   setMaster(v: number) { if (this.master) this.master.gain.value = v; }
 
+  /** 다른 오디오 모듈(마츠리바야시 등)이 같은 컨텍스트/마스터를 쓰도록 노출 */
+  get context() { return this.ctx; }
+  get masterGain() { return this.master; }
+
   private ambientNodes: { gain: GainNode } | null = null;
   /** 은은한 바람 앰비언스 (로우패스 노이즈 + 느린 LFO). 한 번만 시작 */
   startAmbient() {
