@@ -1,5 +1,8 @@
 import { settings } from '@/core/settings';
 
+/** 발밑 표면 — 발소리 합성에 쓴다 */
+export type Surface = 'grass' | 'sand' | 'water' | 'dirt' | 'gravel' | 'wood';
+
 /**
  * 프로시저럴 효과음 (Web Audio 합성 — 외부 에셋 없음).
  * 첫 사용자 제스처 후에만 AudioContext 가 재생 가능하므로 `unlock()` 을 pointerdown/keydown 에 연결한다.
@@ -87,14 +90,31 @@ export class Sfx {
     o.start(t0); o.stop(t0 + dur + 0.05);
   }
 
-  /** 발소리 — 표면별 합성 (풀: 부드러운 노이즈, 모래: 더 사각·길게, 물: 첨벙) */
-  footstep(speed: number, surface: 'grass' | 'sand' | 'water' = 'grass') {
+  /** 발소리 — 표면별 합성 (풀/흙/자갈: 노이즈 성격, 물: 첨벙) */
+  footstep(speed: number, surface: Surface = 'grass') {
     const s = settings.audio;
     const k = Math.min(1, speed / 5);
     if (surface === 'water') {
       this.noiseBurst({ dur: 0.16 + k * 0.08, gain: s.footstep * (0.5 + 0.6 * k), type: 'bandpass', freq: 900 + Math.random() * 600, q: 0.5, attack: 0.008 });
       this.noiseBurst({ dur: 0.22, gain: s.footstep * 0.35 * k, type: 'highpass', freq: 3000, attack: 0.02 });
       this.thump(90, 0.08, s.footstep * 0.2 * k);
+      return;
+    }
+    if (surface === 'gravel') { // 참배로 자갈 — 잘게 부서지는 고역
+      this.noiseBurst({ dur: 0.11 + k * 0.04, gain: s.footstep * (0.45 + 0.6 * k), type: 'bandpass', freq: 2200 + Math.random() * 1400, q: 0.9, attack: 0.003 });
+      this.noiseBurst({ dur: 0.06, gain: s.footstep * 0.3 * k, type: 'highpass', freq: 5200, attack: 0.002 });
+      this.thump(72 + Math.random() * 18, 0.06, s.footstep * 0.22 * k);
+      return;
+    }
+    if (surface === 'dirt') { // 마른 흙 논두렁 — 둔탁하고 짧게
+      this.noiseBurst({ dur: 0.10 + k * 0.03, gain: s.footstep * (0.4 + 0.6 * k), type: 'lowpass', freq: 900 + Math.random() * 400, q: 0.7, attack: 0.004 });
+      this.noiseBurst({ dur: 0.05, gain: s.footstep * 0.16 * k, type: 'bandpass', freq: 1800, q: 1.2, attack: 0.002 });
+      this.thump(58 + Math.random() * 16, 0.08, s.footstep * 0.32 * k);
+      return;
+    }
+    if (surface === 'wood') { // 툇마루·다리 — 울리는 중역
+      this.thump(150 + Math.random() * 40, 0.12, s.footstep * 0.5 * (0.4 + 0.6 * k));
+      this.noiseBurst({ dur: 0.09, gain: s.footstep * 0.3 * k, type: 'bandpass', freq: 1100, q: 1.6, attack: 0.002 });
       return;
     }
     if (surface === 'sand') {
@@ -139,6 +159,93 @@ export class Sfx {
       o.connect(gn).connect(this.master!); o.start(t0); o.stop(t0 + 0.4);
     }
     this.noiseBurst({ dur: 0.06, gain: settings.audio.combat * 0.2, type: 'highpass', freq: 5000, attack: 0.002 });
+  }
+
+  // --- 여름밤 앰비언스: 벌레·개구리·풍경 (H5 에서 실제 샘플로 교체 예정) ---
+  private nightTimer = 0;
+  private nightOn = false;
+  /** 여름밤 벌레 소리 시작 (바람 앰비언스와 함께 쓴다) */
+  startNight() { this.nightOn = true; }
+  stopNight() { this.nightOn = false; }
+  /** 매 프레임 호출 — 랜덤 간격으로 벌레/개구리/풍경 원샷을 뿌린다 */
+  updateNight(dt: number) {
+    if (!this.nightOn || !this.ready()) return;
+    this.nightTimer -= dt;
+    if (this.nightTimer > 0) return;
+    this.nightTimer = 0.35 + Math.random() * 0.9;
+    const r = Math.random();
+    if (r < 0.5) this.cricket();
+    else if (r < 0.82) this.frog();
+    else this.windChime();
+  }
+  /** 귀뚜라미: 짧은 고역 트릴 */
+  private cricket() {
+    if (!this.ready()) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime + Math.random() * 0.4;
+    const base = 4200 + Math.random() * 1800;
+    const n = 3 + Math.floor(Math.random() * 3);
+    const g = ctx.createGain(); g.gain.value = settings.audio.ambient * (0.5 + Math.random() * 0.5);
+    g.connect(this.master!);
+    for (let i = 0; i < n; i++) {
+      const t = t0 + i * 0.055;
+      const o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = base;
+      const eg = ctx.createGain();
+      eg.gain.setValueAtTime(0.0001, t);
+      eg.gain.exponentialRampToValueAtTime(0.06, t + 0.004);
+      eg.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = base; bp.Q.value = 8;
+      o.connect(bp).connect(eg).connect(g);
+      o.start(t); o.stop(t + 0.05);
+    }
+  }
+  /** 개구리: 낮고 짧은 꾸룩 */
+  private frog() {
+    if (!this.ready()) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime + Math.random() * 0.5;
+    const f = 150 + Math.random() * 110;
+    const o = ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(f, t0);
+    o.frequency.linearRampToValueAtTime(f * 0.72, t0 + 0.16);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.Q.value = 3;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(settings.audio.ambient * 0.55, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+    o.connect(lp).connect(g).connect(this.master!);
+    o.start(t0); o.stop(t0 + 0.25);
+  }
+  /** 풍경(風鈴): 맑은 금속 종 — 아주 가끔 */
+  private windChime() {
+    if (!this.ready()) return;
+    if (Math.random() > 0.35) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime + Math.random() * 0.8;
+    const base = 1500 + Math.random() * 900;
+    for (const [mul, gv] of [[1, 0.26], [2.76, 0.12], [5.4, 0.05]] as [number, number][]) {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = base * mul;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(gv * settings.audio.ambient * 2.2, t0 + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.6);
+      o.connect(g).connect(this.master!);
+      o.start(t0); o.stop(t0 + 1.7);
+    }
+  }
+
+  /** 초칭 밝기 전환 — 종이가 부스럭거리고 불이 커지는 소리 */
+  lanternToggle(level: number) {
+    if (!this.ready()) return;
+    this.noiseBurst({ dur: 0.13, gain: settings.audio.footstep * 0.5, type: 'bandpass', freq: 2600 + Math.random() * 900, q: 0.8, attack: 0.004 });
+    if (level > 0) {
+      const ctx = this.ctx!, t0 = ctx.currentTime;
+      const o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(level === 2 ? 320 : 220, t0);
+      o.frequency.exponentialRampToValueAtTime(level === 2 ? 620 : 360, t0 + 0.18);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(settings.audio.footstep * 0.35, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
+      o.connect(g).connect(this.master!); o.start(t0); o.stop(t0 + 0.25);
+    }
   }
 
   jump() {

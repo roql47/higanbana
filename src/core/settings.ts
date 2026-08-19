@@ -4,8 +4,8 @@
  */
 export const settings = {
   movement: {
-    walkSpeed: 1.6, // m/s (Shift) — walk 클립 고유속도 1.15 → 재생 1.4×
-    runSpeed: 5.0, // m/s (기본) — run 클립 고유속도 3.6 → 재생 1.4×
+    walkSpeed: 1.5, // m/s (기본) — walk 클립 고유속도 1.15 → 재생 1.3×
+    runSpeed: 3.6, // m/s (Shift 달리기) — run 클립 고유속도 3.6 → 재생 1.0×
     accelGround: 14, // 1/s — 목표 속도로 수렴하는 지수 감쇠 계수
     decelGround: 18,
     accelAir: 4,
@@ -71,6 +71,33 @@ export const settings = {
     ambient: 0.12,
     combat: 0.7,
   },
+  night: {
+    fogDensity: 0.018, // FogExp2 — 실질 시야 약 55 m (맵 경계 200 m 는 완전히 잠긴다)
+    fogColor: 0x141d30,
+    moonElevation: 34, // deg
+    moonAzimuth: -55,
+    moonIntensity: 1.5,
+    hemiIntensity: 0.40,
+    envIntensity: 0.42,
+    mistOpacity: 0.30,
+    mistHeight: 1.1, // m — 논 위 안개층 높이
+  },
+  chochin: {
+    /** 0=끔 1=약 2=강 */
+    level: 2,
+    color: 0xffb063,
+    rangeLow: 4.5,
+    rangeHigh: 11,
+    intensityLow: 1.6,
+    intensityHigh: 7.0,
+    /** 감지 배율(H2 에서 senses 가 읽는다) — 끔/약/강 */
+    detectionMul: [0.6, 1.4, 3.0],
+    flicker: 0.14, // 0..1 불꽃 흔들림 세기
+    swayLag: 9, // 1/s — 손을 따라가는 진자 감쇠(작을수록 크게 흔들림)
+    /** L_Hand 본 기준 로컬 오프셋(m) */
+    gripPos: [0.02, -0.1, 0.05] as [number, number, number],
+    size: 0.34, // 초칭 전체 높이(m)
+  },
   physics: {
     controllerOffset: 0.02, // Rapier 캐릭터 컨트롤러가 장애물과 유지하는 간격
     autostepHeight: 0.35,
@@ -80,27 +107,27 @@ export const settings = {
     minSlopeSlide: 52, // deg
   },
   camera: {
-    distance: 4.6,
-    minDistance: 1.8,
-    maxDistance: 9,
-    pivotHeight: 1.45,
-    shoulderOffset: 0.35,
+    distance: 2.6,
+    minDistance: 1.4,
+    maxDistance: 5.0,
+    pivotHeight: 1.38,
+    shoulderOffset: 0.5,
     sensitivity: 0.0022, // rad / px
     minPitch: -0.55, // rad (아래로)
     maxPitch: 1.15, // rad (위로)
     followLag: 12, // 1/s — 피벗 위치 추적 감쇠
     zoomLag: 10,
-    baseFov: 55,
-    runFovBoost: 7,
+    baseFov: 58,
+    runFovBoost: 6,
     fovLag: 6,
     collisionRadius: 0.25,
-    minCollisionDistance: 0.5, // 벽에 막혔을 때 카메라가 피벗에 접근할 수 있는 최소 거리
-    fadeDistance: 1.3, // 이 거리보다 가까우면 캐릭터를 반투명 처리 시작
+    minCollisionDistance: 0.65, // 벽에 막혔을 때 카메라가 피벗에 접근할 수 있는 최소 거리
+    fadeDistance: 1.15, // 이 거리보다 가까우면 캐릭터를 반투명 처리 시작
     collisionPullSpeed: 40, // 벽 만나면 빠르게 당기고
     collisionReleaseSpeed: 6, // 풀릴 땐 천천히
   },
   render: {
-    exposure: 0.62, // Sky 셰이더가 HDR로 밝아 1.0이면 완전히 날아감
+    exposure: 0.95, // 밤: 초칭 하나가 유일한 광원이라 노출을 올린다
     sunElevation: 40, // deg
     sunAzimuth: 150, // deg
     sunIntensity: 2.4,
@@ -110,18 +137,32 @@ export const settings = {
     rayleigh: 1.6,
     mieCoefficient: 0.004,
     mieDirectionalG: 0.8,
-    aoIntensity: 2.0,
-    aoRadius: 1.2,
-    bloomIntensity: 0.2, // 하늘이 블룸에 걸리면 뿌옇게 됨 → 낮게
-    bloomThreshold: 1.0,
-    vignetteDarkness: 0.55,
-    vignetteOffset: 0.35,
-    saturation: 0.15, // -1..1
-    contrast: 0.08, // -1..1
+    aoIntensity: 2.4,
+    aoRadius: 1.0,
+    bloomIntensity: 0.75, // 밤 축제 = 등불 번짐이 주인공
+    bloomThreshold: 0.55,
+    vignetteDarkness: 0.68,
+    vignetteOffset: 0.22,
+    saturation: -0.18, // -1..1 (밤: 채도를 빼고 붉은 계열만 살린다 — 피안화는 H4)
+    contrast: 0.16, // -1..1
     brightness: 0.0,
-    shadowRadius: 30, // 섀도 프러스텀 반경(캐릭터 중심) — 섬 월드는 넓게, 맵 4096
+    shadowRadius: 18, // 섀도 프러스텀 반경(캐릭터 중심) — 섬 월드는 넓게, 맵 4096
     showColliders: false,
   },
 };
 
 export type Settings = typeof settings;
+
+/** `?scene=sandbox` (초원 섬, v0.8) 로 돌아갈 때 되돌리는 낮 세팅 */
+export const DAY_PRESET = {
+  movement: { walkSpeed: 1.6, runSpeed: 5.0 },
+  camera: { distance: 4.6, pivotHeight: 1.45, minDistance: 1.8, maxDistance: 9, shoulderOffset: 0.35, baseFov: 55, runFovBoost: 7, minCollisionDistance: 0.5, fadeDistance: 1.3 },
+  render: { exposure: 0.62, aoIntensity: 2.0, aoRadius: 1.2, bloomIntensity: 0.2, bloomThreshold: 1.0, vignetteDarkness: 0.55, vignetteOffset: 0.35, saturation: 0.15, contrast: 0.08, shadowRadius: 30 },
+};
+
+/** DAY_PRESET 을 settings 에 덮어쓴다 */
+export function applyDayPreset() {
+  Object.assign(settings.movement, DAY_PRESET.movement);
+  Object.assign(settings.camera, DAY_PRESET.camera);
+  Object.assign(settings.render, DAY_PRESET.render);
+}

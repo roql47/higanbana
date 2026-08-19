@@ -77,7 +77,7 @@ export function createSky(renderer: THREE.WebGLRenderer, scene: THREE.Scene, sha
 
   /** 섀도 프러스텀을 대상(캐릭터) 주변으로 옮긴다 — 매 프레임 호출 */
   const tmp = new THREE.Vector3();
-  function follow(target: THREE.Vector3) {
+  function follow(target: THREE.Vector3, _dt = 0) {
     const r = settings.render.shadowRadius;
     sc.left = -r; sc.right = r; sc.top = r; sc.bottom = -r;
     sc.updateProjectionMatrix();

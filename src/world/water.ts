@@ -42,7 +42,7 @@ export class Water {
 }
 
 /** 노이즈 하이트 → 노멀맵 (탄젠트 공간, +Z up) */
-function makeWaterNormal(size: number, scale: number) {
+export function makeWaterNormal(size: number, scale: number) {
   const s = new Simplex2D(99);
   const h = new Float32Array(size * size);
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {

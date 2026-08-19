@@ -4,8 +4,11 @@ import { createPostFX } from '@/core/postfx';
 import { Physics } from '@/core/physics';
 import { Input } from '@/core/input';
 import { createTweaks } from '@/core/tweaks';
-import { settings } from '@/core/settings';
+import { settings, applyDayPreset } from '@/core/settings';
 import { createSky } from '@/world/sky';
+import { createNightSky } from '@/world/nightSky';
+import { Village } from '@/world/village';
+import { Chochin } from '@/light/chochin';
 import { createPlayground } from '@/world/playground';
 import { Island, loadTerrainTextures } from '@/world/terrain';
 import { Water } from '@/world/water';
@@ -15,7 +18,7 @@ import { CharacterController } from '@/character/controller';
 import { PlaceholderCharacter } from '@/character/placeholder';
 import { CharacterModel } from '@/character/model';
 import { CharacterAnimator } from '@/character/animator';
-import { Sfx } from '@/audio/sfx';
+import { Sfx, type Surface } from '@/audio/sfx';
 import { CHARACTER } from '@/character/config';
 import { ThirdPersonCamera } from '@/camera/thirdPerson';
 import { detectQuality, saveQuality, lowerLevel, profileFor, QUALITY_LEVELS, type QualityLevel, type QualityProfile } from '@/core/quality';
@@ -60,17 +63,27 @@ async function main() {
   const camera = createCamera();
 
   const physics = await Physics.create();
-  const sky = createSky(renderer, scene, quality.shadowMap);
 
-  // --- 월드: 기본은 섬, ?scene=playground 로 테스트 지형 ---
-  const sceneName = new URLSearchParams(location.search).get('scene') ?? 'island';
+  // --- 씬: 기본은 마을(공포). ?scene=sandbox = v0.8 초원 섬, ?scene=playground = 테스트 지형 ---
+  const sceneName = new URLSearchParams(location.search).get('scene') ?? 'village';
+  const isVillage = sceneName === 'village';
+  if (!isVillage) applyDayPreset(); // 초원·테스트 지형은 낮 세팅으로 되돌린다
+  const sky = isVillage ? createNightSky(renderer, scene) : createSky(renderer, scene, quality.shadowMap);
+
   let island: Island | null = null;
   let water: Water | null = null;
   let props: Props | null = null;
   let grass: Grass | null = null;
+  let village: Village | null = null;
   const spawn = new THREE.Vector3(0, 0.05, 0);
   if (sceneName === 'playground') {
     createPlayground(scene, physics);
+    scene.fog = new THREE.Fog(0xd7e3ec, 70, 240);
+  } else if (isVillage) {
+    const tex = await loadTerrainTextures(renderer);
+    village = new Village(scene, physics, tex, { riceBudget: Math.round(quality.grassCount * 0.8) });
+    spawn.copy(village.spawn);
+    console.info('[village] 논 배미', village.ground.paddyCells().length, '· 벼', village.paddy.riceCount, '· 토리이', village.torii.count);
   } else {
     const tex = await loadTerrainTextures(renderer);
     island = new Island(scene, physics, tex, { size: 180, resolution: 180, waterLevel: 0 });
@@ -91,8 +104,9 @@ async function main() {
 
   const controller = new CharacterController(physics, spawn);
   const tpCam = new ThirdPersonCamera(camera, physics, controller.body);
-  /** 발밑 표면: 수면 근처는 물/모래 */
-  const surfaceAt = (p: THREE.Vector3): 'grass' | 'sand' | 'water' => {
+  /** 발밑 표면: 마을은 자갈/흙/논물, 섬은 수면 근처가 물/모래 */
+  const surfaceAt = (p: THREE.Vector3): Surface => {
+    if (village) return village.surfaceAt(p);
     if (!island) return 'grass';
     const h = p.y - island.waterLevel;
     if (h < 0.12) return 'water';
@@ -125,15 +139,22 @@ async function main() {
     console.warn('[character] GLB 로드 실패 → 캡슐 유지', e);
   }
 
-  // --- 인벤토리 · 장비 · 전투 · 허수아비 ---
+  // --- 초칭(왼손 등불) — 마을의 유일한 그림자 광원 ---
+  let chochin: Chochin | null = null;
+  if (isVillage && model) {
+    chochin = new Chochin(model.root, quality.shadowMap >= 3072 ? 1024 : 512);
+    console.info('[chochin] level', chochin.level);
+  }
+
+  // --- 인벤토리 · 장비 · 전투 · 허수아비 (전투는 sandbox 전용) ---
   const inventory = new Inventory();
   const invUI = new InventoryUI(inventory);
   const popups = new Popups(camera);
   let equipment: Equipment | null = null;
   let combat: Combat | null = null;
-  const dummies = new Dummies(scene, physics, island);
+  let dummies: Dummies | null = null;
   let hitstop = 0;
-  if (model) {
+  if (model && !isVillage) {
     equipment = new Equipment(model);
     combat = new Combat(model, equipment, {
       onSwing: (i) => sfx.swing(i),
@@ -145,15 +166,19 @@ async function main() {
     inventory.on('equip', applyEquip);
     applyEquip();
   }
-  // 허수아비 3개 (스폰 앞)
-  const dummySpots: [number, number][] = [[2.5, -6], [-1.5, -7.5], [5.5, -3.5]];
-  void dummies.spawn('/models/props/dummy.glb', dummySpots).then(() => { if (combat) combat.targets = dummies.list; }).catch((e) => console.warn('[dummies]', e));
-  dummies.onHit = (_d, _dmg, _pos, killed) => { if (killed) sfx.dummyDown(); };
+  // 허수아비 3개 (스폰 앞) — sandbox 전용
+  if (island && !isVillage) {
+    dummies = new Dummies(scene, physics, island);
+    const dummySpots: [number, number][] = [[2.5, -6], [-1.5, -7.5], [5.5, -3.5]];
+    const d = dummies;
+    void d.spawn('/models/props/dummy.glb', dummySpots).then(() => { if (combat) combat.targets = d.list; }).catch((e) => console.warn('[dummies]', e));
+    d.onHit = (_dd, _dmg, _pos, killed) => { if (killed) sfx.dummyDown(); };
+  }
 
-  // 월드에 놓인 검 (아직 안 주웠으면)
+  // 월드에 놓인 검 (아직 안 주웠으면) — sandbox 전용
   let worldSword: THREE.Object3D | null = null;
   const swordSpot = new THREE.Vector3(3, 0, 3);
-  if (!inventory.has('sword') && ITEMS['sword']?.model) {
+  if (!isVillage && !inventory.has('sword') && ITEMS['sword']?.model) {
     swordSpot.y = (island ? island.heightAt(swordSpot.x, swordSpot.z) : 0);
     Props.loader().loadAsync(ITEMS['sword'].model).then((gltf) => {
       const g = new THREE.Group();
@@ -197,6 +222,7 @@ async function main() {
       if (!inventory.mainhand) { const idx = inventory.slots.findIndex((s) => s.itemId === 'sword'); if (idx >= 0) inventory.equip(idx); }
       sfx.equip();
     }
+    if (e.code === 'KeyQ' && chochin && !invUI.isOpen) { chochin.cycle(); sfx.lanternToggle(chochin.level); }
     if (e.code === 'KeyR') controller.teleport(spawn);
     if (e.code === 'KeyM') { muted = !muted; sfx.setMaster(muted ? 0 : settings.audio.master); }
     if (e.code === 'KeyF') { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.(); }
@@ -211,6 +237,8 @@ async function main() {
     settings.render.shadowRadius = q.shadowRadius;
     sky.setShadowMapSize(q.shadowMap);
     grass?.setBudget(q.grassCount);
+    village?.paddy.setBudget(Math.round(q.grassCount * 0.8));
+    chochin?.setShadowMapSize(q.shadowMap >= 3072 ? 1024 : 512);
   }
   const toast = (msg: string) => {
     const el = document.createElement('div'); el.className = 'toast'; el.textContent = msg; document.body.appendChild(el);
@@ -246,6 +274,7 @@ async function main() {
   const start = () => {
     if (started) return; started = true;
     sfx.unlock();
+    if (isVillage) sfx.startNight();
     loadingEl.classList.add('hidden');
     tpCam.startIntro(3.4);
     setTimeout(() => loadingEl.remove(), 1200);
@@ -256,7 +285,7 @@ async function main() {
   window.addEventListener('keydown', (e) => { if (e.code === 'Enter' || e.code === 'Space') start(); }, { once: false });
 
   if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies };
+    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin };
   }
 
   // --- 리사이즈 ---
@@ -297,30 +326,35 @@ async function main() {
     // 입력 → 캐릭터
     const axis = uiOpen ? { x: 0, y: 0 } : input.moveAxis();
     if (combat && combat.moveScale < 1) { axis.x *= combat.moveScale; axis.y *= combat.moveScale; }
+    const shift = input.isDown('ShiftLeft') || input.isDown('ShiftRight');
     controller.update(dt, {
       axis,
       cameraYaw: tpCam.headingYaw,
-      walk: input.isDown('ShiftLeft') || input.isDown('ShiftRight'),
+      // 마을(공포)에서는 기본이 걷기, Shift 가 달리기 — 초원에서는 반대(v0.8 그대로)
+      walk: isVillage ? !shift : shift,
       jumpPressed: !uiOpen && input.justPressed('Space'),
       jumpHeld: input.isDown('Space'),
     });
     physics.step(dt);
-    dummies.update(dt);
+    dummies?.update(dt);
     // 오래 안 쓰면 칼집으로
     if (equipment?.hasWeapon) equipment.setDrawn(combat!.sinceLastAttack < 8);
     // 줍기 프롬프트
     if (worldSword) promptEl.classList.toggle('hidden', controller.position.distanceTo(swordSpot) > 2.2 || uiOpen);
 
     // 낙사/익사 방지
-    const killY = island ? island.waterLevel - 1.6 : -20;
+    const killY = village ? village.killY : island ? island.waterLevel - 1.6 : -20;
     if (controller.position.y < killY) controller.teleport(spawn);
     water?.update(dt);
     props?.update();
     grass?.update(dt);
+    village?.update(dt, controller.position);
+    sfx.updateNight(dt);
 
     // 카메라
     const mouse = input.consumeMouseDelta();
     tpCam.update(dt, uiOpen ? { x: 0, y: 0 } : mouse, uiOpen ? 0 : input.consumeWheel(), controller.position, controller.horizontalSpeed, controller.grounded);
+    village?.torii.update(camera.position); // 카메라가 확정된 뒤 코앞의 토리이를 접는다
     popups.update();
 
     // 시각
@@ -331,13 +365,14 @@ async function main() {
       model.headPitchTarget = 0;
     }
     visual.update(dt, controller);
+    chochin?.update(dt, controller.yaw, controller.horizontalSpeed);
     {
       const c = settings.camera;
       const t = (tpCam.currentDistance - c.minCollisionDistance) / Math.max(0.01, c.fadeDistance - c.minCollisionDistance);
       visual.setVisibility(t);
     }
     shadowTarget.copy(controller.position);
-    sky.follow(shadowTarget);
+    sky.follow(shadowTarget, dt);
     physics.updateDebug(scene, settings.render.showColliders);
 
     if (render) postfx.composer.render(dt);

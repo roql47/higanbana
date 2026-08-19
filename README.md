@@ -1,11 +1,16 @@
-# 3D_motion
+# 히간바나 (彼岸花)
 
-브라우저에서 오픈월드 스타일로 움직이는 고품질 3D 캐릭터 1명. 기획: [PLAN.md](PLAN.md)
+사람 없는 여름밤 마츠리. 초칭 하나를 들고 신사로 — 그림자복도(影廊)류 3인칭 공포 게임.
+기획: [PLAN-HORROR.md](PLAN-HORROR.md) (게임) · [PLAN.md](PLAN.md) (엔진·캐릭터, v0.8)
+
+> 3D_motion v0.8(초원 섬 3인칭 캐릭터)에서 이어진다. 초원 버전은 `?scene=sandbox` 로 그대로 남아 있다.
 
 ## 실행
 ```bash
 npm install
-npm run dev      # http://localhost:5173  (?scene=playground 테스트 지형, ?quality=low|medium|high, ?debug 통계/패널)
+npm run dev      # http://localhost:5173
+                 # ?scene=sandbox 초원 섬(v0.8) · ?scene=playground 테스트 지형
+                 # ?quality=low|medium|high|ultra · ?debug 통계/패널
 npm run typecheck
 npm run build    # dist/ (정적 배포: Vercel/Netlify/GitHub Pages 어디든)
 npm run preview  # dist/ 미리보기 http://localhost:4173
@@ -24,13 +29,16 @@ node scripts/build-props.ts       # → public/models/props/*.glb
 
 ## 조작
 - 캔버스 클릭 → 포인터락(마우스 시점). 드래그 → 오빗. `Esc` 해제
-- `W A S D` 이동 · `Shift` 걷기 · `Space` 점프 · 휠 줌 · **좌클릭/J 공격 · Tab 인벤토리 · E 줍기** · `R` 리셋 · `M` 음소거 · `F` 전체화면 · `H` 튜닝 패널(dev/?debug)
-- 터치 기기: 왼쪽 가상 조이스틱, 오른쪽 드래그 시점, 점프/걷기 버튼
+- `W A S D` 이동(기본 걷기) · `Shift` 달리기 · **`Q` 초칭 밝기(끔·약·강)** · 휠 줌
+- `R` 리셋 · `M` 음소거 · `F` 전체화면 · `H` 튜닝 패널(dev/?debug)
+- `?scene=sandbox` 에서는 v0.8 조작 그대로 (Shift 걷기 · Space 점프 · 좌클릭/J 공격 · Tab 인벤토리 · E 줍기)
 
 ## 구조
 ```
 src/core       renderer, postfx(N8AO/Bloom/ACES/Vignette/SMAA), physics(Rapier), input, settings, tweaks
-src/world      sky, terrain(섬 하이트맵+heightfield), water, grass(인스턴스 풀), props(Tripo 소품 스캐터·콜라이더·밀기), playground(테스트 지형, ?scene=playground)
+src/world/village  ground(마을 지형·논 격자·참배로), paddy(논 수면+줄 심은 벼), torii(명신형 파라메트릭·센본토리이), mist(밤안개)
+src/light      chochin(왼손 초칭 — 유일한 그림자 광원, 3단 밝기 = 감지 배율)
+src/world      nightSky(밤하늘·별·달·PMREM), sky/terrain/water/grass/props/playground(초원 sandbox 용)
 src/character  controller(KinematicCharacterController), model(GLB 로더), animator(상태머신·발 접지), placeholder(캡슐 폴백)
 src/audio      sfx(프로시저럴 발소리/점프/착지/휘두름/타격)
 src/items      items(정의), inventory(상태·저장), inventoryUI(Tab 오버레이)
