@@ -140,6 +140,10 @@ export class CharacterController {
     this.tmpDesired.x = this.velocity.x * dt;
     this.tmpDesired.y = this.velocity.y * dt;
     this.tmpDesired.z = this.velocity.z * dt;
+    // 외부 밀치기 (한 프레임 소비)
+    this.tmpDesired.x += this.externalPush.x * dt;
+    this.tmpDesired.z += this.externalPush.z * dt;
+    this.externalPush.set(0, 0, 0);
     this.ctrl.computeColliderMovement(this.collider, this.tmpDesired);
     const mv = this.ctrl.computedMovement();
     this.tmpMoved.set(mv.x, mv.y, mv.z);
@@ -184,6 +188,9 @@ export class CharacterController {
   }
 
   /** 낙사 방지 등 강제 이동 */
+  /** 외부 밀치기(도로타보 등): 다음 update 에서 이동량에 더해진다 */
+  readonly externalPush = new THREE.Vector3();
+
   teleport(p: THREE.Vector3) {
     this.body.setTranslation({ x: p.x, y: p.y + CENTER_Y, z: p.z }, true);
     this.position.copy(p);

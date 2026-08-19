@@ -34,6 +34,7 @@ import { Props } from '@/world/props';
 import { NavGrid } from '@/ai/navgrid';
 import { Senses } from '@/ai/senses';
 import { Hunter } from '@/ai/hunter';
+import { Dorotabo } from '@/ai/dorotabo';
 import { Matsuri } from '@/audio/matsuri';
 
 interface CharacterVisual {
@@ -163,6 +164,7 @@ async function main() {
   // --- 요괴 (H2: 팔척귀신 + 여우 요괴) ---
   let senses: Senses | null = null;
   let hunters: Hunter[] = [];
+  let dorotabo: Dorotabo | null = null;
   let matsuri: Matsuri | null = null;
   const deathEl = document.createElement('div');
   deathEl.className = 'death-fade';
@@ -213,6 +215,9 @@ async function main() {
       events,
     }));
     for (const h of hunters) scene.add(h.root);
+    // 도로타보: 논의 주인 — 추격자가 아니라 영역 규칙 (논 은신 남용 → 출현 + 소음으로 추격자를 부른다)
+    dorotabo = new Dorotabo(village.ground, senses, sfx, { url: '/models/yokai-dorotabo.glb', height: 1.7 });
+    scene.add(dorotabo.root);
   }
 
   // --- 인벤토리 · 장비 · 전투 · 허수아비 (전투는 sandbox 전용) ---
@@ -292,7 +297,7 @@ async function main() {
       sfx.equip();
     }
     if (e.code === 'KeyQ' && chochin && !invUI.isOpen) { chochin.cycle(); sfx.lanternToggle(chochin.level); }
-    if (e.code === 'KeyR') { controller.teleport(spawn); for (const h of hunters) h.reset(); }
+    if (e.code === 'KeyR') { controller.teleport(spawn); for (const h of hunters) h.reset(); dorotabo?.reset(); }
     if (e.code === 'KeyM') { muted = !muted; sfx.setMaster(muted ? 0 : settings.audio.master); }
     if (e.code === 'KeyF') { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.(); }
   });
@@ -354,7 +359,7 @@ async function main() {
   window.addEventListener('keydown', (e) => { if (e.code === 'Enter' || e.code === 'Space') start(); }, { once: false });
 
   if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin, hunters, get hunter() { return hunters[0]; }, senses, matsuri };
+    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri };
   }
 
   // --- 리사이즈 ---
@@ -416,10 +421,15 @@ async function main() {
         if (deathT <= 0) {
           controller.teleport(spawn);
           for (const h of hunters) h.reset();
+          dorotabo?.reset();
           deathEl.classList.remove('show');
         }
       } else {
         for (const h of hunters) h.update(dt, controller.position, controller.horizontalSpeed);
+        if (dorotabo) {
+          dorotabo.update(dt, controller.position, controller.horizontalSpeed);
+          if (dorotabo.pushVelocity.lengthSq() > 0.01) controller.externalPush.copy(dorotabo.pushVelocity);
+        }
       }
       // 가장 가까운 요괴가 소리·근접 신호의 근원
       let nearest = hunters[0]!;

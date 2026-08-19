@@ -113,6 +113,17 @@ export const settings = {
     noiseRun: 12, // m — 달리기
     gaitJitter: 0.35, // 0..1 — 걸음 어긋남(재생 속도 요동)
   },
+  dorotabo: {
+    threshold: 4.0, // 노출 임계(초 환산) — 넘으면 출현
+    exposeMoving: 2.2, // 논에서 이동 시 노출 증가 배율
+    exposeStill: 0.3, // 가만히 있을 때 (벼 은신은 허용, 남용만 벌한다)
+    riseTime: 1.1, // s — 솟아오르는 시간
+    slideSpeed: 1.6, // m/s — 진흙 위 미끄러짐
+    pushRange: 2.2, // m — 밀어내기 시작 거리
+    pushSpeed: 3.4, // m/s — 최대 밀어내기 속도
+    noiseRadius: 22, // m — 울음 소음 반경 (추격자를 부른다)
+    cooldown: 12, // s — 가라앉은 뒤 재출현 대기
+  },
   physics: {
     controllerOffset: 0.02, // Rapier 캐릭터 컨트롤러가 장애물과 유지하는 간격
     autostepHeight: 0.35,

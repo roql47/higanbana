@@ -311,6 +311,45 @@ export class Sfx {
     }
   }
 
+  /** 도로타보 — 진흙이 갈라지며 솟는 소리: 저역 럼블 + 젖은 첨벙 */
+  mudRise() {
+    if (!this.ready()) return;
+    const s = settings.audio;
+    this.thump(38, 0.7, s.combat * 0.9);
+    this.noiseBurst({ dur: 0.55, gain: s.combat * 0.55, type: 'lowpass', freq: 300, q: 0.8, attack: 0.03 });
+    this.noiseBurst({ dur: 0.4, gain: s.combat * 0.45, type: 'bandpass', freq: 900, freqEnd: 380, q: 0.6, attack: 0.05 });
+    for (let i = 0; i < 5; i++) {
+      this.tap(this.ctx!.currentTime + 0.15 + Math.random() * 0.4, 1600 + Math.random() * 2400, 2.5, 0.05, s.combat * 0.25, 'bandpass');
+    }
+  }
+
+  /** 도로타보 — 울부짖음: 포먼트 있는 낮은 신음("논 돌려내라"의 자리). H5 에서 샘플 교체 */
+  dorotaboWail() {
+    if (!this.ready()) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime;
+    const s = settings.audio;
+    const o = ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(95, t0);
+    o.frequency.linearRampToValueAtTime(150, t0 + 0.5);
+    o.frequency.linearRampToValueAtTime(78, t0 + 1.5);
+    const f1 = ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 350; f1.Q.value = 4;
+    const f2 = ctx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 780; f2.Q.value = 6;
+    const sum = ctx.createGain();
+    f1.connect(sum); f2.connect(sum);
+    const e = ctx.createGain();
+    e.gain.setValueAtTime(0.0001, t0);
+    e.gain.exponentialRampToValueAtTime(s.combat * 0.85, t0 + 0.25);
+    e.gain.setValueAtTime(s.combat * 0.85, t0 + 0.9);
+    e.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.6);
+    // 목이 떨리는 비브라토
+    const vib = ctx.createOscillator(); vib.frequency.value = 6.5;
+    const vibG = ctx.createGain(); vibG.gain.value = 9;
+    vib.connect(vibG).connect(o.frequency);
+    o.connect(f1); o.connect(f2);
+    sum.connect(e).connect(this.master!);
+    o.start(t0); vib.start(t0); o.stop(t0 + 1.7); vib.stop(t0 + 1.7);
+  }
+
   jump() {
     const s = settings.audio;
     this.noiseBurst({ dur: 0.18, gain: s.jump * 0.5, type: 'bandpass', freq: 400, freqEnd: 1800, q: 1.2, attack: 0.02 });
