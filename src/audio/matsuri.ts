@@ -23,6 +23,7 @@ export class Matsuri {
   private bellT = 0;
   private getaT = 0;
   private poT = 0;
+  private heartT = 0;
   private chase = false;
   private silence = 0;
 
@@ -85,6 +86,17 @@ export class Matsuri {
     this.panner.positionZ.value = hunterPos.z;
     this.bus!.gain.value = settings.audio.matsuri;
 
+    // --- 심장소리: 내 몸의 소리라 무지향(패너 미사용). 가까울수록 빠르고 크게. 정적 중에도 뛴다 ---
+    const prox = THREE.MathUtils.clamp((24 - dist) / 20, 0, 1);
+    if (prox > 0.03) {
+      this.heartT -= dt;
+      if (this.heartT <= 0) {
+        const period = (1.15 - 0.65 * prox) * (this.chase ? 0.85 : 1);
+        this.heartT = period;
+        this.heartbeat(ctx, Math.pow(prox, 1.4) * settings.audio.heartbeat * (this.chase ? 1.25 : 1));
+      }
+    }
+
     if (this.silence > 0) { this.silence -= dt; return; }
 
     if (this.chase) {
@@ -133,6 +145,26 @@ export class Matsuri {
       this.bellT = 1.24;
       this.bell(ctx);
     }
+  }
+
+  /** 두근(lub-dub): 저역 사인 2연타. 마스터 직결(무지향) */
+  private heartbeat(ctx: AudioContext, vol: number) {
+    if (vol < 0.01) return;
+    const master = this.sfx.masterGain!;
+    const beat = (t: number, freq: number, v: number) => {
+      const o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(freq, t);
+      o.frequency.exponentialRampToValueAtTime(freq * 0.6, t + 0.12);
+      const e = ctx.createGain();
+      e.gain.setValueAtTime(0.0001, t);
+      e.gain.exponentialRampToValueAtTime(v, t + 0.012);
+      e.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      o.connect(e).connect(master);
+      o.start(t); o.stop(t + 0.2);
+    };
+    const t0 = ctx.currentTime;
+    beat(t0, 62, vol);            // lub
+    beat(t0 + 0.17, 50, vol * 0.6); // dub
   }
 
   // --- 악기 합성 ---

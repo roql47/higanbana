@@ -160,9 +160,9 @@ async function main() {
     console.info('[chochin] level', chochin.level);
   }
 
-  // --- 팔척귀신 (H2) ---
+  // --- 요괴 (H2: 팔척귀신 + 여우 요괴) ---
   let senses: Senses | null = null;
-  let hunter: Hunter | null = null;
+  let hunters: Hunter[] = [];
   let matsuri: Matsuri | null = null;
   const deathEl = document.createElement('div');
   deathEl.className = 'death-fade';
@@ -181,23 +181,38 @@ async function main() {
     }
     anchors.push(village.house.entrance.clone());
     anchors.push(new THREE.Vector3(-20, 0, 12), new THREE.Vector3(18, 0, 30));
-    // 스폰: 참배로 북쪽 끝(신사 쪽) — 플레이어 스폰에서 약 80 m (자비 규칙 15 m 을 크게 상회)
+    const events = {
+      onSpotted: () => matsuri?.onSpotted(),
+      onLost: () => { if (!hunters.some((h) => h.state === 'CHASE')) matsuri?.onLost(); },
+      onGrab: () => {
+        deathT = 3.0;
+        deathEl.classList.add('show');
+      },
+    };
+    // 팔척귀신: 참배로 북쪽 끝 스폰(플레이어 스폰에서 약 80 m), 마을 전역 순찰
     const hs = village.ground.roadAt(village.ground.roadLength - 6);
-    hunter = new Hunter(physics, village.ground, grid, senses, {
+    hunters.push(new Hunter(physics, village.ground, grid, senses, {
       url: '/models/yokai-hasshaku.glb',
       height: 2.4,
       spawn: new THREE.Vector3(hs.x, 0, hs.z),
       patrolAnchors: anchors,
-      events: {
-        onSpotted: () => matsuri?.onSpotted(),
-        onLost: () => matsuri?.onLost(),
-        onGrab: () => {
-          deathT = 3.0;
-          deathEl.classList.add('show');
-        },
-      },
-    });
-    scene.add(hunter.root);
+      events,
+    }));
+    // 여우 요괴: 센본토리이·신사 언덕의 주인 — 참배로 상류만 배회
+    const shrineAnchors: THREE.Vector3[] = [];
+    for (const t of [58, 72, 86, 98]) {
+      const rp = village.ground.roadAt(Math.min(t, village.ground.roadLength - 3));
+      shrineAnchors.push(new THREE.Vector3(rp.x, 0, rp.z));
+    }
+    const ks = village.ground.roadAt(village.ground.roadLength - 16);
+    hunters.push(new Hunter(physics, village.ground, grid, senses, {
+      url: '/models/yokai-kitsune.glb',
+      height: 1.78,
+      spawn: new THREE.Vector3(ks.x + 2, 0, ks.z),
+      patrolAnchors: shrineAnchors,
+      events,
+    }));
+    for (const h of hunters) scene.add(h.root);
   }
 
   // --- 인벤토리 · 장비 · 전투 · 허수아비 (전투는 sandbox 전용) ---
@@ -277,7 +292,7 @@ async function main() {
       sfx.equip();
     }
     if (e.code === 'KeyQ' && chochin && !invUI.isOpen) { chochin.cycle(); sfx.lanternToggle(chochin.level); }
-    if (e.code === 'KeyR') { controller.teleport(spawn); hunter?.reset(); }
+    if (e.code === 'KeyR') { controller.teleport(spawn); for (const h of hunters) h.reset(); }
     if (e.code === 'KeyM') { muted = !muted; sfx.setMaster(muted ? 0 : settings.audio.master); }
     if (e.code === 'KeyF') { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.(); }
   });
@@ -339,7 +354,7 @@ async function main() {
   window.addEventListener('keydown', (e) => { if (e.code === 'Enter' || e.code === 'Space') start(); }, { once: false });
 
   if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin, hunter, senses, matsuri };
+    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin, hunters, get hunter() { return hunters[0]; }, senses, matsuri };
   }
 
   // --- 리사이즈 ---
@@ -392,21 +407,30 @@ async function main() {
     physics.step(dt);
     dummies?.update(dt);
 
-    // --- 팔척귀신 ---
-    if (hunter && senses && matsuri && village) {
+    // --- 요괴 ---
+    if (hunters.length && senses && matsuri && village) {
       senses.update(dt);
       if (deathT > 0) {
         // 사망 연출: 3 s 후 리스폰
         deathT -= dt;
         if (deathT <= 0) {
           controller.teleport(spawn);
-          hunter.reset();
+          for (const h of hunters) h.reset();
           deathEl.classList.remove('show');
         }
       } else {
-        hunter.update(dt, controller.position, controller.horizontalSpeed);
+        for (const h of hunters) h.update(dt, controller.position, controller.horizontalSpeed);
       }
-      matsuri.update(dt, hunter.position, camera, hunter.position.distanceTo(controller.position));
+      // 가장 가까운 요괴가 소리·근접 신호의 근원
+      let nearest = hunters[0]!;
+      let nd = Infinity;
+      for (const h of hunters) {
+        const dd = h.position.distanceTo(controller.position);
+        if (dd < nd) { nd = dd; nearest = h; }
+      }
+      matsuri.update(dt, nearest.position, camera, nd);
+      // 초칭 깜빡임 = 위협 근접도 (24 m 부터 서서히, 4 m 에서 최대)
+      if (chochin) chochin.threat = THREE.MathUtils.clamp((24 - nd) / 20, 0, 1);
     }
     // 오래 안 쓰면 칼집으로
     if (equipment?.hasWeapon) equipment.setDrawn(combat!.sinceLastAttack < 8);

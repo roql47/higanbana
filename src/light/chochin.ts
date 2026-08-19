@@ -28,6 +28,8 @@ export class Chochin {
   private swing = 0;
   private swingV = 0;
   private flickerVal = 1;
+  /** 위협 근접도 0..1 — 가까울수록 불꽃이 크게 흔들린다 (main 이 매 프레임 넣어줌) */
+  threat = 0;
   private qParent = new THREE.Quaternion();
   private qCur = new THREE.Quaternion();
   private qTarget = new THREE.Quaternion();
@@ -149,14 +151,17 @@ export class Chochin {
     this.body.parent!.getWorldQuaternion(this.qParent);
     this.body.quaternion.copy(this.qParent).invert().multiply(this.qCur);
 
-    // --- 불꽃 흔들림 ---
+    // --- 불꽃 흔들림 (요괴가 가까울수록 심하게 — 초칭이 무서워한다) ---
     if (c.level > 0) {
-      const f = c.flicker;
+      const th = this.threat;
+      const f = c.flicker * (1 + th * 2.6);
+      const speed = 1 + th * 0.9; // 근접 시 떨림도 빨라진다
       const n =
-        Math.sin(this.t * 11.3) * 0.35 +
-        Math.sin(this.t * 23.7 + 1.3) * 0.22 +
-        Math.sin(this.t * 4.1 + 0.7) * 0.43;
-      const dip = Math.max(0, Math.sin(this.t * 0.9 + 2.1) - 0.94) * 6; // 가끔 크게 흔들림
+        Math.sin(this.t * 11.3 * speed) * 0.35 +
+        Math.sin(this.t * 23.7 * speed + 1.3) * 0.22 +
+        Math.sin(this.t * 4.1 * speed + 0.7) * 0.43;
+      // 가끔 크게 꺼질 듯 흔들림 — 근접할수록 자주·깊게
+      const dip = Math.max(0, Math.sin(this.t * (0.9 + th * 1.6) + 2.1) - (0.94 - th * 0.3)) * 6;
       const targetF = 1 + n * f - dip * f;
       this.flickerVal = damp(this.flickerVal, targetF, 24, dt);
       const base = c.level === 2 ? c.intensityHigh : c.intensityLow;

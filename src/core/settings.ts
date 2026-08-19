@@ -71,6 +71,7 @@ export const settings = {
     ambient: 0.12,
     combat: 0.7,
     matsuri: 0.5,
+    heartbeat: 0.6,
   },
   night: {
     fogDensity: 0.018, // FogExp2 — 실질 시야 약 55 m (맵 경계 200 m 는 완전히 잠긴다)
