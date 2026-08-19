@@ -19,6 +19,9 @@ export function createTweaks(hooks: TweakHooks, visible = true) {
   el.style.top = '12px';
   el.style.right = '12px';
   el.style.width = '300px';
+  // 우상단은 미션 패널 자리 — 튜닝 패널은 기본 숨김(H 로 토글), 열리면 미션 패널 아래로
+  el.style.display = 'none';
+  el.style.top = '176px';
   el.style.zIndex = '10';
   if (!visible) el.style.display = 'none';
 

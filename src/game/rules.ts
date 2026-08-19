@@ -37,6 +37,10 @@ export class Rules {
   private lastPrompt: string | null = null;
   /** 봉납 시 물리 게이트 제거 콜백 (main 이 설정) */
   onGateOpen: (() => void) | null = null;
+  /** 리셋 시 물리 게이트 복구 콜백 */
+  onGateClose: (() => void) | null = null;
+  /** 상태가 바뀔 때마다(픽업·봉납·탈출·리셋) — HUD 갱신용 */
+  onChange: (() => void) | null = null;
 
   constructor(
     private scene: THREE.Scene,
@@ -154,6 +158,7 @@ export class Rules {
       this.collected.add(id);
       const def = this.offerings.find((o) => o.id === id)!;
       this.events.onPickup?.(def, this.collected.size);
+      this.onChange?.();
       this.nearPickup = null;
       return true;
     }
@@ -172,11 +177,13 @@ export class Rules {
       this.openGate();
       this.onGateOpen?.();
       this.events.onOffer?.();
+      this.onChange?.();
       return true;
     }
     if (this.offered && !this.escaped && this.exit.distanceTo(playerPos) < 3.0) {
       this.escaped = true;
       this.events.onEscape?.();
+      this.onChange?.();
       return true;
     }
     return false;
@@ -193,5 +200,7 @@ export class Rules {
     for (const o of this.offerings) this.spawnPickup(o);
     // 게이트 복구
     if (this.gate) { this.gate.removeFromParent(); this.gate = null; this.buildGate(); }
+    this.onGateClose?.();
+    this.onChange?.();
   }
 }

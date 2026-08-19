@@ -238,23 +238,42 @@ async function main() {
   let scares: Scares | null = null;
   if (village) {
     scares = new Scares(scene, village.landmarks, village.square, chochin, sfx);
-    void scares.load().catch((e) => console.warn('[scares]', e));
+    // await — void 로 두면 setProgress(1) 뒤에 DefaultLoadingManager.onProgress 가 다시 불려 로딩 바가 95% 로 되돌아간다
+    await scares.load().catch((e) => console.warn('[scares]', e));
   }
 
   // --- 게임 규칙: 공물 5 → 봉납 → 탈출 ---
   let rules: Rules | null = null;
+  // 우상단 미션 패널: 현재 목표 한 줄 + 공물 체크리스트 (단계 변화 시 renderHud 가 갱신)
+  const missionEl = document.createElement('div'); missionEl.className = 'mission';
+  missionEl.innerHTML = '<div class="mission-title">목표</div><div class="mission-goal"></div><ul class="mission-list"></ul>';
+  document.getElementById('hud')!.appendChild(missionEl);
+  const missionGoal = missionEl.querySelector('.mission-goal') as HTMLElement;
+  const missionList = missionEl.querySelector('.mission-list') as HTMLElement;
+  // 하단: 프롬프트 라인만 (공물 칩은 미션 패널로 이동)
   const hudEl = document.createElement('div'); hudEl.className = 'game-hud';
-  hudEl.innerHTML = '<div class="offerings"></div><div class="prompt-line"></div>';
+  hudEl.innerHTML = '<div class="prompt-line"></div>';
   document.getElementById('hud')!.appendChild(hudEl);
-  const offeringsEl = hudEl.querySelector('.offerings') as HTMLElement;
   const promptLine = hudEl.querySelector('.prompt-line') as HTMLElement;
   const endEl = document.createElement('div'); endEl.className = 'ending';
   document.body.appendChild(endEl);
   const toastEl = document.createElement('div'); toastEl.className = 'pickup-toast'; document.body.appendChild(toastEl);
   let toastT = 0;
+  const OFFERING_HINT: Record<string, string> = { sake: '광장 노점', rice: '논 한가운데', salt: '폐가 부엌', water: '신사 초즈야', sakaki: '어신목 아래' };
   const renderHud = () => {
     if (!rules) return;
-    offeringsEl.innerHTML = rules.offerings.map((o) => `<span class="off ${rules!.collected.has(o.id) ? 'got' : ''}" style="--c:#${o.color.toString(16).padStart(6, '0')}">${o.name}</span>`).join('');
+    const n = rules.count, t = rules.total;
+    let goal: string;
+    if (rules.escaped) goal = '마을을 나왔다';
+    else if (rules.offered) goal = '남쪽 다리로 돌아가 마을을 나간다';
+    else if (rules.allCollected) goal = '신사 배전 앞에서 공물을 봉납한다';
+    else goal = `공물을 모은다  <b>${n}</b> / ${t}`;
+    missionGoal.innerHTML = goal;
+    missionList.innerHTML = rules.offerings.map((o) => {
+      const got = rules!.collected.has(o.id);
+      return `<li class="${got ? 'got' : ''}" style="--c:#${o.color.toString(16).padStart(6, '0')}"><span class="dot"></span><span class="nm">${o.name}</span><span class="where">${got ? '획득' : OFFERING_HINT[o.id] ?? ''}</span></li>`;
+    }).join('');
+    missionEl.classList.toggle('done', rules.offered);
   };
   if (village) {
     const g = village.ground;
@@ -295,16 +314,21 @@ async function main() {
           toastEl.textContent += '  …토리이 쪽에서 방울 소리가 난다';
         }
       },
-      onOffer: () => { sfx.offer(); toastEl.textContent = '축제가 끝났다. 남쪽 다리가 열렸다.'; toastEl.classList.add('show'); toastT = 5; matsuri?.onOffered(); },
+      onOffer: () => { sfx.offer(); toastEl.textContent = '축제가 끝났다. 남쪽 다리가 열렸다.'; toastEl.classList.add('show'); toastT = 5; matsuri?.onOffered(); renderHud(); },
       onEscape: () => {
+        renderHud();
         endEl.innerHTML = '<div class="ending-title">새벽</div><div class="ending-sub">마을을 나왔다.</div><div class="ending-hint">R — 다시</div>';
         endEl.classList.add('show'); sfx.escape();
       },
     });
+    rules.onChange = renderHud;
     renderHud();
     // 출구 보이지 않는 벽 (봉납 전) — 얇은 박스, 봉납 후 제거
-    const gateBody = physics.addStaticBox(exitPos.clone().add(new THREE.Vector3(0, 1.2, 0)), new THREE.Vector3(2.4, 1.2, 0.15));
-    rules.onGateOpen = () => physics.world.removeRigidBody(gateBody.body);
+    // 봉납 시 제거, 리셋 시 복구 (봉납 후 죽으면 다시 막혀야 한다)
+    const gateCenter = exitPos.clone().add(new THREE.Vector3(0, 1.2, 0)), gateHalf = new THREE.Vector3(2.4, 1.2, 0.15);
+    let gateBody: ReturnType<typeof physics.addStaticBox> | null = physics.addStaticBox(gateCenter, gateHalf);
+    rules.onGateOpen = () => { if (gateBody) { physics.world.removeRigidBody(gateBody.body); gateBody = null; } };
+    rules.onGateClose = () => { if (!gateBody) gateBody = physics.addStaticBox(gateCenter, gateHalf); };
   }
 
   // --- 인벤토리 · 장비 · 전투 · 허수아비 (전투는 sandbox 전용) ---
