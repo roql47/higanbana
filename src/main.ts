@@ -83,6 +83,10 @@ async function main() {
     const tex = await loadTerrainTextures(renderer);
     village = new Village(scene, physics, tex, { riceBudget: Math.round(quality.grassCount * 0.8), treeBudget: Math.round(700 * quality.treeScale) });
     spawn.copy(village.spawn);
+    if (new URLSearchParams(location.search).get('at') === 'house') {
+      spawn.copy(village.house.entrance);
+      spawn.y = village.heightAt(spawn.x, spawn.z) + 0.05;
+    }
     console.info('[village] 논 배미', village.ground.paddyCells().length, '· 벼', village.paddy.riceCount, '· 토리이', village.torii.count, '· 삼나무', village.cedars.count);
   } else {
     const tex = await loadTerrainTextures(renderer);
@@ -351,11 +355,13 @@ async function main() {
     village?.update(dt, controller.position);
     sfx.updateNight(dt);
 
-    // 카메라 — 토리이 통로에서는 거리를 조이고 위로 보는 각을 제한한다(빔이 화면을 가로지르지 않게)
+    // 카메라 — 좁은 공간에서는 거리·피치를 명시적으로 조인다
+    //   토리이 통로: 빔이 화면을 가로지르지 않게 / 실내: 벽에 밀려 캐릭터에 코를 박지 않게
     if (village) {
       const inTunnel = village.inToriiCorridor(controller.position);
-      tpCam.constrainDistance = inTunnel ? 1.95 : null;
-      tpCam.constrainPitch = inTunnel ? 0.20 : null;
+      const indoors = village.isIndoors(controller.position);
+      tpCam.constrainDistance = indoors ? 1.55 : inTunnel ? 1.95 : null;
+      tpCam.constrainPitch = indoors ? 0.32 : inTunnel ? 0.20 : null;
     }
     const mouse = input.consumeMouseDelta();
     tpCam.update(dt, uiOpen ? { x: 0, y: 0 } : mouse, uiOpen ? 0 : input.consumeWheel(), controller.position, controller.horizontalSpeed, controller.grounded);
@@ -407,6 +413,7 @@ async function main() {
 
 main().catch((err) => {
   console.error(err);
+  (window as unknown as Record<string, unknown>)['__err'] = String(err?.stack ?? err);
   const el = document.getElementById('hint');
   if (el) el.textContent = `초기화 실패: ${err?.message ?? err}`;
 });

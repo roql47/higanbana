@@ -8,6 +8,7 @@ import { Paddy } from './paddy';
 import { ToriiPath } from './torii';
 import { Mist } from './mist';
 import { Cedars } from './trees';
+import { House } from './house';
 
 export { VillageGround, PADDY_WATER } from './ground';
 
@@ -20,6 +21,7 @@ export class Village {
   readonly paddy: Paddy;
   readonly torii: ToriiPath;
   readonly cedars: Cedars;
+  readonly house: House;
   readonly mist: Mist;
   /** 스폰: 참배로 남쪽 끝, 논 한가운데. 북(−Z)을 보면 토리이 터널이 보인다 */
   readonly spawn = new THREE.Vector3();
@@ -29,6 +31,11 @@ export class Village {
     this.paddy = new Paddy(scene, this.ground, opts.riceBudget ?? 90000);
     this.torii = new ToriiPath(scene, physics, this.ground, { startS: 46, count: 40, spacing: 1.35 });
     this.cedars = new Cedars(scene, physics, this.ground, { target: opts.treeBudget ?? 700 });
+    // 폐가: 논두렁 서쪽, 참배로에서 보이는 자리. 현관이 동쪽(참배로 쪽)을 본다
+    this.house = new House(scene, physics, {
+      position: new THREE.Vector3(-18.2, 0.06, 25.2),
+      yaw: -Math.PI / 2,
+    });
     this.mist = new Mist(scene, 130);
 
     const p = this.ground.roadAt(24);
@@ -39,8 +46,14 @@ export class Village {
 
   update(dt: number, center: THREE.Vector3) {
     this.paddy.update(dt);
-    this.mist.update(dt, center);
+    // 실내에서는 안개 평면이 방을 가로지르므로 끈다
+    const indoors = this.house.contains(center);
+    this.mist.group.visible = !indoors;
+    if (!indoors) this.mist.update(dt, center);
   }
+
+  /** 실내(폐가)인가 */
+  isIndoors(p: THREE.Vector3) { return this.house.contains(p); }
 
   /** 센본토리이 통로 안인가 — 카메라를 조이는 판정에 쓴다 (H2 에서 은신·시야 판정에도) */
   inToriiCorridor(p: THREE.Vector3): boolean {
@@ -53,7 +66,7 @@ export class Village {
   private toriiS1 = 46 + 40 * 1.35;
 
   heightAt(x: number, z: number) { return this.ground.heightAt(x, z); }
-  surfaceAt(p: THREE.Vector3): Surface { return this.ground.surfaceAt(p); }
+  surfaceAt(p: THREE.Vector3): Surface { return this.house.surfaceAt(p) ?? this.ground.surfaceAt(p); }
   /** 이 아래로 떨어지면 리스폰 */
   get killY() { return PADDY_WATER - 3; }
 }

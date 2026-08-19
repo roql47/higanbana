@@ -29,6 +29,9 @@ const ROAD: [number, number][] = [[0, 58], [0, 40], [-2, 26], [0, 10], [1.5, -6]
 const ROAD_W = 1.9; // 반폭
 const ROAD_BLEND = 2.4; // 가장자리 블렌드 폭
 
+/** 폐가 터: 이 사각형 안은 평탄하게 고른다 (집이 지형에 파묻히지 않도록) */
+export const HOUSE_PAD = { x0: -25.5, z0: 19.0, x1: -11.0, z1: 31.5, y: 0.06 };
+
 /** 신사 언덕: z 가 −16 → −42 로 갈수록 8 m 상승 (평균 경사 17°) */
 function hillAt(z: number) { return smoothstep(-16, -42, z) * 8.0; }
 
@@ -150,6 +153,13 @@ export class VillageGround {
     return n * (0.45 + relief * 0.14) + relief;
   }
 
+  /** 폐가 터 안이면 1, 밖으로 2 m 에 걸쳐 0 */
+  private padMask(x: number, z: number) {
+    const p = HOUSE_PAD;
+    const m = Math.min(x - p.x0, p.x1 - x, z - p.z0, p.z1 - z);
+    return clamp((m + 2) / 2, 0, 1);
+  }
+
   heightAt(x: number, z: number): number {
     let h = this.baseAt(x, z);
     // nearestRoad 는 공유 객체를 돌려주므로 값을 즉시 복사한다 (paddyMask 가 같은 객체를 덮어쓴다)
@@ -161,6 +171,9 @@ export class VillageGround {
     // 논 파내기 (참배로 근처는 제외)
     const pm = this.paddyMask(x, z);
     if (pm > 0) h -= PADDY_DEPTH * pm;
+    // 폐가 터 평탄화
+    const pad = this.padMask(x, z);
+    if (pad > 0) h = lerp(h, HOUSE_PAD.y, pad);
     return h;
   }
 
@@ -198,6 +211,9 @@ export class VillageGround {
           }
         }
         if (x1 - x0 < 3) continue;
+        // 폐가 터와 겹치는 배미는 만들지 않는다 (지형은 평탄한데 물·벼만 남으면 깨진다)
+        const P = HOUSE_PAD;
+        if (x0 < P.x1 + 2 && x1 > P.x0 - 2 && z0 < P.z1 + 2 && z1 > P.z0 - 2) continue;
         this.cells.set(`${cx},${cz}`, { x0, z0, x1, z1 });
       }
     }
