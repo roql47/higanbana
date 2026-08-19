@@ -1,6 +1,6 @@
 {
  "version": 1,
- "generated": "2026-08-19T15:04:21.837Z",
+ "generated": "2026-08-19T15:13:36.076Z",
  "sounds": {
   "amb/bonsho": {
    "files": [
@@ -17,7 +17,7 @@
    "files": [
     "amb/crickets/0.mp3"
    ],
-   "gain": 0.18,
+   "gain": 0.45,
    "loop": true,
    "license": "CC0 1.0",
    "durations": [
@@ -28,7 +28,7 @@
    "files": [
     "amb/frogs/0.mp3"
    ],
-   "gain": 0.3,
+   "gain": 0.5,
    "loop": true,
    "license": "CC BY 3.0",
    "durations": [
@@ -60,11 +60,11 @@
    "files": [
     "amb/higurashi/0.mp3"
    ],
-   "gain": 0.3,
+   "gain": 0.4,
    "loop": true,
    "license": "CC BY 4.0",
    "durations": [
-    56
+    80
    ]
   },
   "amb/hototogisu": {
@@ -82,22 +82,11 @@
    "files": [
     "amb/suzumushi/0.mp3"
    ],
-   "gain": 0.22,
+   "gain": 0.5,
    "loop": true,
    "license": "CC BY 2.1 jp",
    "durations": [
     13
-   ]
-  },
-  "amb/wind": {
-   "files": [
-    "amb/wind/0.mp3"
-   ],
-   "gain": 0.22,
-   "loop": true,
-   "license": "CC0",
-   "durations": [
-    55
    ]
   },
   "chochin/toggle": {

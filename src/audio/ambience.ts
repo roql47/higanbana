@@ -16,17 +16,22 @@ export interface AmbienceWorld {
   shrine: THREE.Vector3;
 }
 
-interface Bed { key: string; voice: LoopVoice | null; weight: (w: ZoneWeights) => number; cur: number }
+interface Bed {
+  key: string; voice: LoopVoice | null; weight: (w: ZoneWeights) => number; cur: number;
+  /** 느린 무작위 흔들림 [최소, 최대] — 합창이 밀려왔다 밀려가는 느낌. 일정한 벽처럼 들리지 않게 */
+  wander: [number, number]; wv: number; wt: number; wtimer: number;
+}
 interface ZoneWeights { forest: number; paddy: number; indoors: number }
 
 /**
  * 여름밤 앰비언스 — **실녹음 루프를 구역 가중치로 섞는다.** (샘플이 없는 키는 조용히 건너뛰고, Sfx 의 합성 원샷이 폴백)
  *
- *   바탕(무지향 스테레오):
- *     wind       밤바람          어디서나 · 실내 ×0.35
+ *   바탕(무지향 스테레오). 루프마다 느린 무작위 흔들림(wander)을 곱해 "밀려왔다 밀려가는" 합창으로 만든다.
+ *   짧은 녹음(귀뚜라미 9 s·방울벌레 13 s)은 scatter 모드 — 무작위 조각을 이어 붙여 반복 패턴이 안 들린다
+ *     wind       밤바람          어디서나 · 실내 ×0.35 (샘플 없으면 Sfx 의 합성 바람)
  *     crickets   귀뚜라미         어디서나 · 실내 ×0.5
  *     suzumushi  방울벌레·풀벌레   들판·논두렁에서, 숲으로 갈수록 줄어듦
- *     higurashi  쓰르라미 합창     삼나무 숲·신사 언덕 쪽에서 크게
+ *     higurashi  쓰르라미 합창     삼나무 숲·신사 언덕 쪽에서. 멀리서 가끔 밀려오는 정도 (wander 0.1~1)
  *     frogs      개구리           논 가까이서 크게, 멀어지면 배경으로
  *   실내에서는 전체에 로우패스(벽 너머 소리)
  *
@@ -62,19 +67,20 @@ export class Ambience {
     this.bus = ctx.createGain(); this.bus.gain.value = 1;
     this.lp = ctx.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 20000; this.lp.Q.value = 0.5;
     this.bus.connect(this.lp).connect(master);
-    const defs: { key: string; weight: Bed['weight'] }[] = [
-      { key: 'amb/wind', weight: (w) => 1 - 0.65 * w.indoors },
-      { key: 'amb/crickets', weight: (w) => 1 - 0.5 * w.indoors },
-      { key: 'amb/suzumushi', weight: (w) => (1 - 0.55 * w.forest) * (1 - 0.6 * w.indoors) },
-      { key: 'amb/higurashi', weight: (w) => (0.35 + 0.65 * w.forest) * (1 - 0.5 * w.indoors) },
-      { key: 'amb/frogs', weight: (w) => (0.12 + 0.88 * w.paddy) * (1 - 0.7 * w.indoors) },
+    const defs: { key: string; weight: Bed['weight']; wander: [number, number]; scatter?: [number, number] }[] = [
+      { key: 'amb/wind', weight: (w) => 1 - 0.65 * w.indoors, wander: [0.5, 1], scatter: [6, 12] },
+      { key: 'amb/crickets', weight: (w) => 1 - 0.5 * w.indoors, wander: [0.6, 1], scatter: [2.5, 5] },
+      { key: 'amb/suzumushi', weight: (w) => (1 - 0.55 * w.forest) * (1 - 0.6 * w.indoors), wander: [0.5, 1], scatter: [3, 6] },
+      { key: 'amb/higurashi', weight: (w) => (0.3 + 0.7 * w.forest) * (1 - 0.5 * w.indoors), wander: [0.1, 1] },
+      { key: 'amb/frogs', weight: (w) => (0.1 + 0.9 * w.paddy) * (1 - 0.7 * w.indoors), wander: [0.4, 1] },
     ];
     for (const d of defs) {
       if (!bank.has(d.key)) continue;
       // 페이드인은 update() 의 가중치 스무딩이 맡는다 (gain 파라미터에 자동화와 직접 대입을 섞지 않는다)
-      const voice = bank.loop(d.key, { dest: this.bus, at: Math.random() * 0.5 });
+      const voice = bank.loop(d.key, { dest: this.bus, at: Math.random() * 0.5, mode: d.scatter ? 'scatter' : undefined, grain: d.scatter });
       if (voice) voice.gain.gain.value = 0;
-      this.beds.push({ key: d.key, voice, weight: d.weight, cur: 0 });
+      const w0 = d.wander[0] + Math.random() * (d.wander[1] - d.wander[0]);
+      this.beds.push({ key: d.key, voice, weight: d.weight, cur: 0, wander: d.wander, wv: w0, wt: w0, wtimer: 4 + Math.random() * 10 });
     }
     const mkPanner = (ref: number, roll: number, max: number) => {
       const p = ctx.createPanner();
@@ -132,7 +138,11 @@ export class Ambience {
     const k = Math.min(1, dt * 1.5);
     for (const b of this.beds) {
       if (!b.voice) continue;
-      const target = b.weight(w) * level;
+      // wander: 10~30 s 마다 새 목표를 뽑고 6 s 시정수로 따라간다 → 합창이 밀려왔다 밀려간다
+      b.wtimer -= dt;
+      if (b.wtimer <= 0) { b.wtimer = 10 + Math.random() * 20; b.wt = b.wander[0] + Math.random() * (b.wander[1] - b.wander[0]); }
+      b.wv += (b.wt - b.wv) * Math.min(1, dt / 6);
+      const target = b.weight(w) * level * b.wv;
       b.cur += (target - b.cur) * k;
       b.voice.gain.gain.value = b.cur;
     }

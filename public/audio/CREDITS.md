@@ -6,13 +6,12 @@ CC BY 항목은 배포 시 이 파일(또는 게임 내 크레딧)에 표기를 
 | 키 | 용도 | 출처 | 저자 | 라이선스 |
 |---|---|---|---|---|
 | `amb/bonsho` | 먼 절의 범종 — 아주 가끔 한 번 | [Bonsyou5599.ogg](https://commons.wikimedia.org/wiki/File%3ABonsyou5599.ogg) | 日:Jnn | CC BY 2.1 jp |
-| `amb/crickets` | 귀뚜라미 바탕 — 어디서나 아주 작게 | [Crickets Ambient Noise](https://opengameart.org/content/crickets-ambient-noise-loopable) | Wolfgang_ | CC0 1.0 |
+| `amb/crickets` | 귀뚜라미 바탕 — 어디서나 작게 (런타임 scatter) | [Crickets Ambient Noise](https://opengameart.org/content/crickets-ambient-noise-loopable) | Wolfgang_ | CC0 1.0 |
 | `amb/frogs` | 개구리 합창 — 논 가까이서 | [Nature sounds ambience in a Dordogne pond.ogg](https://commons.wikimedia.org/wiki/File%3ANature_sounds_ambience_in_a_Dordogne_pond.ogg) | Glaneur de sons. | CC BY 3.0 |
 | `amb/furin` | 풍경(風鈴) — 폐가 툇마루에서 가끔 | [Windchime.ogg](https://commons.wikimedia.org/wiki/File%3AWindchime.ogg) | stephan | Public domain |
-| `amb/higurashi` | 쓰르라미(히구라시) 합창 — 숲·언덕 쪽에서 크게 | [Tanna japonensis v01.ogg](https://commons.wikimedia.org/wiki/File%3ATanna_japonensis_v01.ogg) | Σ64 | CC BY 4.0 |
+| `amb/higurashi` | 쓰르라미(히구라시) 합창 — 숲·언덕 쪽에서, 멀리서 밀려오듯 (런타임 wander 0.1~1) | [Tanna japonensis v01.ogg](https://commons.wikimedia.org/wiki/File%3ATanna_japonensis_v01.ogg) | Σ64 | CC BY 4.0 |
 | `amb/hototogisu` | 두견새(호토토기스) — 여름밤 새 울음, 드물게 | [Hototogisu 07b8051.ogg](https://commons.wikimedia.org/wiki/File%3AHototogisu_07b8051.ogg) | ISAKA Yoji ( cory )[ Recent works / Other works ] | CC BY 2.1 jp |
-| `amb/suzumushi` | 방울벌레(스즈무시) — 풀밭·논두렁 | [Suzumushi 06z3286.ogg](https://commons.wikimedia.org/wiki/File%3ASuzumushi_06z3286.ogg) | ISAKA Yoji (cory) | CC BY 2.1 jp |
-| `amb/wind` | 밤바람 — 삼나무 숲을 스치는 소리 | [Howling wind.ogg](https://commons.wikimedia.org/wiki/File%3AHowling_wind.ogg) | Tvabutzku1234 | CC0 |
+| `amb/suzumushi` | 방울벌레(스즈무시) — 풀밭·논두렁 (짧은 녹음 → 런타임 scatter 로 반복 제거) | [Suzumushi 06z3286.ogg](https://commons.wikimedia.org/wiki/File%3ASuzumushi_06z3286.ogg) | ISAKA Yoji (cory) | CC BY 2.1 jp |
 | `chochin/toggle` | 초칭 밝기 전환 — 종이 부스럭 | [rpg-audio](https://kenney.nl/assets/rpg-audio) | Kenney (kenney.nl) | CC0 1.0 |
 | `combat/down` | 허수아비 쓰러짐 | [impact-sounds](https://kenney.nl/assets/impact-sounds) | Kenney (kenney.nl) | CC0 1.0 |
 | `combat/equip` | 장착/줍기 | [rpg-audio](https://kenney.nl/assets/rpg-audio) | Kenney (kenney.nl) | CC0 1.0 |

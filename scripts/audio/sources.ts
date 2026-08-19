@@ -186,37 +186,36 @@ export const SOUNDS: SoundDef[] = [
 
   // ───────────────────────── 여름밤 앰비언스 ─────────────────────────
   {
-    key: 'amb/higurashi', kind: 'loop', gain: 0.3, note: '쓰르라미(히구라시) 합창 — 숲·언덕 쪽에서 크게',
+    key: 'amb/higurashi', kind: 'loop', gain: 0.4, note: '쓰르라미(히구라시) 합창 — 숲·언덕 쪽에서, 멀리서 밀려오듯 (런타임 wander 0.1~1)',
     sources: [
-      { provider: 'wikimedia', wmTitle: 'File:Tanna japonensis v01.ogg', loop: { start: 14, end: 74, xfade: 4 }, hp: 1200 },
+      { provider: 'wikimedia', wmTitle: 'File:Tanna japonensis v01.ogg', loop: { start: 6, end: 92, xfade: 6 }, hp: 1200 },
       { provider: 'freesound', query: 'higurashi cicada evening', pick: 1, minDur: 20, maxDur: 240, loop: { start: 2, end: 60, xfade: 4 } },
     ],
   },
   {
-    key: 'amb/suzumushi', kind: 'loop', gain: 0.22, note: '방울벌레(스즈무시) — 풀밭·논두렁',
+    key: 'amb/suzumushi', kind: 'loop', gain: 0.5, note: '방울벌레(스즈무시) — 풀밭·논두렁 (짧은 녹음 → 런타임 scatter 로 반복 제거)',
     sources: [
       { provider: 'wikimedia', wmTitle: 'File:Suzumushi 06z3286.ogg', loop: { start: 0.5, end: 15.5, xfade: 2 }, hp: 1500 },
     ],
   },
   {
-    key: 'amb/crickets', kind: 'loop', gain: 0.18, note: '귀뚜라미 바탕 — 어디서나 아주 작게',
+    key: 'amb/crickets', kind: 'loop', gain: 0.45, note: '귀뚜라미 바탕 — 어디서나 작게 (런타임 scatter)',
     sources: [
       { provider: 'freesound', query: 'crickets night loop', filter: 'tag:crickets', pick: 1, minDur: 15, maxDur: 180, loop: { start: 1, end: 40, xfade: 3 } },
       { provider: 'url', url: 'https://opengameart.org/sites/default/files/crickets_1.mp3', license: CC0, author: 'Wolfgang_', source: 'https://opengameart.org/content/crickets-ambient-noise-loopable', title: 'Crickets Ambient Noise', loop: { start: 0.3, end: 11.2, xfade: 1.5 }, hp: 1500 },
     ],
   },
   {
-    key: 'amb/frogs', kind: 'loop', gain: 0.3, note: '개구리 합창 — 논 가까이서',
+    key: 'amb/frogs', kind: 'loop', gain: 0.5, note: '개구리 합창 — 논 가까이서',
     sources: [
       { provider: 'freesound', query: 'frogs chorus night pond', filter: 'tag:frogs', pick: 1, minDur: 20, maxDur: 240, loop: { start: 2, end: 50, xfade: 4 } },
       { provider: 'wikimedia', wmTitle: 'File:Nature sounds ambience in a Dordogne pond.ogg', loop: { start: 3, end: 54, xfade: 4 }, hp: 150 },
     ],
   },
   {
-    key: 'amb/wind', kind: 'loop', gain: 0.22, note: '밤바람 — 삼나무 숲을 스치는 소리',
+    key: 'amb/wind', kind: 'loop', gain: 0.3, note: '밤바람 — 삼나무 숲을 스치는 잔잔한 바람. 샘플이 없으면 Sfx 의 합성 바람(더 조용함). Commons "Howling wind" 는 하울링이 너무 세서 뺐다 (2026-08-19 피드백)',
     sources: [
-      { provider: 'freesound', query: 'wind trees night gentle', filter: 'tag:wind', pick: 1, minDur: 30, maxDur: 300, loop: { start: 2, end: 60, xfade: 5 } },
-      { provider: 'wikimedia', wmTitle: 'File:Howling wind.ogg', loop: { start: 5, end: 65, xfade: 5 }, lp: 900, gainDb: -3 },
+      { provider: 'freesound', query: 'wind trees night gentle', filter: 'tag:wind', pick: 1, minDur: 30, maxDur: 300, loop: { start: 2, end: 60, xfade: 5 }, lp: 1800 },
     ],
   },
   {

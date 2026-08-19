@@ -683,17 +683,6 @@
    "files": []
   }
  ],
- "amb/wind": [
-  {
-   "key": "amb/wind",
-   "provider": "wikimedia",
-   "title": "Howling wind.ogg",
-   "author": "Tvabutzku1234",
-   "license": "CC0",
-   "source": "https://commons.wikimedia.org/wiki/File%3AHowling_wind.ogg",
-   "files": []
-  }
- ],
  "amb/furin": [
   {
    "key": "amb/furin",

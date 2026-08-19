@@ -5,6 +5,7 @@
  *   npm run audio:fetch -- --only foot/gravel,amb/wind --force
  *   npm run audio:fetch -- --report        # 다운로드 없이 현재 상태표만
  *   npm run audio:fetch -- --sync          # sources.ts 의 gain 만 manifest 에 반영 (볼륨 튜닝 — 다운로드/가공 없음)
+ *   npm run audio:fetch -- --remove amb/wind   # 키를 manifest·파일에서 제거 (게임은 그 소리를 합성으로 폴백)
  *   npm run audio:fetch -- --dry-run       # 소스 해석까지만 (다운로드는 하되 가공·출력 없음)
  *   npm run audio:search -- "taiko hit" --max-dur 3   # Freesound 검색 (키 필요)
  *
@@ -50,6 +51,7 @@ const FORCE = !!flags['force'];
 const DRY = !!flags['dry-run'];
 const REPORT = !!flags['report'];
 const SYNC = !!flags['sync'];
+const REMOVE = flags['remove'] ? String(flags['remove']).split(',').map((s) => s.trim()) : null;
 const CC0_ONLY = !!flags['cc0'];
 const VERBOSE = !!flags['verbose'];
 
@@ -437,6 +439,16 @@ async function main() {
   }
   if (!which('ffmpeg')) { console.error('ffmpeg 가 필요합니다 (brew install ffmpeg)'); process.exit(1); }
   const defs = SOUNDS.filter((d) => !ONLY || ONLY.includes(d.key) || ONLY.some((o) => o.endsWith('/') && d.key.startsWith(o)));
+  if (REMOVE) {
+    for (const k of REMOVE) {
+      if (!manifest.sounds[k]) { log(`- ${k}: manifest 에 없음`); continue; }
+      delete manifest.sounds[k]; delete credits[k];
+      rmSync(resolve(OUT, k), { recursive: true, force: true });
+      log(`✂ ${k} 제거`);
+    }
+    save();
+    return;
+  }
   if (SYNC) {
     let n = 0;
     for (const d of defs) { const e = manifest.sounds[d.key]; if (e && e.gain !== (d.gain ?? 1)) { e.gain = d.gain ?? 1; n++; } }

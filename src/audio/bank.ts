@@ -35,48 +35,89 @@ export interface Voice {
   stop(fade?: number): void;
 }
 
-/** 끊김 없는 루프 보이스 — 네이티브 loop 또는 런타임 크로스페이드 */
+/** 루프 재생 방식 — native: 디코더가 패딩을 정확히 잘라 길이가 맞을 때 샘플 정확 루프 / xfade: 런타임 크로스페이드 / scatter: 무작위 조각 이어붙이기 */
+export type LoopMode = 'native' | 'xfade' | 'scatter';
+
+/**
+ * 끊김 없는 루프 보이스.
+ *  · native  — AudioBufferSourceNode.loop (파이프라인이 만든 크로스페이드 루프를 그대로)
+ *  · xfade   — 바퀴 끝에 다음 바퀴를 등파워로 겹친다 (디코더 패딩이 있어도 안전)
+ *  · scatter — 버퍼의 무작위 구간(grain)을 겹쳐 이어 붙인다. **짧은 녹음도 반복이 안 들린다** (벌레·바람 같은 정상 질감용)
+ * 체인: source → (구간 게인) → trim(매니페스트 gain) → gain(호출부가 움직이는 볼륨) → dest
+ */
 export class LoopVoice implements Voice {
   readonly gain: GainNode;
+  private trim: GainNode;
   private stopped = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private sources: AudioBufferSourceNode[] = [];
-  constructor(private ctx: AudioContext, private buffer: AudioBuffer, dest: AudioNode, private native: boolean, private rate = 1) {
+  private curveIn: Float32Array;
+  private curveOut: Float32Array;
+  constructor(
+    private ctx: AudioContext, private buffer: AudioBuffer, dest: AudioNode,
+    private mode: LoopMode, private rate = 1, trimGain = 1,
+    /** scatter 조각 길이 범위(초) */
+    private grain: [number, number] = [2.5, 5],
+  ) {
     this.gain = ctx.createGain();
-    this.gain.connect(dest);
+    this.trim = ctx.createGain(); this.trim.gain.value = trimGain;
+    this.trim.connect(this.gain).connect(dest);
+    const steps = 32;
+    this.curveIn = new Float32Array(steps); this.curveOut = new Float32Array(steps);
+    for (let i = 0; i < steps; i++) { const p = (i / (steps - 1)) * Math.PI / 2; this.curveIn[i] = Math.sin(p); this.curveOut[i] = Math.cos(p); }
   }
   start(at = 0, fadeIn = 0) {
     const t0 = this.ctx.currentTime + at;
     if (fadeIn > 0) { this.gain.gain.setValueAtTime(0.0001, t0); this.gain.gain.exponentialRampToValueAtTime(1, t0 + fadeIn); }
-    if (this.native) {
-      const s = this.mk(); s.loop = true; s.connect(this.gain); s.start(t0);
+    if (this.mode === 'native') {
+      const s = this.mk(); s.loop = true; s.connect(this.trim); s.start(t0);
       this.sources.push(s);
+    } else if (this.mode === 'scatter') {
+      this.scatter(t0, true);
     } else {
       this.schedule(t0);
     }
   }
   private mk() { const s = this.ctx.createBufferSource(); s.buffer = this.buffer; s.playbackRate.value = this.rate; return s; }
-  /** 한 바퀴를 t 에 시작하고, 끝나기 xfade 전에 다음 바퀴를 겹쳐 시작한다 (등파워 크로스페이드) */
+  private arm(next: number, fn: (t: number) => void) {
+    // 타이머는 오디오 클럭보다 1.5 s 앞서 깨어 정확히 예약한다
+    const wait = Math.max(0, (next - this.ctx.currentTime - 1.5) * 1000);
+    this.timer = setTimeout(() => fn(next), wait);
+  }
+  /** xfade: 한 바퀴를 t 에 시작하고, 끝나기 x 전에 다음 바퀴를 겹쳐 시작한다 */
   private schedule(t: number) {
     if (this.stopped) return;
     const dur = this.buffer.duration / this.rate;
     const x = Math.min(2.5, dur * 0.25);
     const g = this.ctx.createGain();
-    g.connect(this.gain);
+    g.connect(this.trim);
     const s = this.mk(); s.connect(g); s.start(t); s.stop(t + dur + 0.05);
-    // in: 0→1 (sin), out: 1→0 (cos) — 첫 바퀴는 페이드인 없이
-    const steps = 24;
-    const curveIn = new Float32Array(steps), curveOut = new Float32Array(steps);
-    for (let i = 0; i < steps; i++) { const p = (i / (steps - 1)) * Math.PI / 2; curveIn[i] = Math.sin(p); curveOut[i] = Math.cos(p); }
-    if (this.sources.length > 0) g.gain.setValueCurveAtTime(curveIn, t, x);
+    if (this.sources.length > 0) g.gain.setValueCurveAtTime(this.curveIn, t, x);
     else g.gain.setValueAtTime(1, t);
-    g.gain.setValueCurveAtTime(curveOut, t + dur - x, x);
+    g.gain.setValueCurveAtTime(this.curveOut, t + dur - x, x);
     this.sources.push(s);
     if (this.sources.length > 3) this.sources.shift();
-    // 다음 바퀴: 끝나기 x 전에 시작. 타이머는 그보다 1.5 s 앞서 깨어 오디오 클럭으로 정확히 예약한다
-    const next = t + dur - x;
-    const wait = Math.max(0, (next - this.ctx.currentTime - 1.5) * 1000);
-    this.timer = setTimeout(() => this.schedule(next), wait);
+    this.arm(t + dur - x, (n) => this.schedule(n));
+  }
+  /** scatter: 무작위 오프셋·길이의 조각을 등파워 크로스페이드로 잇는다 */
+  private scatter(t: number, first = false) {
+    if (this.stopped) return;
+    const total = this.buffer.duration;
+    const [gMin, gMax] = this.grain;
+    const len = Math.min(total, gMin + Math.random() * Math.max(0, gMax - gMin));
+    const x = Math.min(1.5, len * 0.4);
+    const off = Math.random() * Math.max(0, total - len);
+    const g = this.ctx.createGain();
+    g.connect(this.trim);
+    const s = this.mk();
+    s.playbackRate.value = this.rate * (0.97 + Math.random() * 0.06); // 조각마다 피치를 살짝 흔든다
+    s.connect(g);
+    s.start(t, off, len);
+    if (first) g.gain.setValueAtTime(1, t); else g.gain.setValueCurveAtTime(this.curveIn, t, x);
+    g.gain.setValueCurveAtTime(this.curveOut, t + len - x, x);
+    this.sources.push(s);
+    if (this.sources.length > 4) this.sources.shift();
+    this.arm(t + len - x, (n) => this.scatter(n));
   }
   stop(fade = 0.5) {
     if (this.stopped) return;
@@ -223,8 +264,11 @@ export class SampleBank {
     };
   }
 
-  /** 루프 재생 (앰비언스 바탕·마츠리 bed). 반환된 Voice.gain 으로 볼륨을 움직인다 */
-  loop(key: string, opts: { dest?: AudioNode; rate?: number; fadeIn?: number; index?: number; at?: number } = {}): LoopVoice | null {
+  /**
+   * 루프 재생 (앰비언스 바탕·마츠리 bed). 반환된 Voice.gain 으로 볼륨을 움직인다 (매니페스트 gain 은 안에서 곱해진다).
+   * mode 를 안 주면: 디코딩 길이가 파이프라인 기록과 같으면 native(샘플 정확), 아니면 xfade. 짧은 녹음은 'scatter' 를 권장
+   */
+  loop(key: string, opts: { dest?: AudioNode; rate?: number; fadeIn?: number; index?: number; at?: number; mode?: LoopMode; grain?: [number, number] } = {}): LoopVoice | null {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running') return null;
     const buf = this.buffer(key, opts.index ?? 0);
@@ -233,7 +277,8 @@ export class SampleBank {
     // 파이프라인이 기록한 길이와 디코딩 길이가 같으면 디코더가 패딩을 잘라낸 것 → 네이티브 루프
     const want = spec?.durations?.[opts.index ?? 0];
     const native = want !== undefined && Math.abs(buf.duration - want) < 0.003;
-    const v = new LoopVoice(ctx, buf, opts.dest ?? this.master!, native, opts.rate ?? 1);
+    const mode: LoopMode = opts.mode ?? (native ? 'native' : 'xfade');
+    const v = new LoopVoice(ctx, buf, opts.dest ?? this.master!, mode, opts.rate ?? 1, spec?.gain ?? 1, opts.grain);
     v.start(opts.at ?? 0, opts.fadeIn ?? 0);
     return v;
   }
