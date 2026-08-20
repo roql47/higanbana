@@ -80,9 +80,28 @@ export class LoopVoice implements Voice {
   }
   private mk() { const s = this.ctx.createBufferSource(); s.buffer = this.buffer; s.playbackRate.value = this.rate; return s; }
   private arm(next: number, fn: (t: number) => void) {
-    // 타이머는 오디오 클럭보다 1.5 s 앞서 깨어 정확히 예약한다
+    // 타이머는 오디오 클럭보다 1.5 s 앞서 깨어 정확히 예약한다.
+    // 탭이 백그라운드면 setTimeout 이 한참 늦게 깨므로 next 가 과거일 수 있다 → 예약 쪽에서 현재 시각으로 당긴다
     const wait = Math.max(0, (next - this.ctx.currentTime - 1.5) * 1000);
-    this.timer = setTimeout(() => fn(next), wait);
+    this.timer = setTimeout(() => {
+      // 한 번의 예약 실패로 체인이 끊기면 그 앰비언스가 영영 멈춘다 — 실패해도 반드시 다시 건다
+      try { fn(next); } catch (e) {
+        console.warn('[audio] 루프 예약 실패, 재시도', (e as Error).message);
+        if (!this.stopped) this.arm(this.ctx.currentTime + 0.5, fn);
+      }
+    }, wait);
+  }
+  /**
+   * 등파워 커브 예약. `setValueCurveAtTime` 은 구간이 과거이거나 다른 자동화와 겹치면 NotSupportedError 를 던지는데,
+   * 그게 타이머 콜백 밖으로 새면 다음 조각 예약(arm)까지 끊겨 루프가 영영 멈춘다. 실패하면 즉시 상수값으로 대체한다
+   */
+  private curve(param: AudioParam, curve: Float32Array, start: number, dur: number, fallback: number) {
+    const safe = Math.max(start, this.ctx.currentTime + 0.005);
+    const left = dur - (safe - start);
+    if (left > 0.01) {
+      try { param.setValueCurveAtTime(curve, safe, left); return; } catch { /* 아래 폴백 */ }
+    }
+    try { param.setValueAtTime(fallback, safe); } catch { /* 이 파라미터는 포기 */ }
   }
   /** xfade: 한 바퀴를 t 에 시작하고, 끝나기 x 전에 다음 바퀴를 겹쳐 시작한다 */
   private schedule(t: number) {
@@ -91,10 +110,10 @@ export class LoopVoice implements Voice {
     const x = Math.min(2.5, dur * 0.25);
     const g = this.ctx.createGain();
     g.connect(this.trim);
-    const s = this.mk(); s.connect(g); s.start(t); s.stop(t + dur + 0.05);
-    if (this.sources.length > 0) g.gain.setValueCurveAtTime(this.curveIn, t, x);
-    else g.gain.setValueAtTime(1, t);
-    g.gain.setValueCurveAtTime(this.curveOut, t + dur - x, x);
+    const s = this.mk(); s.connect(g); s.start(Math.max(t, this.ctx.currentTime)); s.stop(t + dur + 0.05);
+    if (this.sources.length > 0) this.curve(g.gain, this.curveIn, t, x, 1);
+    else g.gain.setValueAtTime(1, Math.max(t, this.ctx.currentTime));
+    this.curve(g.gain, this.curveOut, t + dur - x, x, 0);
     this.sources.push(s);
     if (this.sources.length > 3) this.sources.shift();
     this.arm(t + dur - x, (n) => this.schedule(n));
@@ -112,9 +131,10 @@ export class LoopVoice implements Voice {
     const s = this.mk();
     s.playbackRate.value = this.rate * (0.97 + Math.random() * 0.06); // 조각마다 피치를 살짝 흔든다
     s.connect(g);
-    s.start(t, off, len);
-    if (first) g.gain.setValueAtTime(1, t); else g.gain.setValueCurveAtTime(this.curveIn, t, x);
-    g.gain.setValueCurveAtTime(this.curveOut, t + len - x, x);
+    s.start(Math.max(t, this.ctx.currentTime), off, len);
+    if (first) g.gain.setValueAtTime(1, Math.max(t, this.ctx.currentTime));
+    else this.curve(g.gain, this.curveIn, t, x, 1);
+    this.curve(g.gain, this.curveOut, t + len - x, x, 0);
     this.sources.push(s);
     if (this.sources.length > 4) this.sources.shift();
     this.arm(t + len - x, (n) => this.scatter(n));

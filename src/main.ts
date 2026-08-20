@@ -22,7 +22,7 @@ import { CrouchPose } from '@/character/crouchPose';
 import { Sfx, type Surface } from '@/audio/sfx';
 import { CHARACTER } from '@/character/config';
 import { ThirdPersonCamera } from '@/camera/thirdPerson';
-import { detectQuality, saveQuality, lowerLevel, profileFor, QUALITY_LEVELS, type QualityLevel, type QualityProfile } from '@/core/quality';
+import { detectQuality, effectivePixelRatio, saveQuality, lowerLevel, profileFor, QUALITY_LEVELS, type QualityLevel, type QualityProfile } from '@/core/quality';
 import { setupTouch } from '@/core/touch';
 import { Inventory } from '@/items/inventory';
 import { InventoryUI } from '@/items/inventoryUI';
@@ -76,7 +76,7 @@ async function main() {
 
   const renderer = createRenderer(canvas);
   let quality = detectQuality(renderer.getContext());
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.pixelRatio));
+  renderer.setPixelRatio(effectivePixelRatio(quality, window.innerWidth, window.innerHeight));
   settings.render.shadowRadius = quality.shadowRadius;
   console.info('[quality]', quality.level, quality);
   const scene = new THREE.Scene();
@@ -458,8 +458,7 @@ async function main() {
   // --- 런타임 품질 적용 + 적응형(느리면 자동 하향) ---
   function applyQualityLive(q: QualityProfile) {
     quality = q;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatio));
-    onResize();
+    onResize(); // 픽셀비는 창 크기에 따라 달라지므로 여기서 다시 계산된다
     postfx.applyQuality(q);
     settings.render.shadowRadius = q.shadowRadius;
     sky.setShadowMapSize(q.shadowMap);
@@ -481,7 +480,10 @@ async function main() {
     if (adaptAcc >= 3) { // 3 s 창
       const avg = adaptAcc / adaptN;
       adaptAcc = 0; adaptN = 0; adaptChecks++;
-      if (avg > 0.024) { // 42 fps 미만
+      // 상한이 걸려 있으면 그 상한을 기준으로 판단한다 (예: 30 fps 상한을 "느리다" 고 오해하지 않게)
+      const cap = settings.render.maxFps;
+      const slowMs = Math.max(0.024, cap > 0 ? (1 / cap) * 1.25 : 0);
+      if (avg > slowMs) { // 상한 대비 25% 이상 느리면
         const next = lowerLevel(quality.level);
         if (next) {
           applyQualityLive(profileFor(next));
@@ -550,6 +552,9 @@ async function main() {
   // --- 리사이즈 ---
   function onResize() {
     const w = window.innerWidth, h = window.innerHeight;
+    // 픽셀비는 창 크기마다 다시 계산한다 — 전체화면으로 키우면 예산에 맞춰 자동으로 내려간다
+    const pr = effectivePixelRatio(quality, w, h);
+    if (Math.abs(renderer.getPixelRatio() - pr) > 0.001) renderer.setPixelRatio(pr);
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -565,6 +570,10 @@ async function main() {
 
   function frame(now: number) {
     requestAnimationFrame(frame);
+    // 프레임 상한: 아직 이를 때는 그리지 않고 돌려보낸다 (last 를 갱신하지 않아야 dt 가 이어진다).
+    // 여유 2 ms 는 vsync 지터용 — 60 Hz 화면에서 상한 60 이 30 fps 로 반토막 나는 것을 막는다
+    const cap = settings.render.maxFps;
+    if (cap > 0 && now - last < 1000 / cap - 2) return;
     let dt = (now - last) / 1000;
     last = now;
     if (dt > 1 / 20) dt = 1 / 20; // 탭 전환 등 큰 dt 방지

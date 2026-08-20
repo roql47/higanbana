@@ -130,6 +130,8 @@ export function createTweaks(hooks: TweakHooks, visible = true) {
 
   const rd = pane.addFolder({ title: 'Render', expanded: false });
   const r = settings.render;
+  // 프레임 상한 — 낮출수록 GPU 가 쉬어서 발열·배터리에 유리하다 (0 = 무제한)
+  rd.addBinding(r, 'maxFps', { label: 'max fps', options: { '30': 30, '60': 60, '120': 120, '무제한': 0 } });
   rd.addBinding(r, 'exposure', { min: 0.2, max: 2.5, step: 0.05 }).on('change', hooks.onRenderChange);
   rd.addBinding(r, 'sunElevation', { min: 2, max: 89, step: 1 }).on('change', hooks.onSunChange);
   rd.addBinding(r, 'sunAzimuth', { min: 0, max: 360, step: 1 }).on('change', hooks.onSunChange);

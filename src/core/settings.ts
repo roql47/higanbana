@@ -182,6 +182,9 @@ export const settings = {
     contrast: 0.16, // -1..1
     brightness: 0.0,
     shadowRadius: 18, // 섀도 프러스텀 반경(캐릭터 중심) — 섬 월드는 넓게, 맵 4096
+    // 프레임 상한(0 = 무제한). 상한이 없으면 120 Hz 화면에서 120 fps 를 그리느라 GPU 가 계속 100% 로 붙고,
+    // 그게 그대로 노트북 발열이 된다. 60 이면 남는 시간에 GPU 가 쉰다 (2026-08-20 발열 피드백)
+    maxFps: 60,
     showColliders: false,
   },
 };
