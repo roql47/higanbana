@@ -19,11 +19,13 @@ export class Higanbana {
 
   constructor(scene: THREE.Scene, ground: VillageGround) {
     const geo = makeFlower();
+    // 정점색이 확산·발광을 모두 이끈다: 줄기(어두운 녹색)는 안 빛나고 꽃술 끝(밝은 분홍)이 가장 빛난다
     const mat = new THREE.MeshStandardMaterial({
-      color: 0xc41e2a,
-      emissive: new THREE.Color(0xa01020),
-      emissiveIntensity: 0.55, // 밤에 스스로 붉게 — 블룸이 살짝 문다
-      roughness: 0.7,
+      color: 0xffffff,
+      vertexColors: true,
+      emissive: new THREE.Color(0xff3040),
+      emissiveIntensity: 0.85,
+      roughness: 0.62,
       side: THREE.DoubleSide,
     });
     const u = this.uniforms;
@@ -33,8 +35,17 @@ export class Higanbana {
         .replace('#include <common>', '#include <common>\n uniform float uTime;')
         .replace('#include <begin_vertex>', `#include <begin_vertex>
           vec4 wp = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-          float sway = sin(uTime * 1.4 + dot(wp.xz, vec2(0.4, 0.31))) * 0.05 * position.y;
+          float hk = clamp(position.y / 0.45, 0.0, 1.25);
+          float ph = dot(wp.xz, vec2(0.4, 0.31));
+          float sway = (sin(uTime * 1.4 + ph) * 0.7 + sin(uTime * 2.9 + ph * 1.7) * 0.3) * 0.045 * hk;
           transformed.x += sway; transformed.z += sway * 0.6;`);
+      // 발광이 정점색을 따르게 — 붉은 부위만 빛난다 (줄기의 채도 낮은 녹색은 거의 0)
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        #ifdef USE_COLOR
+          totalEmissiveRadiance *= vColor.rgb * vColor.rgb; // 제곱 — 밝은 끝만 확실히
+        #endif`);
     };
 
     const rng = seeded(20260819);
@@ -94,48 +105,112 @@ export class Higanbana {
   update(dt: number) { this.uniforms.uTime.value += dt; }
 }
 
-/** 피안화 한 송이: 줄기 + 위로 말려 올라가는 가는 꽃술 8가닥 (방사형) */
+/**
+ * 피안화 한 그루 — 실제 구조를 따른다:
+ *   잎 없는 꽃대 하나 → 끝에 작은 꽃 5송이가 우산형(산형화서) →
+ *   꽃마다 뒤로 강하게 말리는 꽃잎 6장 + 꽃잎보다 훨씬 길게 활처럼 뻗는 수술 6가닥.
+ * 정점색: 줄기 어두운 녹색(발광 X) → 꽃잎 심홍→진홍 → 수술 밝은 분홍, 꽃밥(끝점)이 제일 밝다.
+ * 약 550 tri — InstancedMesh 하나라 323그루여도 드로우콜 1.
+ */
 function makeFlower(): THREE.BufferGeometry {
-  const verts: number[] = [], uvs: number[] = [], idx: number[] = [];
-  const H = 0.42; // 줄기 높이
-  // 줄기: 얇은 교차 리본 2장
-  const stemW = 0.008;
-  for (const rot of [0, Math.PI / 2]) {
-    const c = Math.cos(rot), s = Math.sin(rot);
-    const b = verts.length / 3;
-    for (const [x, y] of [[-stemW, 0], [stemW, 0], [-stemW, H], [stemW, H]] as [number, number][]) {
-      verts.push(x * c, y, x * s); uvs.push(0, y / H);
+  const pos: number[] = [], col: number[] = [], idx: number[] = [];
+  const A = new THREE.Vector3(), B = new THREE.Vector3(), D = new THREE.Vector3();
+  const P = new THREE.Vector3(), SIDE = new THREE.Vector3(), N = new THREE.Vector3();
+
+  /** 호를 그리는 리본: dir 이 axis→out 평면에서 startA→startA+curl 로 감긴다 */
+  const ribbonArc = (
+    base: THREE.Vector3, axis: THREE.Vector3, out: THREE.Vector3,
+    startA: number, curl: number, len: number, segs: number,
+    widthFn: (t: number) => number, colorFn: (t: number) => [number, number, number],
+  ) => {
+    N.crossVectors(out, axis).normalize(); // 리본이 놓인 평면의 법선
+    P.copy(base);
+    let prevL = -1, prevR = -1;
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const th = startA + curl * t;
+      D.copy(axis).multiplyScalar(Math.cos(th)).addScaledVector(out, Math.sin(th)); // 진행 방향
+      if (i > 0) P.addScaledVector(D, len / segs);
+      SIDE.crossVectors(N, D).normalize();
+      const w = widthFn(t);
+      const c = colorFn(t);
+      const vl = pos.length / 3;
+      pos.push(P.x - SIDE.x * w, P.y - SIDE.y * w, P.z - SIDE.z * w,
+               P.x + SIDE.x * w, P.y + SIDE.y * w, P.z + SIDE.z * w);
+      col.push(...c, ...c);
+      if (prevL >= 0) idx.push(prevL, prevR, vl + 1, prevL, vl + 1, vl);
+      prevL = vl; prevR = vl + 1;
     }
-    idx.push(b, b + 1, b + 3, b, b + 3, b + 2);
-  }
-  // 꽃술 8가닥: 꼭대기에서 바깥·위로 휘어 오르는 곡선 리본 (세그먼트 3)
-  const N = 8, SEG = 3, W = 0.006, R = 0.11;
-  for (let k = 0; k < N; k++) {
-    const a = (k / N) * Math.PI * 2;
-    const dx = Math.cos(a), dz = Math.sin(a);
-    let px = 0, py = H, pz = 0;
-    for (let sgm = 0; sgm < SEG; sgm++) {
-      const t0 = sgm / SEG, t1 = (sgm + 1) / SEG;
-      const r0 = R * Math.sin(t0 * 1.9), r1 = R * Math.sin(t1 * 1.9);
-      const y0 = H + t0 * 0.10 + t0 * t0 * 0.05, y1 = H + t1 * 0.10 + t1 * t1 * 0.05;
-      const b = verts.length / 3;
-      // 리본 폭은 진행 방향과 수직(수평)
-      const wx = -dz * W, wz = dx * W;
-      verts.push(dx * r0 - wx, y0, dz * r0 - wz, dx * r0 + wx, y0, dz * r0 + wz,
-                 dx * r1 - wx, y1, dz * r1 - wz, dx * r1 + wx, y1, dz * r1 + wz);
-      uvs.push(0, t0, 1, t0, 0, t1, 1, t1);
-      idx.push(b, b + 1, b + 3, b, b + 3, b + 2);
-      px = dx * r1; py = y1; pz = dz * r1;
+    return P.clone(); // 끝점 (꽃밥용)
+  };
+
+  const lerp3 = (a: [number, number, number], b: [number, number, number], t: number): [number, number, number] =>
+    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+
+  const STALK: [number, number, number] = [0.07, 0.12, 0.05];
+  const RED_DEEP: [number, number, number] = [0.42, 0.015, 0.05];
+  const RED_HOT: [number, number, number] = [0.95, 0.10, 0.16];
+  const PINK: [number, number, number] = [0.9, 0.22, 0.3];
+  const ANTHER: [number, number, number] = [1.0, 0.62, 0.66];
+
+  // --- 꽃대: 거의 수직, 살짝 휨 ---
+  const H = 0.46;
+  const top = ribbonArc(
+    A.set(0, 0, 0), B.set(0, 1, 0).normalize(), D.set(1, 0, 0),
+    0.04, 0.06, H, 3,
+    (t) => 0.011 * (1 - t * 0.35),
+    (t) => lerp3(STALK, [0.2, 0.06, 0.06], t * t),
+  );
+
+  // --- 우산형 꽃 5송이 ---
+  const FLORETS = 5;
+  const up = new THREE.Vector3(0, 1, 0);
+  for (let k = 0; k < FLORETS; k++) {
+    const a = (k / FLORETS) * Math.PI * 2 + 0.5;
+    const outH = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+    // 꽃 축: 수직에서 바깥으로 62° 기움
+    const tilt = 1.08;
+    const fAxis = new THREE.Vector3().copy(outH).multiplyScalar(Math.sin(tilt)).addScaledVector(up, Math.cos(tilt)).normalize();
+    // 꽃 기부: 꽃대 끝에서 축 방향으로 1.5 cm
+    const fBase = top.clone().addScaledVector(fAxis, 0.015);
+    // 축에 수직인 기저 (u, v)
+    const u = new THREE.Vector3().crossVectors(fAxis, up).normalize();
+    if (u.lengthSq() < 1e-6) u.set(1, 0, 0);
+    const v = new THREE.Vector3().crossVectors(fAxis, u).normalize();
+
+    // 꽃잎 6장: 축 따라 나가다 뒤로 말린다 (recurve — 피안화의 특징)
+    for (let j = 0; j < 6; j++) {
+      const b = (j / 6) * Math.PI * 2;
+      const pOut = new THREE.Vector3().copy(u).multiplyScalar(Math.cos(b)).addScaledVector(v, Math.sin(b));
+      ribbonArc(
+        fBase, fAxis, pOut,
+        0.32, 3.1, 0.145, 5, // 18° 에서 시작해 195° 까지 말림
+        (t) => 0.013 * (0.45 + Math.pow(Math.sin(Math.min(t * 1.12, 1) * Math.PI), 0.7)) * (1 - t * t * 0.85),
+        (t) => lerp3(RED_DEEP, RED_HOT, Math.pow(t, 1.3)),
+      );
     }
-    // 끝에 작은 술머리(점 같은 삼각)
-    const b = verts.length / 3;
-    verts.push(px - 0.008, py, pz, px + 0.008, py, pz, px, py + 0.02, pz);
-    uvs.push(0, 1, 1, 1, 0.5, 1);
-    idx.push(b, b + 1, b + 2);
+    // 수술 6가닥: 꽃잎 사이에서, 덜 말리고 훨씬 길게 — "거미 다리"
+    for (let j = 0; j < 6; j++) {
+      const b = (j / 6) * Math.PI * 2 + Math.PI / 6;
+      const pOut = new THREE.Vector3().copy(u).multiplyScalar(Math.cos(b)).addScaledVector(v, Math.sin(b));
+      const tip = ribbonArc(
+        fBase, fAxis, pOut,
+        0.14, 1.35, 0.24, 4,
+        () => 0.0022,
+        (t) => lerp3([0.6, 0.06, 0.1], PINK, t),
+      );
+      // 꽃밥: 끝의 작은 마름모 — 가장 밝은 점
+      const vl = pos.length / 3;
+      const s2 = 0.006;
+      pos.push(tip.x - s2, tip.y, tip.z, tip.x, tip.y + s2, tip.z, tip.x + s2, tip.y, tip.z, tip.x, tip.y - s2, tip.z);
+      col.push(...ANTHER, ...ANTHER, ...ANTHER, ...ANTHER);
+      idx.push(vl, vl + 1, vl + 2, vl, vl + 2, vl + 3);
+    }
   }
+
   const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   g.setIndex(idx);
   g.computeVertexNormals();
   return g;
