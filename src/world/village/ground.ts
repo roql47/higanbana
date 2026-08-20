@@ -18,9 +18,26 @@ export const RES = 190;
 // --- 논 격자 (남쪽) — 구역을 넓혀 배미 수를 늘린다 ---
 const PX0 = -38, PX1 = 38, PZ0 = 6, PZ1 = 74;
 const CELL_X = 17.6, CELL_Z = 14.2, BUND = 2.2; // 한 배미 15.4×12 m, 논두렁 2.2 m
-const PADDY_DEPTH = 0.45;
-/** 논 수면 높이 (지면 0 기준) — 바닥 −0.45 이므로 물 깊이 약 23 cm */
-export const PADDY_WATER = -0.22;
+
+/**
+ * 논을 **닫힌 공간**으로 만드는 세 값 (2026-08-20 개편).
+ *
+ * 예전엔 논 바닥이 −0.45, 논두렁이 지면 높이(0)였다. 단차 45 cm 는 오토스텝(35 cm)에 가깝고
+ * 비탈이 완만해 어디서든 넘어 다닐 수 있었다 — 76×68 m 논이 통째로 개활지였다는 뜻이다.
+ *
+ * 지금은 논두렁을 **흙둑(畦)** 으로 55 cm 올리고 바닥을 78 cm 파, 단차 1.33 m 를 만든다.
+ * 비탈은 0.85 m 안에서 떨어지므로 약 57° — `maxSlopeClimb` 48° 를 넘어 **못 올라간다**.
+ * 대신 배미마다 **끊긴 자리(切れ目)** 를 1~2 곳 두어 거기서만 드나든다.
+ *   · 플레이어에게: 논은 "들어가면 나가는 곳이 정해진" 위험한 지름길
+ *   · 요괴에게: 나브그리드도 같은 경사 판정(0.85 ≈ 40°)을 쓰므로 같은 자리로만 따라 들어온다
+ */
+const PADDY_DEPTH = 0.78;
+const BUND_H = 0.55;        // 흙둑 마루가 지면보다 이만큼 높다
+const BANK_W = 0.35;        // 논 안쪽 비탈 폭 — 좁을수록 못 올라온다
+const BUND_BLEND = 0.5;     // 흙둑 바깥쪽 어깨
+const GAP_R = 2.2;          // 끊긴 자리 반경. 나브그리드 셀 1.5 m 가 들어가야 하므로 이보다 좁히면 안 된다
+/** 논 수면 높이 (지면 0 기준) — 바닥 −0.78 이므로 물 깊이 약 26 cm */
+export const PADDY_WATER = -0.52;
 
 export interface PaddyRect { x0: number; z0: number; x1: number; z1: number }
 
@@ -50,6 +67,13 @@ function rimAt(x: number, z: number) {
   const east = smoothstep(70, 88, x) * 16;   // 동쪽은 마츠리 광장 자리를 비운다
   return Math.max(west, east) + smoothstep(80, 94, z) * 14;
 }
+/** 정수 좌표 → 0..1 결정적 해시 (끊긴 자리 배치용 — 시드 없이 매판 같아야 한다) */
+function hash(a: number, b: number): number {
+  let h = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) | 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
 function valleyAt(x: number, z: number) {
   return smoothstep(5, 21, Math.abs(x)) * 9.5 * smoothstep(-2, -18, z);
 }
@@ -63,6 +87,8 @@ export class VillageGround {
   private heights: Float32Array;
   /** 배미 사각형 — 지형 파내기·수면·벼가 모두 이 하나를 본다 (키: "cx,cz") */
   private cells = new Map<string, PaddyRect>();
+  /** 흙둑이 끊긴 자리 — 논에 드나드는 **유일한** 통로. 배미마다 1~2 곳 */
+  readonly gaps: { x: number; z: number }[] = [];
   /** 참배로 폴리라인 누적 길이 (토리이 배치용) */
   readonly roadLength: number;
   private roadCum: number[] = [];
@@ -76,6 +102,7 @@ export class VillageGround {
     }
     this.roadLength = acc;
     this.buildCells();
+    this.buildBundWalls(physics);
 
     const N = RES, S = SIZE;
     this.heights = new Float32Array((N + 1) * (N + 1));
@@ -186,9 +213,18 @@ export class VillageGround {
     // 참배로 평탄화: 중심선 높이로 끌어당긴다
     const w = 1 - smoothstep(ROAD_W, ROAD_W + ROAD_BLEND, nd);
     if (w > 0) h = lerp(h, this.baseAt(nx, nz) + 0.05, w);
-    // 논 파내기 (참배로 근처는 제외)
-    const pm = this.paddyMask(x, z);
-    if (pm > 0) h -= PADDY_DEPTH * pm;
+    // 논: 안쪽은 파내고 논두렁은 흙둑으로 올린다. 끊긴 자리에서는 둘 다 풀어 경사로가 된다
+    if (this.inPaddyRegion(x, z) && !this.inFlatZone(x, z)) {
+      const cut = this.gapMask(x, z);
+      const m = this.cellInset(x, z);
+      if (m > 0) {
+        // 배미 안쪽 — 좁은 비탈로 뚝 떨어진다
+        h -= PADDY_DEPTH * clamp(m / BANK_W, 0, 1) * (1 - cut);
+      } else if (m > -BUND) {
+        // 흙둑 — 참배로가 지나는 자리는 올리지 않는다(길이 둔덕을 타고 넘으면 안 된다)
+        h += BUND_H * clamp(-m / BUND_BLEND, 0, 1) * (1 - w) * (1 - cut * 0.9);
+      }
+    }
     // 폐가 터 평탄화
     const pad = this.padMask(x, z);
     if (pad > 0) h = lerp(h, this.padY(x, z), pad);
@@ -236,6 +272,9 @@ export class VillageGround {
         }
         if (overlap) continue;
         this.cells.set(`${cx},${cz}`, { x0, z0, x1, z1 });
+        // 끊긴 자리: 남쪽 변에 하나, 절반 정도는 서쪽 변에도. 배미 인덱스로 결정 → 매판 같다
+        this.gaps.push({ x: lerp(x0 + 2.8, x1 - 2.8, hash(cx, cz)), z: z0 });
+        if (hash(cx + 977, cz) < 0.55) this.gaps.push({ x: x0, z: lerp(z0 + 2.8, z1 - 2.8, hash(cx, cz + 977)) });
       }
     }
   }
@@ -251,15 +290,94 @@ export class VillageGround {
     return null;
   }
 
-  /** 논 내부일수록 1, 논두렁·참배로는 0 */
+  /**
+   * 논두렁 안쪽면에 **수직 벽**을 세운다.
+   *
+   * 지형만으로는 못 막는다 — 하이트필드 격자가 1 m 인데 비탈이 0.85 m 라, 정점이 비탈
+   * 한복판에 걸리면 1.32 m 낙차가 두 계단(각 33°)으로 뭉개져 그냥 걸어 올라와진다.
+   * 해석적 경사는 49° 로 나오지만 실제 충돌면은 격자가 정한다(실측).
+   *
+   * 벽 윗면을 **흙둑 마루와 같은 높이**로 맞춘 게 핵심이다 —
+   *   · 흙둑에서 논으로: 걸어서 떨어진다(허용). 내려가는 건 막지 않는다
+   *   · 논에서 흙둑으로: 수직면이라 못 올라온다 → 끊긴 자리로 돌아가야 한다
+   */
+  private buildBundWalls(physics: Physics) {
+    const T = 0.12;          // 벽 반두께
+    const STEP = 0.5;        // 끊긴 자리 판정 간격
+    let n = 0;
+    const emit = (ax: 'x' | 'z', fixed: number, a: number, b: number, inward: number) => {
+      if (b - a < 0.8) return;
+      const mx = ax === 'x' ? fixed : (a + b) / 2;
+      const mz = ax === 'x' ? (a + b) / 2 : fixed;
+      const top = this.baseAt(mx, mz) + BUND_H;
+      const bottom = this.baseAt(mx + (ax === 'x' ? inward * 2 : 0), mz + (ax === 'z' ? inward * 2 : 0)) - PADDY_DEPTH - 0.5;
+      const half = ax === 'x'
+        ? new THREE.Vector3(T, (top - bottom) / 2, (b - a) / 2)
+        : new THREE.Vector3((b - a) / 2, (top - bottom) / 2, T);
+      physics.addStaticBox(new THREE.Vector3(mx, (top + bottom) / 2, mz), half);
+      n++;
+    };
+    /** 한 변을 훑으며 끊긴 자리를 빼고 남은 구간만 벽으로 세운다 */
+    const edge = (ax: 'x' | 'z', fixed: number, from: number, to: number, inward: number) => {
+      let run = -1;
+      for (let t = from; t <= to + 1e-6; t += STEP) {
+        const x = ax === 'x' ? fixed : t;
+        const z = ax === 'x' ? t : fixed;
+        const open = this.gapMask(x, z) > 0.12;
+        if (open) { if (run >= 0) { emit(ax, fixed, run, t - STEP, inward); run = -1; } }
+        else if (run < 0) run = t;
+      }
+      if (run >= 0) emit(ax, fixed, run, to, inward);
+    };
+    for (const r of this.cells.values()) {
+      if (this.inFlatZone((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2)) continue;
+      edge('x', r.x0, r.z0, r.z1, +1);
+      edge('x', r.x1, r.z0, r.z1, -1);
+      edge('z', r.z0, r.x0, r.x1, +1);
+      edge('z', r.z1, r.x0, r.x1, -1);
+    }
+    console.info(`[ground] 논두렁 벽 ${n} 개 · 끊긴 자리 ${this.gaps.length} 곳`);
+  }
+
+  /** 논 내부일수록 1, 논두렁·참배로는 0 (물·벼·색 칠하기에 쓴다) */
   paddyMask(x: number, z: number): number {
-    if (!this.inPaddyRegion(x, z)) return 0;
+    if (!this.inPaddyRegion(x, z) || this.inFlatZone(x, z)) return 0;
+    const m = this.cellInset(x, z);
+    if (m <= 0) return 0;
+    return clamp(m / BANK_W, 0, 1) * (1 - this.gapMask(x, z));
+  }
+
+  /**
+   * 배미 경계에서 안쪽으로 들어간 거리. 양수 = 논 안, 음수 = 논두렁 쪽으로 나간 거리.
+   * 격자 인덱스로 배미를 찾으므로 논두렁 위의 점은 **그 다음 배미**의 음수 인셋으로 나온다.
+   */
+  private cellInset(x: number, z: number): number {
     const cx = Math.floor((x - PX0) / CELL_X), cz = Math.floor((z - PZ0) / CELL_Z);
     const r = this.cells.get(`${cx},${cz}`);
-    if (!r) return 0;
-    const m = Math.min(x - r.x0, r.x1 - x, z - r.z0, r.z1 - z);
-    if (m <= 0) return 0;
-    return clamp(m / 0.9, 0, 1);
+    if (!r) return -99;
+    return Math.min(x - r.x0, r.x1 - x, z - r.z0, r.z1 - z);
+  }
+
+  /** 흙둑이 끊긴 자리(논 출입구)에 얼마나 가까운가 — 1 이면 한복판 */
+  private gapMask(x: number, z: number): number {
+    let best = 0;
+    for (const g of this.gaps) {
+      const dx = x - g.x, dz = z - g.z;
+      if (Math.abs(dx) > GAP_R || Math.abs(dz) > GAP_R) continue;
+      const d = Math.hypot(dx, dz);
+      if (d >= GAP_R) continue;
+      const v = 1 - smoothstep(GAP_R * 0.3, GAP_R, d);
+      if (v > best) best = v;
+    }
+    return best;
+  }
+
+  /** 평탄화 구역(폐가 터·광장·꽃밭) 안인가 — 여기엔 흙둑을 세우지 않는다 */
+  private inFlatZone(x: number, z: number): boolean {
+    for (const P of [HOUSE_PAD, SQUARE_PAD, FLOWER_FIELD]) {
+      if (x > P.x0 - 2 && x < P.x1 + 2 && z > P.z0 - 2 && z < P.z1 + 2) return true;
+    }
+    return false;
   }
 
   /** 참배로 중심선 위 최근접점 */

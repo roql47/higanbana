@@ -90,7 +90,9 @@ export class Paddy {
           if (h > PADDY_WATER + 0.02) continue; // 논두렁 쪽은 건너뜀
           dummy.position.set(jx, h, jz);
           dummy.rotation.set(0, rng() * Math.PI, 0);
-          dummy.scale.set(0.9 + rng() * 0.25, 0.62 + rng() * 0.26, 0.9 + rng() * 0.25);
+          // 키를 사람 눈높이 위로 올린다 (2026-08-20). 논 바닥이 −0.78 이므로 끝이 +0.8~1.1 —
+          // **논 안에서는 앞이 안 보이고, 흙둑 위에서는 벼 위로 내려다본다**. 이 비대칭이 은신을 만든다
+          dummy.scale.set(0.95 + rng() * 0.3, 1.58 + rng() * 0.34, 0.95 + rng() * 0.3);
           dummy.updateMatrix();
           const cx = Math.min(CH - 1, Math.max(0, Math.floor(((jx + half) / (half * 2)) * CH)));
           const cz = Math.min(CH - 1, Math.max(0, Math.floor(((jz + half) / (half * 2)) * CH)));
