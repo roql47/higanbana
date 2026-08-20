@@ -62,17 +62,30 @@ export class Higanbana {
       mats.push(dummy.matrix.clone());
     };
 
-    // --- 길 표식: 참배로 양옆 2.4~3.4 m, 노이즈로 끊겼다 이어진다 ---
-    for (let s = 6; s < ground.roadLength - 2; s += 0.9) {
-      const p = ground.roadAt(s);
-      const nx = -p.dirZ, nz = p.dirX;
-      for (const side of [-1, 1]) {
-        const density = noise.fbm(s / 9 + side * 40, side * 3.3, 2) * 0.5 + 0.5;
-        if (rng() > density * 0.85) continue;
-        const off = 2.4 + rng() * 1.0;
-        place(p.x + nx * side * off + (rng() - 0.5) * 0.5, p.z + nz * side * off + (rng() - 0.5) * 0.5);
+    // --- 길 표식: 균일한 줄이 아니라 **덤불(clump)** — 실제 피안화는 알뿌리가 뭉쳐 군데군데 핀다.
+    //     토리이 터널 구간(s 46~100, 계곡 사면)은 비운다 — 거기선 붉은 기둥이 색을 맡는다.
+    const clump = (cx: number, cz: number, n: number, r: number) => {
+      for (let i = 0; i < n; i++) {
+        const a = rng() * Math.PI * 2, rr = Math.sqrt(rng()) * r;
+        place(cx + Math.cos(a) * rr, cz + Math.sin(a) * rr);
       }
+    };
+    let sPos = 7;
+    while (sPos < ground.roadLength - 3) {
+      if (sPos > 44 && sPos < 101) { sPos = 101; continue; } // 터널 건너뜀
+      const p = ground.roadAt(sPos);
+      const nx = -p.dirZ, nz = p.dirX;
+      const side = rng() < 0.5 ? -1 : 1;
+      const off = 2.7 + rng() * 1.3;
+      clump(p.x + nx * side * off, p.z + nz * side * off, 4 + Math.floor(rng() * 5), 0.55 + rng() * 0.35);
+      // 가끔 반대편에도 작은 덤불
+      if (rng() < 0.35) clump(p.x - nx * side * (2.7 + rng()), p.z - nz * side * (2.7 + rng()), 2 + Math.floor(rng() * 3), 0.4);
+      sPos += 6 + rng() * 9;
     }
+    // 여섯 지장 곁 — 피안화와 지장은 같은 곳에 핀다
+    const jz = ground.roadAt(36);
+    clump(jz.x - 4.6, jz.z + 4.5, 6, 0.7);
+    clump(jz.x - 4.4, jz.z - 2.5, 5, 0.6);
     // --- 군락: 남쪽 들판 — 붉은 안전지대 ---
     const c = this.cluster;
     const target = 240;
