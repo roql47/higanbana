@@ -496,6 +496,98 @@ export class Sfx {
     this.thump(surface === 'wood' ? 140 : 70, 0.14, s.combat * 0.7);
     this.noiseBurst({ dur: 0.1, gain: s.combat * 0.5, type: surface === 'water' ? 'bandpass' : 'lowpass', freq: surface === 'water' ? 1800 : 1100, q: 0.8, attack: 0.003 });
   }
+  /**
+   * 까마귀가 놀라 날아오름 — 까악 + 날갯짓.
+   *
+   * 까마귀 울음은 성대가 아니라 명관(鳴管)에서 나와 **배음이 촘촘하고 거칠다**.
+   * 사인으로는 절대 안 나오고, 톱니를 좁은 밴드패스에 넣어 포먼트를 만들어야 그 소리가 된다.
+   * 한 번 우는 동안 피치가 살짝 올랐다 내려오는 것(까아-악)이 특징이라 그것도 넣는다.
+   *
+   * @param dist 플레이어까지 거리(m) — 거리 감쇠에 쓴다
+   * @param count 동시에 날아오른 마리 수 — 울음 횟수와 날갯짓 밀도
+   */
+  crowFlush(dist: number, count = 1) {
+    const s = settings.audio;
+    const near = Math.max(0, 1 - dist / 36);
+    const gain = s.combat * 0.62 * near * near;
+    if (gain < 0.012) return;
+    const n = Math.max(1, Math.min(3, Math.round(1 + count * 0.45)));
+    if (this.bank.has('amb/crow')) {
+      for (let i = 0; i < n; i++) {
+        this.bank.play('amb/crow', { gain: gain * (1 - i * 0.2), rate: 0.9 + Math.random() * 0.2, at: i * (0.19 + Math.random() * 0.14) });
+      }
+    } else {
+      for (let i = 0; i < n; i++) this.caw(i * (0.19 + Math.random() * 0.14), gain * (1 - i * 0.2));
+    }
+    this.wingBeats(gain * 0.55, count);
+  }
+
+  /** 까악 한 번 */
+  private caw(at: number, gain: number) {
+    if (!this.ready()) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime + at;
+    const f0 = 620 + Math.random() * 140;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(f0 * 0.86, t0);
+    o.frequency.linearRampToValueAtTime(f0, t0 + 0.045);      // 까아-
+    o.frequency.linearRampToValueAtTime(f0 * 0.72, t0 + 0.26); // -악
+    // 명관의 거친 떨림
+    const lfo = ctx.createOscillator();
+    lfo.type = 'square'; lfo.frequency.value = 42 + Math.random() * 18;
+    const lfoG = ctx.createGain(); lfoG.gain.value = f0 * 0.06;
+    lfo.connect(lfoG).connect(o.frequency);
+    // 포먼트 — 이게 없으면 그냥 부저 소리다
+    const f1 = ctx.createBiquadFilter();
+    f1.type = 'bandpass'; f1.frequency.setValueAtTime(1250, t0); f1.Q.value = 2.6;
+    f1.frequency.linearRampToValueAtTime(900, t0 + 0.26);
+    const f2 = ctx.createBiquadFilter();
+    f2.type = 'peaking'; f2.frequency.value = 2600; f2.Q.value = 1.4; f2.gain.value = 9;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(gain * 0.55, t0 + 0.10);
+    g.gain.exponentialRampToValueAtTime(gain * 0.8, t0 + 0.15);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.30);
+    o.connect(f1).connect(f2).connect(g).connect(this.master!);
+    o.start(t0); o.stop(t0 + 0.35);
+    lfo.start(t0); lfo.stop(t0 + 0.35);
+    // 숨 섞인 쉿 소리
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise!; src.loop = true;
+    const nf = ctx.createBiquadFilter();
+    nf.type = 'bandpass'; nf.frequency.value = 2200; nf.Q.value = 0.9;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t0);
+    ng.gain.exponentialRampToValueAtTime(gain * 0.3, t0 + 0.02);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.24);
+    src.connect(nf).connect(ng).connect(this.master!);
+    src.start(t0); src.stop(t0 + 0.3);
+  }
+
+  /** 날갯짓 — 큰 새의 날개는 "퍽" 하는 저역 공기 소리다. 마릿수만큼 겹치고 흩뜨린다 */
+  private wingBeats(gain: number, count: number) {
+    if (!this.ready()) return;
+    const ctx = this.ctx!;
+    const beats = 4 + Math.min(4, count);
+    for (let k = 0; k < beats; k++) {
+      const t0 = ctx.currentTime + k * (0.115 + Math.random() * 0.05) + Math.random() * 0.03;
+      const amp = gain * (1 - k / (beats + 1.5)) * (0.7 + Math.random() * 0.5);
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise!; src.loop = true;
+      src.playbackRate.value = 0.5 + Math.random() * 0.3;
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass'; f.frequency.setValueAtTime(700, t0); f.Q.value = 1.1;
+      f.frequency.exponentialRampToValueAtTime(220, t0 + 0.09);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.0002, amp), t0 + 0.014);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.1);
+      src.connect(f).connect(g).connect(this.master!);
+      src.start(t0); src.stop(t0 + 0.14);
+    }
+  }
+
   /** 소금이 닿음 — 치익 하는 고역 + 짧은 불꽃 */
   saltHit() {
     if (!this.ready()) return;

@@ -11,9 +11,14 @@ import type { VillageGround } from './ground';
  * **그림자는 만들지 않는다**: 인스턴스 메시는 부분 컬링이 안 돼서, 초칭(포인트 라이트)의
  * 큐브 그림자 6면에 숲 전체가 다시 그려진다. 배경 실루엣에 그 비용을 쓸 이유가 없다.
  */
+/** 까마귀가 앉을 가지 자리. 나무 하나당 0~2 개, **참배로에서 가까운 나무만** 만든다 */
+export interface Perch { x: number; y: number; z: number; yaw: number }
+
 export class Cedars {
   readonly mesh: THREE.InstancedMesh;
   readonly count: number;
+  /** 앉을 자리 후보 — 까마귀(`crows.ts`)가 여기서 골라 앉는다 */
+  readonly perches: Perch[] = [];
 
   constructor(scene: THREE.Scene, physics: Physics, ground: VillageGround, opts: { target?: number; minHeight?: number } = {}) {
     const target = opts.target ?? 700;
@@ -56,6 +61,23 @@ export class Cedars {
       placed.push({ x, z });
       // 줄기 콜라이더 (플레이어가 숲으로 못 들어가게 하는 역할도 겸한다)
       physics.addStaticBox(new THREE.Vector3(x, h + 1.6 * sc, z), new THREE.Vector3(0.3 * sc, 1.6 * sc, 0.3 * sc));
+      // 앉을 자리: 플레이어가 지나다니는 참배로 근처 나무에만. 아래 단(눈높이에 가깝다)과 위 단을 섞는다
+      const rd = ground.roadDist(x, z);
+      if (rd < 26 && this.perches.length < 360) {
+        const k = rng() < 0.45 ? 2 : 1;
+        for (let i = 0; i < k; i++) {
+          const low = rng() < 0.55;
+          const ly = low ? 3.3 + rng() * 0.9 : 5.2 + rng() * 1.1;   // 원뿔 단 가장자리
+          const lr = (low ? 1.05 : 0.62) * (0.75 + rng() * 0.4);
+          const a = rng() * Math.PI * 2;
+          this.perches.push({
+            x: x + Math.cos(a) * lr * sc,
+            y: h - 0.15 + ly * sc,
+            z: z + Math.sin(a) * lr * sc,
+            yaw: a + (rng() - 0.5) * 1.2,   // 대체로 줄기 바깥을 본다
+          });
+        }
+      }
       n++;
     }
     mesh.count = n;

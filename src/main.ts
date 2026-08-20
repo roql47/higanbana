@@ -7,6 +7,7 @@ import { createTweaks } from '@/core/tweaks';
 import { settings, applyDayPreset } from '@/core/settings';
 import { createSky } from '@/world/sky';
 import { createNightSky } from '@/world/nightSky';
+import { Crows } from '@/world/village/crows';
 import { Village } from '@/world/village';
 import { Chochin } from '@/light/chochin';
 import { createPlayground } from '@/world/playground';
@@ -251,6 +252,10 @@ async function main() {
     dorotabo = new Dorotabo(village.ground, senses, sfx, { url: '/models/yokai-dorotabo.glb', height: 1.7 });
     scene.add(dorotabo.root);
   }
+  // --- 까마귀: 삼나무에 앉았다가 다가가면 날아오른다 ---
+  let crows: Crows | null = null;
+  if (village) crows = new Crows(scene, village.cedars.perches, sfx, { count: 22 });
+
   // --- 연출형 요괴: 움직이는 지장 · 놋페라보 · 초칭오바케 ---
   let scares: Scares | null = null;
   if (village) {
@@ -579,7 +584,7 @@ async function main() {
   window.addEventListener('keydown', (e) => { if (e.code === 'Enter' || e.code === 'Space') start(); }, { once: false });
 
   if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri, scares, rules, ambience, get actions() { return actions; }, get hiding() { return hiding; }, get crouching() { return crouching; }, setCrouch(v: boolean) { crouching = v; } };
+    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, crows, chochin, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri, scares, rules, ambience, get actions() { return actions; }, get hiding() { return hiding; }, get crouching() { return crouching; }, setCrouch(v: boolean) { crouching = v; } };
   }
 
   // --- 리사이즈 ---
@@ -722,6 +727,7 @@ async function main() {
     props?.update();
     grass?.update(dt);
     village?.update(dt, controller.position);
+    crows?.update(dt, controller.position);
     sfx.updateNight(dt);
     ambience?.update(dt, controller.position, camera);
 
