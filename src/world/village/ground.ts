@@ -46,6 +46,56 @@ const ROAD: [number, number][] = [[0, 88], [-1.5, 72], [0, 58], [0, 40], [-2, 26
 const ROAD_W = 1.9; // 반폭
 const ROAD_BLEND = 2.4; // 가장자리 블렌드 폭
 
+/**
+ * 갈래길(2026-08-20 개편).
+ *
+ * 예전엔 참배로 하나뿐이었다 — 남쪽 스폰에서 북쪽 신사까지 외길. 어디로 갈지 고를 게 없으면
+ * 추격은 그냥 달리기 시합이 되고, 맵을 외우면 끝난다.
+ *
+ * 지금은 **같은 두 지점을 잇는 길이 여러 개**고, 각각 성격이 반대다.
+ *   ① 참배로   자갈 · 넓다 · 초칭이 늘어서 밝다 · 요괴 순찰로 → **빠르지만 노출**
+ *   ② 논두렁길 흙 · 폭 2 m · 양옆이 사람 키 벼 → **느리지만 안 보인다**. 도로타보의 영역
+ *   ③ 뒷산길   낙엽 · 삼나무 사이 · 시야 짧다 · 까마귀 → **가장 길고 가장 어둡다**
+ *   ④ 돌계단   광장에서 신사 뒤로 오르는 지름길 · 좁고 막다른 곳이 있다
+ *   ⑤ 대숲길   동쪽 대나무 숲 · 시야 4 m · 발밑 소리가 크다
+ *
+ * `flatten` 은 지형을 중심선 높이로 끌어당기는 세기다. 논두렁길은 **0** 이어야 한다 —
+ * 흙둑(+0.55 m)이 이미 길이고, 평탄화하면 그걸 도로 깎아 없앤다.
+ */
+export interface Route {
+  id: 'sando' | 'aze' | 'ridge' | 'stair' | 'bamboo';
+  name: string;
+  pts: [number, number][];
+  halfWidth: number;
+  blend: number;
+  surface: Surface;
+  flatten: number;
+}
+
+export const ROUTES: Route[] = [
+  { id: 'sando', name: '참배로', pts: ROAD, halfWidth: ROAD_W, blend: ROAD_BLEND, surface: 'gravel', flatten: 1 },
+  // 논두렁을 따라 서쪽으로 크게 돈다. 폐가 앞을 지난다
+  { id: 'aze', name: '논두렁길', surface: 'dirt', halfWidth: 0.95, blend: 0.6, flatten: 0,
+    pts: [[-1, 78], [-2.8, 68], [-2.8, 62.8], [-20.4, 62.8], [-20.4, 48.6], [-20.4, 34.4], [-13.5, 30], [-11, 22], [-2.8, 20.2], [-2.8, 8], [0, 4]] },
+  // 서쪽 산자락 — 논 바깥을 돌아 신사 서편으로 붙는다
+  { id: 'ridge', name: '뒷산 오솔길', surface: 'dirt', halfWidth: 1.1, blend: 1.6, flatten: 0.85,
+    pts: [[-2, 80], [-18, 75], [-32, 67], [-44, 53], [-50, 37], [-48, 20], [-42, 4], [-34, -12], [-24, -26], [-13, -37], [-3, -42]] },
+  // 마츠리 광장 → 신사 뒤. 짧지만 좁다
+  { id: 'stair', name: '돌계단 뒷길', surface: 'gravel', halfWidth: 1.0, blend: 1.2, flatten: 0.9,
+    pts: [[57, 20], [55, 6], [50, -6], [42, -18], [29, -29], [15, -38], [4, -43]] },
+  // 동쪽 대나무 숲 — 스폰 북쪽에서 광장으로
+  { id: 'bamboo', name: '대숲길', surface: 'dirt', halfWidth: 1.0, blend: 1.0, flatten: 0.75,
+    pts: [[2, 86], [18, 82], [34, 76], [46, 66], [53, 54], [56, 42], [57, 30]] },
+];
+
+/** 각 갈래길의 바운딩 박스 (heightAt 에서 빠르게 걸러내려고 미리 만든다) */
+const ROUTE_BOX = ROUTES.map((r) => {
+  let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+  for (const [x, z] of r.pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+  const m = r.halfWidth + r.blend + 1;
+  return { x0: x0 - m, z0: z0 - m, x1: x1 + m, z1: z1 + m };
+});
+
 /** 폐가 터: 이 사각형 안은 평탄하게 고른다 (집이 지형에 파묻히지 않도록) */
 export const HOUSE_PAD = { x0: -26.0, z0: 16.4, x1: -11.0, z1: 33.8, y: 0.06 }; // 집 15×11 확장에 맞춤 (2026-08-19)
 /** 마츠리 광장 터 (참배로 동쪽, 논두렁 너머) — 평탄화 + 논 제외 */
@@ -67,6 +117,24 @@ function rimAt(x: number, z: number) {
   const east = smoothstep(70, 88, x) * 16;   // 동쪽은 마츠리 광장 자리를 비운다
   return Math.max(west, east) + smoothstep(80, 94, z) * 14;
 }
+/** 폴리라인 위 최근접점. `out` 에 거리·좌표·시작점부터의 호길이를 채운다 */
+function nearestOn(pts: [number, number][], x: number, z: number, out: { d: number; x: number; z: number; s: number }) {
+  let best = Infinity, bx = 0, bz = 0, bs = 0, acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const ax = pts[i - 1]![0], az = pts[i - 1]![1], cx = pts[i]![0], cz = pts[i]![1];
+    const dx = cx - ax, dz = cz - az;
+    const len2 = dx * dx + dz * dz, len = Math.sqrt(len2);
+    let t = len2 > 0 ? ((x - ax) * dx + (z - az) * dz) / len2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const px = ax + dx * t, pz = az + dz * t;
+    const d = Math.hypot(x - px, z - pz);
+    if (d < best) { best = d; bx = px; bz = pz; bs = acc + len * t; }
+    acc += len;
+  }
+  out.d = best; out.x = bx; out.z = bz; out.s = bs;
+  return out;
+}
+
 /** 정수 좌표 → 0..1 결정적 해시 (끊긴 자리 배치용 — 시드 없이 매판 같아야 한다) */
 function hash(a: number, b: number): number {
   let h = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263)) | 0;
@@ -213,6 +281,16 @@ export class VillageGround {
     // 참배로 평탄화: 중심선 높이로 끌어당긴다
     const w = 1 - smoothstep(ROAD_W, ROAD_W + ROAD_BLEND, nd);
     if (w > 0) h = lerp(h, this.baseAt(nx, nz) + 0.05, w);
+    // 갈래길 평탄화 — 산자락에 선반을 깎아 오솔길을 낸다. 논두렁길(flatten 0)은 건너뛴다
+    for (let i = 1; i < ROUTES.length; i++) {
+      const r = ROUTES[i]!;
+      if (r.flatten <= 0) continue;
+      const b = ROUTE_BOX[i]!;
+      if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) continue;
+      const n2 = nearestOn(r.pts, x, z, this.tmpNear);
+      const w2 = (1 - smoothstep(r.halfWidth, r.halfWidth + r.blend, n2.d)) * r.flatten;
+      if (w2 > 0) h = lerp(h, this.baseAt(n2.x, n2.z) + 0.05, w2);
+    }
     // 논: 안쪽은 파내고 논두렁은 흙둑으로 올린다. 끊긴 자리에서는 둘 다 풀어 경사로가 된다
     if (this.inPaddyRegion(x, z) && !this.inFlatZone(x, z)) {
       const cut = this.gapMask(x, z);
@@ -382,6 +460,8 @@ export class VillageGround {
 
   /** 참배로 중심선 위 최근접점 */
   private nr = { d: 0, x: 0, z: 0, s: 0 };
+  private tmpNear = { d: 0, x: 0, z: 0, s: 0 };
+  private tmpPath = { d: 0, x: 0, z: 0, s: 0 };
   nearestRoad(x: number, z: number) {
     let best = Infinity, bx = 0, bz = 0, bs = 0;
     for (let i = 1; i < ROAD.length; i++) {
@@ -399,6 +479,26 @@ export class VillageGround {
   }
 
   roadDist(x: number, z: number) { return this.nearestRoad(x, z).d; }
+
+  /**
+   * 갈래길 전체 중 가장 가까운 것. 발소리 재질·나무 배치 제외에 쓴다.
+   * (`roadDist` 는 **참배로만** 본다 — 토리이·석등·지장 배치가 전부 그걸 기준으로 잡혀 있다)
+   */
+  private npRes: { route: Route; d: number; x: number; z: number } = { route: ROUTES[0]!, d: Infinity, x: 0, z: 0 };
+  nearestPath(x: number, z: number) {
+    let best = Infinity, bi = 0, bx = 0, bz = 0;
+    for (let i = 0; i < ROUTES.length; i++) {
+      const b = ROUTE_BOX[i]!;
+      if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) continue;
+      const n = nearestOn(ROUTES[i]!.pts, x, z, this.tmpPath);
+      if (n.d < best) { best = n.d; bi = i; bx = n.x; bz = n.z; }
+    }
+    this.npRes.route = ROUTES[bi]!; this.npRes.d = best; this.npRes.x = bx; this.npRes.z = bz;
+    return this.npRes;
+  }
+
+  /** 어느 갈래길이든 가장 가까운 거리 (나무·풀을 길에서 비우는 데 쓴다) */
+  pathDist(x: number, z: number) { return this.nearestPath(x, z).d; }
 
   /** 참배로에서 주어진 월드 z 에 해당하는 s(시작점부터의 거리). 맵을 늘려도 배치가 안 밀린다 */
   sAtZ(z: number): number {
@@ -444,7 +544,9 @@ export class VillageGround {
 
   /** 발밑 표면 — 발소리에 쓴다 */
   surfaceAt(p: THREE.Vector3): Surface {
-    if (this.roadDist(p.x, p.z) < ROAD_W + 0.5) return 'gravel';
+    // 갈래길마다 발밑이 다르다 — 자갈 참배로 / 흙 논두렁 / 낙엽 오솔길 / 돌계단
+    const np = this.nearestPath(p.x, p.z);
+    if (np.d < np.route.halfWidth + 0.5) return np.route.surface;
     if (p.y < PADDY_WATER + 0.08 && this.paddyMask(p.x, p.z) > 0.2) return 'water';
     if (this.inPaddyRegion(p.x, p.z)) return 'dirt';
     return 'grass';

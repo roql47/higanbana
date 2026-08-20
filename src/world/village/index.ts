@@ -8,6 +8,7 @@ import { Paddy } from './paddy';
 import { ToriiPath } from './torii';
 import { Mist } from './mist';
 import { Cedars } from './trees';
+import { BambooGrove } from './bamboo';
 import { House } from './house';
 import { MatsuriSquare } from './matsuri';
 import { Landmarks } from './landmarks';
@@ -25,6 +26,7 @@ export class Village {
   readonly paddy: Paddy;
   readonly torii: ToriiPath;
   readonly cedars: Cedars;
+  readonly bamboo: BambooGrove;
   readonly house: House;
   readonly square: MatsuriSquare;
   readonly landmarks: Landmarks;
@@ -39,6 +41,11 @@ export class Village {
     this.paddy = new Paddy(scene, this.ground, opts.riceBudget ?? 90000);
     this.torii = new ToriiPath(scene, physics, this.ground, { startS: this.ground.sAtZ(12), count: 40, spacing: 1.35 });
     this.cedars = new Cedars(scene, physics, this.ground, { target: opts.treeBudget ?? 700 });
+    // 대나무 숲: 동쪽 대숲길을 감싼다. 이 맵에서 시야를 가장 확실히 끊는 구역
+    this.bamboo = new BambooGrove(scene, physics, this.ground, {
+      area: { x0: 30, z0: 34, x1: 74, z1: 88 },
+      target: Math.round(900 * ((opts.treeBudget ?? 700) / 700)),
+    });
     // 폐가: 논두렁 서쪽, 참배로에서 보이는 자리. 현관이 동쪽(참배로 쪽)을 본다
     this.house = new House(scene, physics, {
       position: new THREE.Vector3(-18.2, 0.06, 25.2),

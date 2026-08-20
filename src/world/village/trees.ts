@@ -44,7 +44,7 @@ export class Cedars {
       const h = ground.heightAt(x, z);
       if (h < minHeight) continue;
       if (ground.slopeAt(x, z) > 1.5) continue;          // 절벽은 제외
-      if (ground.roadDist(x, z) < 4.5) continue;          // 참배로는 비운다
+      if (ground.pathDist(x, z) < 4.2) continue;          // 갈래길은 모두 비운다 (참배로·오솔길·대숲길)
       const density = noise.fbm(x / 22, z / 22, 2) * 0.5 + 0.5;
       if (rng() > 0.3 + density * 0.7) continue;
       // 최소 간격
@@ -62,7 +62,7 @@ export class Cedars {
       // 줄기 콜라이더 (플레이어가 숲으로 못 들어가게 하는 역할도 겸한다)
       physics.addStaticBox(new THREE.Vector3(x, h + 1.6 * sc, z), new THREE.Vector3(0.3 * sc, 1.6 * sc, 0.3 * sc));
       // 앉을 자리: 플레이어가 지나다니는 참배로 근처 나무에만. 아래 단(눈높이에 가깝다)과 위 단을 섞는다
-      const rd = ground.roadDist(x, z);
+      const rd = ground.pathDist(x, z);
       if (rd < 26 && this.perches.length < 360) {
         const k = rng() < 0.45 ? 2 : 1;
         for (let i = 0; i < k; i++) {
