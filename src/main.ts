@@ -8,8 +8,10 @@ import { settings, applyDayPreset } from '@/core/settings';
 import { createSky } from '@/world/sky';
 import { createNightSky } from '@/world/nightSky';
 import { Crows } from '@/world/village/crows';
+import { ROUTES, type Route } from '@/world/village/ground';
 import { Village } from '@/world/village';
 import { Chochin } from '@/light/chochin';
+import { FaceFill } from '@/light/faceFill';
 import { createPlayground } from '@/world/playground';
 import { Island, loadTerrainTextures } from '@/world/terrain';
 import { Water } from '@/world/water';
@@ -183,9 +185,11 @@ async function main() {
 
   // --- 초칭(왼손 등불) — 마을의 유일한 그림자 광원 ---
   let chochin: Chochin | null = null;
+  let faceFill: FaceFill | null = null;
   let crouchPose: CrouchPose | null = null;
   if (isVillage && model) {
     chochin = new Chochin(model.root, quality.shadowMap >= 3072 ? 1024 : 512);
+    faceFill = new FaceFill(scene);
     console.info('[chochin] level', chochin.level);
     crouchPose = new CrouchPose(model);
     const mdl = model;
@@ -206,16 +210,40 @@ async function main() {
     const grid = new NavGrid(physics, village.ground);
     senses = new Senses(physics);
     matsuri = new Matsuri(sfx);
-    // 순찰 앵커: 참배로 위 4지점 + 폐가 현관 + 논두렁 모서리
-    const anchors: THREE.Vector3[] = [];
-    for (const t of [village.ground.sAtZ(70), village.ground.sAtZ(40), village.ground.sAtZ(10), village.ground.sAtZ(-25)]) {
-      const rp = village.ground.roadAt(Math.min(t, village.ground.roadLength - 4));
-      anchors.push(new THREE.Vector3(rp.x, 0, rp.z));
-    }
-    anchors.push(village.house.entrance.clone());
-    anchors.push(new THREE.Vector3(-20, 0, 12), new THREE.Vector3(-30, 0, 50), new THREE.Vector3(24, 0, 62));
-    // 마츠리 광장 — 불 켜진 빈 축제를 팔척귀신이 가로지른다
-    anchors.push(new THREE.Vector3(56, 0, 24), new THREE.Vector3(46, 0, 34));
+    /**
+     * 순찰 앵커. **길마다 주인이 다르다** — 어느 길을 고르든 안전하지 않아야 하고,
+     * 동시에 "이 길엔 누가 있다"를 배울 수 있어야 한다(외운 만큼 유리해지는 게 재미다).
+     * 갈래길 폴리라인에서 등간격으로 점을 뽑아 쓴다.
+     */
+    const alongRoute = (id: Route['id'], count: number): THREE.Vector3[] => {
+      const r = ROUTES.find((x) => x.id === id)!;
+      let total = 0;
+      for (let i = 1; i < r.pts.length; i++) total += Math.hypot(r.pts[i]![0] - r.pts[i - 1]![0], r.pts[i]![1] - r.pts[i - 1]![1]);
+      const out: THREE.Vector3[] = [];
+      for (let k = 0; k < count; k++) {
+        let want = (total * (k + 0.5)) / count, acc = 0;
+        for (let i = 1; i < r.pts.length; i++) {
+          const ax = r.pts[i - 1]![0], az = r.pts[i - 1]![1];
+          const len = Math.hypot(r.pts[i]![0] - ax, r.pts[i]![1] - az);
+          if (acc + len >= want) {
+            const t = len > 0 ? (want - acc) / len : 0;
+            out.push(new THREE.Vector3(ax + (r.pts[i]![0] - ax) * t, 0, az + (r.pts[i]![1] - az) * t));
+            break;
+          }
+          acc += len;
+        }
+      }
+      return out;
+    };
+    // 팔척귀신: 참배로와 논두렁길 — 마을 한복판을 오간다
+    const anchors: THREE.Vector3[] = [
+      ...alongRoute('sando', 4),
+      ...alongRoute('aze', 4),
+      ...alongRoute('bamboo', 2),
+      village.house.entrance.clone(),
+      // 마츠리 광장 — 불 켜진 빈 축제를 가로지른다
+      new THREE.Vector3(56, 0, 24), new THREE.Vector3(46, 0, 34),
+    ];
     const events = {
       onSpotted: () => matsuri?.onSpotted(),
       onLost: () => { if (!hunters.some((h) => h.state === 'CHASE')) matsuri?.onLost(); },
@@ -234,11 +262,13 @@ async function main() {
       events,
     }));
     // 여우 요괴: 센본토리이·신사 언덕의 주인 — 참배로 상류만 배회
+    // 여우 요괴: 참배로 상류 + 뒷산 오솔길·돌계단 뒷길 — 신사로 가는 **모든** 길을 지킨다
     const shrineAnchors: THREE.Vector3[] = [];
     for (const t of [village.ground.sAtZ(0), village.ground.sAtZ(-15), village.ground.sAtZ(-30), village.ground.sAtZ(-43)]) {
       const rp = village.ground.roadAt(Math.min(t, village.ground.roadLength - 3));
       shrineAnchors.push(new THREE.Vector3(rp.x, 0, rp.z));
     }
+    shrineAnchors.push(...alongRoute('ridge', 3).slice(1), ...alongRoute('stair', 3));
     const ks = village.ground.roadAt(village.ground.roadLength - 16);
     hunters.push(new Hunter(physics, village.ground, grid, senses, {
       url: '/models/yokai-kitsune.glb',
@@ -587,7 +617,7 @@ async function main() {
   window.addEventListener('keydown', (e) => { if (e.code === 'Enter' || e.code === 'Space') start(); }, { once: false });
 
   if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, crows, chochin, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri, scares, rules, ambience, get actions() { return actions; }, get hiding() { return hiding; }, get crouching() { return crouching; }, setCrouch(v: boolean) { crouching = v; } };
+    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, crows, chochin, faceFill, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri, scares, rules, ambience, get actions() { return actions; }, get hiding() { return hiding; }, get crouching() { return crouching; }, setCrouch(v: boolean) { crouching = v; } };
   }
 
   // --- 리사이즈 ---
@@ -760,6 +790,7 @@ async function main() {
     if (isVillage) tpCam.pivotDrop = crouching ? 0.5 : 0;
     visual.update(dt, controller);
     chochin?.update(dt, controller.yaw, controller.horizontalSpeed);
+    if (faceFill) faceFill.update(controller.position, camera.position, settings.fill.levelMul[settings.chochin.level] ?? 1);
     {
       const c = settings.camera;
       const t = (tpCam.currentDistance - c.minCollisionDistance) / Math.max(0.01, c.fadeDistance - c.minCollisionDistance);

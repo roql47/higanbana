@@ -9,6 +9,7 @@ import { ToriiPath } from './torii';
 import { Mist } from './mist';
 import { Cedars } from './trees';
 import { BambooGrove } from './bamboo';
+import { Graveyard } from './graveyard';
 import { House } from './house';
 import { MatsuriSquare } from './matsuri';
 import { Landmarks } from './landmarks';
@@ -27,6 +28,7 @@ export class Village {
   readonly torii: ToriiPath;
   readonly cedars: Cedars;
   readonly bamboo: BambooGrove;
+  readonly graveyard: Graveyard;
   readonly house: House;
   readonly square: MatsuriSquare;
   readonly landmarks: Landmarks;
@@ -53,6 +55,8 @@ export class Village {
     });
     // 마츠리 광장: 참배로 동쪽. 불은 켜져 있고 사람은 없다
     this.square = new MatsuriSquare(scene, physics, this.ground, { center: new THREE.Vector3(56, 0, 24), radius: 9.5 });
+    // 무연불 묘지: 뒷산 오솔길 옆. 가장 어두운 길에 갈 이유를 준다
+    this.graveyard = new Graveyard(scene, physics, this.ground, { center: new THREE.Vector3(-38, 0, 12), radius: 13 });
     this.landmarks = new Landmarks(scene, physics, this.ground);
     this.shrine = new Shrine(scene, physics, this.ground);
     this.higanbana = new Higanbana(scene, this.ground);
