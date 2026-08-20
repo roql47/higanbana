@@ -60,7 +60,7 @@ export class Dorotabo {
     this.root.add(wrap);
     inner.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; }
+      if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; this.shadowMeshes.push(m); }
     });
     this.loaded = true;
     console.info('[dorotabo] loaded', this.opts.url);
@@ -74,7 +74,18 @@ export class Dorotabo {
     this.pushVelocity.set(0, 0, 0);
   }
 
+  private shadowMeshes: THREE.Mesh[] = [];
+  private castingShadow = true;
+
   update(dt: number, playerPos: THREE.Vector3, playerSpeed: number) {
+    // 그림자 LOD: 초칭 사거리 밖이면 큐브맵 6면 렌더에서 제외 (frustumCulled=false 라 자동 컬링 안 됨)
+    {
+      const want = this.root.position.distanceTo(playerPos) < settings.chochin.rangeHigh + 4;
+      if (want !== this.castingShadow) {
+        this.castingShadow = want;
+        for (const m of this.shadowMeshes) m.castShadow = want;
+      }
+    }
     if (!this.loaded) return;
     this.t += dt;
     this.pushVelocity.set(0, 0, 0);

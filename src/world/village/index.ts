@@ -37,7 +37,7 @@ export class Village {
   constructor(scene: THREE.Scene, physics: Physics, textures: TerrainTextures, opts: { riceBudget?: number; treeBudget?: number } = {}) {
     this.ground = new VillageGround(scene, physics, textures);
     this.paddy = new Paddy(scene, this.ground, opts.riceBudget ?? 90000);
-    this.torii = new ToriiPath(scene, physics, this.ground, { startS: 46, count: 40, spacing: 1.35 });
+    this.torii = new ToriiPath(scene, physics, this.ground, { startS: this.ground.sAtZ(12), count: 40, spacing: 1.35 });
     this.cedars = new Cedars(scene, physics, this.ground, { target: opts.treeBudget ?? 700 });
     // 폐가: 논두렁 서쪽, 참배로에서 보이는 자리. 현관이 동쪽(참배로 쪽)을 본다
     this.house = new House(scene, physics, {
@@ -45,13 +45,13 @@ export class Village {
       yaw: -Math.PI / 2,
     });
     // 마츠리 광장: 참배로 동쪽. 불은 켜져 있고 사람은 없다
-    this.square = new MatsuriSquare(scene, physics, this.ground, { center: new THREE.Vector3(40, 0, 24), radius: 9.5 });
+    this.square = new MatsuriSquare(scene, physics, this.ground, { center: new THREE.Vector3(56, 0, 24), radius: 9.5 });
     this.landmarks = new Landmarks(scene, physics, this.ground);
     this.shrine = new Shrine(scene, physics, this.ground);
     this.higanbana = new Higanbana(scene, this.ground);
     this.mist = new Mist(scene, 130);
 
-    const p = this.ground.roadAt(24);
+    const p = this.ground.roadAt(this.ground.sAtZ(56)); // 스폰: 논 남쪽 — 확장 전(z 34)보다 뒤에서 시작해 접근 거리 ↑
     this.spawn.set(p.x, this.ground.heightAt(p.x, p.z) + 0.05, p.z);
 
     scene.fog = new THREE.FogExp2(settings.night.fogColor, settings.night.fogDensity);
@@ -82,8 +82,8 @@ export class Village {
     if (near.d > 2.8) return false;
     return near.s > this.toriiS0 - 2 && near.s < this.toriiS1 + 2;
   }
-  private toriiS0 = 46;
-  private toriiS1 = 46 + 40 * 1.35;
+  private get toriiS0() { return this.ground.sAtZ(12); }
+  private get toriiS1() { return this.toriiS0 + 40 * 1.35; }
 
   heightAt(x: number, z: number) { return this.ground.heightAt(x, z); }
   surfaceAt(p: THREE.Vector3): Surface { return this.house.surfaceAt(p) ?? this.ground.surfaceAt(p); }

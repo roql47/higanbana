@@ -63,6 +63,8 @@ export class Hunter {
   private jitterMul = 1;
   private freezeT = 0;
 
+  private shadowMeshes: THREE.Mesh[] = [];
+  private castingShadow = true;
   private facing = new THREE.Vector3(0, 0, 1);
   /** 규칙(수집 수)에 따른 추격 속도 배율 — Rules 가 매 프레임 넣어준다 */
   chaseSpeedOverride: number | null = null;
@@ -102,7 +104,11 @@ export class Hunter {
     this.root.add(wrap);
     inner.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; }
+      if (m.isMesh) {
+        m.castShadow = true; m.receiveShadow = true;
+        m.frustumCulled = false; // 스킨드 메시는 바운딩이 부정확
+        this.shadowMeshes.push(m);
+      }
     });
     this.mixer = new THREE.AnimationMixer(inner);
     for (const clip of gltf.animations) {
@@ -284,6 +290,16 @@ export class Hunter {
     }
     this.position.y = this.ground.heightAt(this.position.x, this.position.z);
     this.facing.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+
+    // --- 그림자 LOD ---
+    // frustumCulled=false 라 멀리 있어도 큐브맵 6면에 매번 그려진다(요괴 하나가 최대 113k tri × 6).
+    // 초칭 사거리(+여유) 밖이면 그림자를 끈다 — 어차피 빛이 안 닿아 화면상 차이가 없다.
+    const shadowRange = settings.chochin.rangeHigh + 4;
+    const wantShadow = dist < shadowRange;
+    if (wantShadow !== this.castingShadow) {
+      this.castingShadow = wantShadow;
+      for (const m of this.shadowMeshes) m.castShadow = wantShadow;
+    }
 
     // --- 표현 ---
     this.root.position.copy(this.position);

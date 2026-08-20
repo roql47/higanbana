@@ -43,6 +43,8 @@ export class Rules {
   onGateClose: (() => void) | null = null;
   /** 상태가 바뀔 때마다(픽업·봉납·탈출·리셋) — HUD 갱신용 */
   onChange: (() => void) | null = null;
+  /** 리셋 시 공물 위치를 다시 뽑는다 (매판 동선 변화) */
+  reroll: (() => THREE.Vector3[]) | null = null;
 
   constructor(
     private scene: THREE.Scene,
@@ -212,7 +214,14 @@ export class Rules {
     this.collected.clear();
     this.offered = false; this.escaped = false;
     if (this.altarGlow) this.altarGlow.intensity = 0; // 상주 — 끄기만
-    for (const o of this.offerings) this.spawnPickup(o);
+    // 위치 재추첨 후 재배치
+    const fresh = this.reroll?.();
+    if (fresh) this.offerings.forEach((o, i) => { if (fresh[i]) o.pos.copy(fresh[i]!); });
+    for (const o of this.offerings) {
+      const l = this.pickupLights.get(o.id);
+      if (l) l.position.copy(o.pos).add(new THREE.Vector3(0, 0.6, 0));
+      this.spawnPickup(o);
+    }
     // 게이트 복구
     if (this.gate) { this.gate.removeFromParent(); this.gate = null; this.buildGate(); }
     this.onGateClose?.();

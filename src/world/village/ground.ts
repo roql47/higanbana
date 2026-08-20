@@ -12,11 +12,11 @@ import { clamp, lerp, smoothstep } from '@/core/math';
  *   base(잔노이즈) + hill(북쪽 언덕) → 참배로 근처는 중심선 높이로 평탄화 → 논 격자는 파냄
  */
 
-export const SIZE = 140;
-export const RES = 140; // 1 m 격자
+export const SIZE = 190;   // 140 → 190 (2026-08-19 확장). 1 m 격자 유지 → 지형 정점 19,881 → 36,481
+export const RES = 190;
 
-// --- 논 격자 (남쪽) ---
-const PX0 = -26, PX1 = 26, PZ0 = 6, PZ1 = 48;
+// --- 논 격자 (남쪽) — 구역을 넓혀 배미 수를 늘린다 ---
+const PX0 = -38, PX1 = 38, PZ0 = 6, PZ1 = 74;
 const CELL_X = 17.6, CELL_Z = 14.2, BUND = 2.2; // 한 배미 15.4×12 m, 논두렁 2.2 m
 const PADDY_DEPTH = 0.45;
 /** 논 수면 높이 (지면 0 기준) — 바닥 −0.45 이므로 물 깊이 약 23 cm */
@@ -25,14 +25,14 @@ export const PADDY_WATER = -0.22;
 export interface PaddyRect { x0: number; z0: number; x1: number; z1: number }
 
 // --- 참배로: 남(스폰) → 북(신사 언덕) ---
-const ROAD: [number, number][] = [[0, 58], [0, 40], [-2, 26], [0, 10], [1.5, -6], [0, -20], [0, -34], [0, -46]];
+const ROAD: [number, number][] = [[0, 88], [-1.5, 72], [0, 58], [0, 40], [-2, 26], [0, 10], [1.5, -6], [0, -20], [0, -34], [0, -46]];
 const ROAD_W = 1.9; // 반폭
 const ROAD_BLEND = 2.4; // 가장자리 블렌드 폭
 
 /** 폐가 터: 이 사각형 안은 평탄하게 고른다 (집이 지형에 파묻히지 않도록) */
 export const HOUSE_PAD = { x0: -26.0, z0: 16.4, x1: -11.0, z1: 33.8, y: 0.06 }; // 집 15×11 확장에 맞춤 (2026-08-19)
 /** 마츠리 광장 터 (참배로 동쪽, 논두렁 너머) — 평탄화 + 논 제외 */
-export const SQUARE_PAD = { x0: 28.0, z0: 12.0, x1: 52.0, z1: 36.0, y: 0.10 };
+export const SQUARE_PAD = { x0: 44.0, z0: 12.0, x1: 68.0, z1: 36.0, y: 0.10 };
 /** 피안화 군락 터 — 배미 하나를 꽃밭이 삼켰다. 평탄화 없이 배미만 제외 */
 export const FLOWER_FIELD = { x0: -24.0, z0: 37.0, x1: -13.0, z1: 47.5 }; // 논(x≤26) 동쪽 바깥. 처음 x 9~35 로 잡았다가 배미 7→1 로 잡아먹혀 이동 (2026-08-19)
 
@@ -46,9 +46,9 @@ function hillAt(z: number) { return smoothstep(-16, -42, z) * 8.0; }
  */
 function rimAt(x: number, z: number) {
   // 동쪽(x>0)은 마츠리 광장 자리를 비우기 위해 산자락을 뒤로 민다
-  const west = smoothstep(26, 48, -x) * 16;
-  const east = smoothstep(52, 66, x) * 16;
-  return Math.max(west, east) + smoothstep(42, 58, z) * 14;
+  const west = smoothstep(40, 64, -x) * 16;
+  const east = smoothstep(70, 88, x) * 16;   // 동쪽은 마츠리 광장 자리를 비운다
+  return Math.max(west, east) + smoothstep(80, 94, z) * 14;
 }
 function valleyAt(x: number, z: number) {
   return smoothstep(5, 21, Math.abs(x)) * 9.5 * smoothstep(-2, -18, z);
@@ -281,6 +281,20 @@ export class VillageGround {
   }
 
   roadDist(x: number, z: number) { return this.nearestRoad(x, z).d; }
+
+  /** 참배로에서 주어진 월드 z 에 해당하는 s(시작점부터의 거리). 맵을 늘려도 배치가 안 밀린다 */
+  sAtZ(z: number): number {
+    let acc = 0;
+    for (let i = 1; i < ROAD.length; i++) {
+      const az = ROAD[i - 1]![1], bz = ROAD[i]![1];
+      const len = Math.hypot(ROAD[i]![0] - ROAD[i - 1]![0], bz - az);
+      if ((z - az) * (z - bz) <= 0 && Math.abs(bz - az) > 1e-6) {
+        return acc + len * ((z - az) / (bz - az));
+      }
+      acc += len;
+    }
+    return clamp(acc, 0, this.roadLength);
+  }
 
   /** 참배로 시작(s=0, 남쪽)에서 s 미터 지점의 좌표와 진행 방향 */
   roadAt(s: number, out = { x: 0, z: 0, dirX: 0, dirZ: 0 }) {

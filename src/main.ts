@@ -207,14 +207,14 @@ async function main() {
     matsuri = new Matsuri(sfx);
     // 순찰 앵커: 참배로 위 4지점 + 폐가 현관 + 논두렁 모서리
     const anchors: THREE.Vector3[] = [];
-    for (const t of [30, 55, 75, 95]) {
+    for (const t of [village.ground.sAtZ(70), village.ground.sAtZ(40), village.ground.sAtZ(10), village.ground.sAtZ(-25)]) {
       const rp = village.ground.roadAt(Math.min(t, village.ground.roadLength - 4));
       anchors.push(new THREE.Vector3(rp.x, 0, rp.z));
     }
     anchors.push(village.house.entrance.clone());
-    anchors.push(new THREE.Vector3(-20, 0, 12));
+    anchors.push(new THREE.Vector3(-20, 0, 12), new THREE.Vector3(-30, 0, 50), new THREE.Vector3(24, 0, 62));
     // 마츠리 광장 — 불 켜진 빈 축제를 팔척귀신이 가로지른다
-    anchors.push(new THREE.Vector3(40, 0, 24), new THREE.Vector3(32, 0, 30));
+    anchors.push(new THREE.Vector3(56, 0, 24), new THREE.Vector3(46, 0, 34));
     const events = {
       onSpotted: () => matsuri?.onSpotted(),
       onLost: () => { if (!hunters.some((h) => h.state === 'CHASE')) matsuri?.onLost(); },
@@ -234,7 +234,7 @@ async function main() {
     }));
     // 여우 요괴: 센본토리이·신사 언덕의 주인 — 참배로 상류만 배회
     const shrineAnchors: THREE.Vector3[] = [];
-    for (const t of [58, 72, 86, 98]) {
+    for (const t of [village.ground.sAtZ(0), village.ground.sAtZ(-15), village.ground.sAtZ(-30), village.ground.sAtZ(-43)]) {
       const rp = village.ground.roadAt(Math.min(t, village.ground.roadLength - 3));
       shrineAnchors.push(new THREE.Vector3(rp.x, 0, rp.z));
     }
@@ -308,25 +308,57 @@ async function main() {
   };
   if (village) {
     const g = village.ground;
-    const stall = village.square.stalls[4] ?? village.square.stalls[0]!;
-    // 쌀: 논 한가운데 (배미 중앙) — 논 은신 구역으로 유인
-    const cell = g.paddyCells()[Math.floor(g.paddyCells().length / 2)];
-    const ricePos = cell ? new THREE.Vector3((cell.x0 + cell.x1) / 2, g.heightAt((cell.x0 + cell.x1) / 2, (cell.z0 + cell.z1) / 2), (cell.z0 + cell.z1) / 2) : new THREE.Vector3(-12, 0, 20);
-    // 소금: 폐가 봉당 부뚜막 옆 (실내)
-    const hp = village.house.entrance.clone(); // 현관 앞에서 집 안쪽으로 6 m
-    const saltPos = new THREE.Vector3(-19.5, 0.12, 24.0); // 봉당 안쪽(부뚜막 근처)
-    // 비쭈기나무: 신사 경내 서쪽 거목 아래 (피안화 군락은 H4 — 지금은 어신목 아래)
-    const sakakiPos = village.shrine.center.clone().add(new THREE.Vector3(-7, 0, 1.8));
-    sakakiPos.y = g.heightAt(sakakiPos.x, sakakiPos.z);
-    // 물: 초즈야 수반
-    const waterPos = village.shrine.chozuya.clone(); waterPos.y = g.heightAt(waterPos.x, waterPos.z);
-    const offerings: OfferingDef[] = [
-      { id: 'sake', name: '신주(神酒)', desc: '노점에 남겨진 술병', color: 0xf2e0a0, pos: new THREE.Vector3(stall.pos.x, stall.pos.y, stall.pos.z).add(new THREE.Vector3(Math.sin(stall.yaw) * 1.2, 0, Math.cos(stall.yaw) * 1.2)) },
-      { id: 'rice', name: '쌀', desc: '논 한가운데 볏단 위', color: 0xe8e8d0, pos: ricePos },
-      { id: 'salt', name: '소금', desc: '폐가 부엌', color: 0xd8f0ff, pos: saltPos },
-      { id: 'water', name: '물', desc: '초즈야 수반', color: 0x80c8ff, pos: waterPos },
-      { id: 'sakaki', name: '비쭈기나무(榊)', desc: '어신목 아래', color: 0x60d080, pos: sakakiPos },
+    // --- 공물 위치 랜덤화: 종류마다 후보 여러 곳 중 한 곳 (매판 동선이 달라진다) ---
+    const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)]!;
+    const onGround = (v: THREE.Vector3) => { v.y = g.heightAt(v.x, v.z); return v; };
+    const stallSpot = (i: number) => {
+      const st = village!.square.stalls[i % village!.square.stalls.length]!;
+      return onGround(new THREE.Vector3(st.pos.x + Math.sin(st.yaw) * 1.2, 0, st.pos.z + Math.cos(st.yaw) * 1.2));
+    };
+    // 논: 배미 목록에서 무작위 배미의 중앙
+    const cells = g.paddyCells();
+    const paddySpot = () => {
+      const c = pick(cells);
+      return onGround(new THREE.Vector3((c.x0 + c.x1) / 2, 0, (c.z0 + c.z1) / 2));
+    };
+    // 참배로 위/옆 지점
+    const roadSpot = (s: number, side: number) => {
+      const rp = g.roadAt(Math.min(s, g.roadLength - 3));
+      return onGround(new THREE.Vector3(rp.x - rp.dirZ * side * 2.6, 0, rp.z + rp.dirX * side * 2.6));
+    };
+    const CANDIDATES: Record<string, (() => THREE.Vector3)[]> = {
+      // 신주: 축제 노점 어딘가 (노점 6곳)
+      sake: village.square.stalls.map((_, i) => () => stallSpot(i)),
+      // 쌀: 논 배미 아무 곳 — 도로타보 영역이라 항상 위험하다
+      rice: [paddySpot, paddySpot, paddySpot],
+      // 소금: 폐가 실내 3곳 (봉당 부뚜막 옆 / 큰 방 이로리 옆 / 벽장 앞)
+      salt: [
+        () => new THREE.Vector3(-19.5, 0.12, 24.0),
+        () => village!.house.irori.clone().add(new THREE.Vector3(1.1, 0, 0.6)),
+        () => new THREE.Vector3(-21.0, 0.42, 29.5),
+      ],
+      // 물: 초즈야 / 신사 경내 구석 / 참배로 상류 석등 옆
+      water: [
+        () => onGround(village!.shrine.chozuya.clone()),
+        () => onGround(village!.shrine.center.clone().add(new THREE.Vector3(4.5, 0, -2))),
+        () => roadSpot(g.roadLength - 12, -1),
+      ],
+      // 비쭈기나무: 어신목 아래 / 피안화 군락 / 대나무(삼나무) 사면 초입
+      sakaki: [
+        () => onGround(village!.shrine.center.clone().add(new THREE.Vector3(-7, 0, 1.8))),
+        () => onGround(new THREE.Vector3(village!.higanbana.cluster.x, 0, village!.higanbana.cluster.z)),
+        () => roadSpot(g.roadLength * 0.62, 1),
+      ],
+    };
+    const META = [
+      { id: 'sake' as const, name: '신주(神酒)', desc: '노점에 남겨진 술병', color: 0xf2e0a0 },
+      { id: 'rice' as const, name: '쌀', desc: '논 한가운데 볏단 위', color: 0xe8e8d0 },
+      { id: 'salt' as const, name: '소금', desc: '폐가 안', color: 0xd8f0ff },
+      { id: 'water' as const, name: '물', desc: '신사 경내', color: 0x80c8ff },
+      { id: 'sakaki' as const, name: '비쭈기나무(榊)', desc: '어신목·꽃밭 근처', color: 0x60d080 },
     ];
+    const offerings: OfferingDef[] = META.map((m) => ({ ...m, pos: pick(CANDIDATES[m.id]!)() }));
+    console.info('[rules] 공물 배치', offerings.map((o) => `${o.id}(${o.pos.x.toFixed(0)},${o.pos.z.toFixed(0)})`).join(' '));
     // 출구: 참배로 남쪽 끝(스폰 뒤) 다리
     const ex = g.roadAt(4);
     const exitPos = new THREE.Vector3(ex.x, g.heightAt(ex.x, ex.z), ex.z);
@@ -339,8 +371,8 @@ async function main() {
         // 여우 요괴가 마을로 내려온다 (공물 2개부터) — 참배로 전체 + 광장
         if (n === 2 && hunters[1] && village) {
           const a: THREE.Vector3[] = [];
-          for (const t of [20, 40, 60, 80, 98]) { const rp = village.ground.roadAt(Math.min(t, village.ground.roadLength - 3)); a.push(new THREE.Vector3(rp.x, 0, rp.z)); }
-          a.push(new THREE.Vector3(40, 0, 24));
+          for (const z of [60, 35, 10, -12, -35]) { const rp = village.ground.roadAt(village.ground.sAtZ(z)); a.push(new THREE.Vector3(rp.x, 0, rp.z)); }
+          a.push(new THREE.Vector3(56, 0, 24));
           hunters[1].setAnchors(a);
           toastEl.textContent += '  …토리이 쪽에서 방울 소리가 난다';
         }
@@ -353,6 +385,7 @@ async function main() {
       },
     });
     rules.onChange = renderHud;
+    rules.reroll = () => META.map((m) => pick(CANDIDATES[m.id]!)());
     renderHud();
     actions = new Actions(scene, village.ground, senses!, sfx);
     hiding = new Hiding(village);
