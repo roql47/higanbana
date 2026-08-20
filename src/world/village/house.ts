@@ -198,13 +198,27 @@ export class House {
       m.name = opaque ? 'fusuma' : 'shoji';
       this.group.add(m);
       if (!opaque) this.shoji.push(m);
+      // 종이 한 장이라도 닫힌 문은 문이다 — 콜라이더가 없으면 그냥 통과된다(2026-08-20 수정).
+      // 두께는 벽과 같은 12 cm. 마루(FLOOR) 위부터 인방까지 세운다.
+      const t = 0.06;
+      collide(
+        Math.min(x0, x1) - (x0 === x1 ? t : 0), Math.min(z0, z1) - (z0 === z1 ? t : 0),
+        Math.max(x0, x1) + (x0 === x1 ? t : 0), Math.max(z0, z1) + (z0 === z1 ? t : 0),
+        FLOOR, wallTop,
+      );
       return m;
     };
-    // 정면 바깥 장지문 (마당 쪽) — 실루엣 벽
+    /**
+     * 미닫이 열린 폭. 나브그리드 셀이 1.5 m 라 개구부가 그보다 좁으면
+     * 셀 중심(캡슐 r=0.35)이 한 칸도 안 들어가 요괴가 방에 진입하지 못한다.
+     * 1.5 + 0.35×2 = 2.2 m 가 격자 정렬과 무관하게 안전한 최소값.
+     */
+    const DOOR = 2.2;
+    // 정면 바깥 장지문 (마당 쪽) — 실루엣 벽. 여기는 통로가 아니다(출입은 봉당 현관).
     panel(DOMA_X + 0.12, Z0, X1 - 0.12, Z0);
-    // 툇복도 ↔ 座敷 A / B
-    panel(DOMA_X + 0.12, CORR_Z, ROOM_SPLIT - 0.12, CORR_Z);
-    panel(ROOM_SPLIT + 0.12, CORR_Z, X1 - 0.12, CORR_Z);
+    // 툇복도 ↔ 座敷 A / B — 미닫이를 한쪽으로 몰아 열어 둔 상태(A 는 왼쪽, B 는 오른쪽이 열린다)
+    panel(DOMA_X + 0.12 + DOOR, CORR_Z, ROOM_SPLIT - 0.12, CORR_Z);
+    panel(ROOM_SPLIT + 0.12, CORR_Z, X1 - 0.12 - DOOR, CORR_Z);
     // 벽장 미닫이 — 한 짝은 열어 둔다(문틈으로 밖을 보는 은신처)
     panel(DOMA_X + 0.1, CLOSET_Z, DOMA_X + 1.0, CLOSET_Z, true);
 
