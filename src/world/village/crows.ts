@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { Props } from '@/world/props';
+import { toFloatGeometry } from '@/core/geom';
 import type { Perch } from './trees';
 import type { Sfx } from '@/audio/sfx';
 
@@ -9,11 +11,22 @@ import type { Sfx } from '@/audio/sfx';
  * 공포 연출로서 값이 싼 장치다 — 플레이어가 **자기 발로** 방아쇠를 당기고, 놀란 뒤에는
  * "내가 건드린 것"임을 안다. 요괴가 아니라는 안도와 "무언가 있었다"는 잔상이 같이 남는다.
  *
- * 구현 요점
- *  · 드로우콜 3개. 몸통·왼날개·오른날개를 각각 InstancedMesh 로 굽고 행렬만 매 프레임 쓴다.
- *    (날개를 따로 두는 이유는 하나뿐 — 퍼덕여야 하기 때문이다)
- *  · 그림자는 만들지 않는다. 삼나무와 같은 이유로, 초칭 큐브 그림자 6면에 다시 그릴 값이 없다.
- *  · **한 마리가 날면 옆 나무도 같이 난다.** 실제로도 그렇고, 한 마리만 날면 놀랍지가 않다.
+ * ## 모델: Tripo 두 벌 + 어깨에서 자르기
+ *
+ * Tripo(text-to-model) 로 **앉은 자세**와 **날개 편 자세**를 따로 뽑았다. 왜 두 벌인가:
+ *  · 접힌 날개는 못 편다 — 날개가 몸통에 붙어 조각돼 있어서 뼈를 돌려도 막대가 될 뿐이다
+ *  · rig-check 는 `rig_type: avian` 을 추천하지만 **rig v1.0 은 조류 토폴로지를 거부한다**
+ *    (1004 Unsupported topology). `--rig-model v2.5-20260210` 이어야 통과한다
+ *  · 통과해도 자동 리그가 **좌우 비대칭**으로 나왔다 — 왼쪽 체인이 날개끝에서 몸통 쪽으로
+ *    역방향이라(bone_1 → … → Spine_0) 왼쪽을 돌리면 몸이 돌아간다. 대칭 퍼덕임이 불가능
+ *  · `preset:fly` 같은 조류 프리셋 클립도 없다 (프리셋은 사람용뿐)
+ *
+ * 그래서 **스킨을 버리고 지오메트리만 쓴다.** 날개 편 모델을 어깨 평면에서 좌/우/몸통으로
+ * 잘라 세 조각으로 만들고, 날개 조각을 어깨 축으로 돌려 퍼덕인다. 덤으로 스킨드가 아니게 되어
+ * **InstancedMesh 4장(앉음·몸통·좌날개·우날개) = 드로우콜 4개**로 돌아온다.
+ *
+ * 그림자는 만들지 않는다(삼나무와 같은 이유 — 초칭 큐브 그림자에 쓸 값이 없다).
+ * **한 마리가 날면 옆 나무도 같이 난다.** 실제로도 그렇고, 한 마리만 날면 놀랍지가 않다.
  */
 
 type State = 'perch' | 'takeoff' | 'fly' | 'gone';
@@ -45,27 +58,38 @@ export interface CrowOptions {
   fleeRadius?: number;
 }
 
-// 접은 날개 자세. Y 회전은 **뒤로 젖히는** 쪽이어야 한다 —
-// +Y 회전이 오른날개(+X)의 끝을 −Z(뒤)로 보낸다. 부호를 뒤집으면 앞으로 접혀 가슴을 뚫는다.
-const FOLD_Z = -0.06, FOLD_Y = 1.05;
+/** 까마귀 전장(부리~꼬리). 실제 큰부리까마귀가 50 cm 안팎이다 */
+const LEN = 0.50;
+/**
+ * 어깨 절단면 — 몸통 중심에서 이만큼 바깥(로컬 ±X)을 날개로 뗀다.
+ * 주의: 정규화에서 `rotateY(-π/2)` 로 Tripo 의 +X(앞)를 +Z 로 돌리므로,
+ * 그 뒤 **좌우 축은 Z 가 아니라 X 다**. 여기서 축을 틀리면 한쪽 날개가 10 삼각형만 잘려 나온다.
+ */
+const SHOULDER = 0.052;
+/** 접은 날개 자세(라디안). 편 모델을 접는 것이므로 크게 젖혀야 한다 */
+const FOLD_FLAP = -0.30, FOLD_SWEEP = 1.30;
 
 export class Crows {
   private crows: Crow[] = [];
   private perches: Perch[];
   private used = new Set<number>();
-  private body: THREE.InstancedMesh;
-  private wingL: THREE.InstancedMesh;
-  private wingR: THREE.InstancedMesh;
+  private want = 22;
   private alertR: number;
   private fleeR: number;
   private cawCd = 0;
   private burst = 0;
   private burstDist = 0;
+  private rng: () => number;
+  /** 앉은 개체 / 나는 개체의 몸통·좌우 날개 */
+  private mPerch!: THREE.InstancedMesh;
+  private mBody!: THREE.InstancedMesh;
+  private mWingL!: THREE.InstancedMesh;
+  private mWingR!: THREE.InstancedMesh;
   // 행렬 계산용 스크래치 (씬에 넣지 않는다 — matrixWorld 가 곧 local matrix 다)
   private root = new THREE.Object3D();
   private jointL = new THREE.Object3D();
   private jointR = new THREE.Object3D();
-  private rng: () => number;
+  private hidden = new THREE.Matrix4().makeTranslation(0, -800, 0);
 
   readonly group = new THREE.Group();
 
@@ -74,32 +98,39 @@ export class Crows {
     this.alertR = opts.alertRadius ?? 12;
     this.fleeR = opts.fleeRadius ?? 8.5;
     this.rng = seeded(4471);
+    this.want = opts.count ?? 22;
+    this.group.name = 'crows';
+    scene.add(this.group);
+  }
 
-    const want = opts.count ?? 22;
-    const n = Math.max(0, Math.min(want, Math.floor(perches.length / 2)));
+  /** 모델 로드 — 생성자 밖에서 await (지장·석등과 같은 방식) */
+  async load(perchedUrl = '/models/props/crow-perched.glb', flyingUrl = '/models/props/crow-flying.glb') {
+    const loader = Props.loader();
+    const [pg, fg] = await Promise.all([loader.loadAsync(perchedUrl), loader.loadAsync(flyingUrl)]);
+    // 두 모델의 정면 축이 다르다 — Tripo 는 포즈마다 방향이 제각각이라 모델별로 지정한다.
+    //  · 앉은 모델: 정면이 이미 +Z (yaw 0), 길이는 Z 축
+    //  · 나는 모델: 정면이 +X (yaw −90°), 길이는 날개폭이라 **날개폭 기준**으로 맞춘다.
+    //    날개폭 : 몸길이 ≈ 1 : 0.45 이므로 몸이 앉은 모델과 같아지려면 날개폭을 LEN/0.45 로
+    const perched = bake(pg.scene, LEN, 0, 'z');
+    const flying = bake(fg.scene, LEN / 0.45, -Math.PI / 2, 'max');
+    const parts = splitWings(flying.geo, SHOULDER);
 
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x0b0b10, roughness: 0.42, metalness: 0.18, // 깃털의 푸른 광택 — 달빛이 등에 걸린다
-    });
-    const wingMat = new THREE.MeshStandardMaterial({
-      color: 0x090910, roughness: 0.5, metalness: 0.14, side: THREE.DoubleSide,
-    });
-
-    const mk = (geo: THREE.BufferGeometry, m: THREE.Material, c: number) => {
-      const im = new THREE.InstancedMesh(geo, m, Math.max(1, c));
+    const n = Math.max(1, Math.min(this.want, Math.floor(this.perches.length / 2)));
+    const mk = (geo: THREE.BufferGeometry, mat: THREE.Material) => {
+      const im = new THREE.InstancedMesh(geo, mat, n);
       im.castShadow = false;
-      im.receiveShadow = false;
+      im.receiveShadow = true;
       im.frustumCulled = false;   // 인스턴스가 맵 전역에 흩어져 있어 공통 바운딩이 의미 없다
-      im.count = c;
       this.group.add(im);
       return im;
     };
-    this.body = mk(makeBody(), mat, n);
-    this.wingL = mk(makeWing(-1), wingMat, n);
-    this.wingR = mk(makeWing(1), wingMat, n);
+    this.mPerch = mk(perched.geo, perched.mat);
+    this.mBody = mk(parts.body, flying.mat);
+    this.mWingL = mk(parts.wingL, flying.mat);
+    this.mWingR = mk(parts.wingR, flying.mat);
 
-    this.jointL.position.set(-0.046, 0.114, 0.014);
-    this.jointR.position.set(0.046, 0.114, 0.014);
+    this.jointL.position.set(-SHOULDER, parts.shoulderY, 0);
+    this.jointR.position.set(SHOULDER, parts.shoulderY, 0);
     this.root.add(this.jointL, this.jointR);
 
     for (let i = 0; i < n; i++) {
@@ -112,9 +143,7 @@ export class Crows {
       this.crows.push(c);
       this.sit(c, null);
     }
-    this.group.name = 'crows';
-    scene.add(this.group);
-    console.info(`[crows] ${n} 마리 · 앉을 자리 ${perches.length}`);
+    console.info(`[crows] ${n} 마리 · 앉을 자리 ${this.perches.length} · ${perched.tris + parts.tris} tri/마리`);
   }
 
   get count() { return this.crows.length; }
@@ -129,6 +158,7 @@ export class Crows {
   }
 
   update(dt: number, player: THREE.Vector3) {
+    if (!this.mPerch) return;
     this.cawCd -= dt;
     for (const c of this.crows) this.step(c, dt, player);
 
@@ -280,96 +310,127 @@ export class Crows {
     for (let i = 0; i < this.crows.length; i++) {
       const c = this.crows[i]!;
       if (c.state === 'gone') {
-        // 화면 밖으로 치운다 (count 를 줄이면 인덱스가 어긋난다)
-        root.position.set(0, -500, 0);
-        root.rotation.set(0, 0, 0);
-      } else {
-        root.position.copy(c.pos);
-        root.rotation.set(c.pitch, c.yaw, c.roll, 'YXZ');
+        this.mPerch.setMatrixAt(i, this.hidden);
+        this.mBody.setMatrixAt(i, this.hidden);
+        this.mWingL.setMatrixAt(i, this.hidden);
+        this.mWingR.setMatrixAt(i, this.hidden);
+        continue;
       }
-      // 접힘 ↔ 퍼덕임을 상태로 섞는다
-      const open = c.state === 'perch' ? 0 : c.state === 'takeoff' ? THREE.MathUtils.clamp(c.t / 0.18, 0, 1) : 1;
-      const beat = Math.sin(c.flap) * 1.05;
-      const shuffle = c.restless > 0.5 ? Math.sin(c.t * 13 + c.phase) * 0.12 * (c.restless - 0.5) * 2 : 0;
-      const rz = THREE.MathUtils.lerp(FOLD_Z + shuffle, beat, open);
-      const ry = THREE.MathUtils.lerp(FOLD_Y, 0.20, open);   // 펼쳐도 약간 뒤로 젖혀 있다
-      jr.rotation.set(0, ry, rz);
-      jl.rotation.set(0, -ry, -rz);
+      root.position.copy(c.pos);
+      root.rotation.set(c.pitch, c.yaw, c.roll, 'YXZ');
       root.updateMatrixWorld(true);
-      this.body.setMatrixAt(i, root.matrixWorld);
-      this.wingL.setMatrixAt(i, jl.matrixWorld);
-      this.wingR.setMatrixAt(i, jr.matrixWorld);
+
+      // 앉은 자세는 **별도 모델**이다. 이륙 0.12 s 지점에서 바꿔치기 하는데,
+      // 그 순간은 몸이 튀어오르고 날개가 벌어지는 중이라 전환이 안 보인다
+      const flying = c.state !== 'perch' && !(c.state === 'takeoff' && c.t < 0.12);
+      if (!flying) {
+        this.mPerch.setMatrixAt(i, root.matrixWorld);
+        this.mBody.setMatrixAt(i, this.hidden);
+        this.mWingL.setMatrixAt(i, this.hidden);
+        this.mWingR.setMatrixAt(i, this.hidden);
+        continue;
+      }
+      this.mPerch.setMatrixAt(i, this.hidden);
+
+      // 날개: 이륙 직후엔 접힘에서 풀리고, 비행 중엔 활공을 섞어 퍼덕인다
+      const open = c.state === 'takeoff' ? THREE.MathUtils.clamp((c.t - 0.12) / 0.22, 0, 1) : 1;
+      const amp = c.state === 'fly' ? 0.42 + 0.58 * Math.max(0, Math.sin(c.t * 0.85 + c.phase)) : 1;
+      const beat = Math.sin(c.flap) * 0.95 * amp;
+      const flap = THREE.MathUtils.lerp(FOLD_FLAP, beat, open);
+      const sweep = THREE.MathUtils.lerp(FOLD_SWEEP, 0.12 - Math.max(0, beat) * 0.18, open);
+      jr.rotation.set(0, sweep, flap);
+      jl.rotation.set(0, -sweep, -flap);
+      root.updateMatrixWorld(true);
+      this.mBody.setMatrixAt(i, root.matrixWorld);
+      this.mWingL.setMatrixAt(i, jl.matrixWorld);
+      this.mWingR.setMatrixAt(i, jr.matrixWorld);
     }
-    this.body.instanceMatrix.needsUpdate = true;
-    this.wingL.instanceMatrix.needsUpdate = true;
-    this.wingR.instanceMatrix.needsUpdate = true;
+    for (const m of [this.mPerch, this.mBody, this.mWingL, this.mWingR]) m.instanceMatrix.needsUpdate = true;
   }
 }
 
 const ease = (u: number) => 1 - (1 - THREE.MathUtils.clamp(u, 0, 1)) ** 2;
 
-/** 몸통 — 원점은 발밑, +Z 가 부리 방향 */
-function makeBody(): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [];
-
-  const body = new THREE.SphereGeometry(1, 8, 5);
-  body.scale(0.075, 0.070, 0.135);
-  body.translate(0, 0.086, -0.012);
-  parts.push(body);
-
-  const head = new THREE.SphereGeometry(1, 6, 4);
-  head.scale(0.042, 0.044, 0.048);
-  head.translate(0, 0.152, 0.078);
-  parts.push(head);
-
-  const beak = new THREE.ConeGeometry(0.019, 0.064, 5);
-  beak.rotateX(Math.PI / 2);
-  beak.translate(0, 0.148, 0.138);
-  parts.push(beak);
-
-  // 꼬리 — 까마귀는 꼬리가 길고 끝이 쐐기다. 실루엣의 절반이 여기서 나온다
-  const tail = new THREE.BoxGeometry(0.064, 0.012, 0.135);
-  tail.rotateX(-0.20);
-  tail.translate(0, 0.094, -0.178);
-  parts.push(tail);
-
-  for (const sx of [-1, 1]) {
-    const leg = new THREE.CylinderGeometry(0.005, 0.005, 0.05, 4, 1, true);
-    leg.translate(sx * 0.021, 0.026, 0.006);
-    parts.push(leg);
+/**
+ * Tripo GLB → 정적 지오메트리 한 덩이.
+ * 스킨은 버린다(위 주석 참조 — 자동 리그가 대칭 퍼덕임에 못 쓴다). 바인드 포즈 = 만들어진 포즈라
+ * 스킨 어트리뷰트만 떼면 그대로 쓸 수 있다.
+ * 정규화: 전장 `targetLen`, 원점은 발밑·좌우 중앙, 정면은 Tripo +X → +Z.
+ */
+function bake(src: THREE.Object3D, targetLen: number, yaw: number, mode: 'z' | 'max') {
+  src.updateMatrixWorld(true);
+  const geos: THREE.BufferGeometry[] = [];
+  let mat: THREE.Material = new THREE.MeshStandardMaterial();
+  src.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const g = toFloatGeometry(m.geometry, m.matrixWorld);
+    for (const k of ['skinIndex', 'skinWeight', 'color', 'tangent']) g.deleteAttribute(k);
+    geos.push(g);
+    mat = Array.isArray(m.material) ? m.material[0]! : m.material;
+  });
+  const geo = geos.length === 1 ? geos[0]! : mergeGeometries(geos, false)!;
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox!;
+  const size = bb.getSize(new THREE.Vector3());
+  const ref = mode === 'z' ? size.z : Math.max(size.x, size.z);
+  const s = targetLen / Math.max(1e-4, ref);
+  geo.scale(s, s, s);
+  if (yaw) geo.rotateY(yaw);
+  geo.computeBoundingBox();
+  const b2 = geo.boundingBox!;
+  geo.translate(-(b2.min.x + b2.max.x) / 2, -b2.min.y, -(b2.min.z + b2.max.z) / 2);
+  if (mat instanceof THREE.MeshStandardMaterial) {
+    mat.metalness = Math.min(mat.metalness, 0.15);   // 근접 조명 포화 방지 (2026-08-19 교훈)
+    mat.roughness = Math.max(mat.roughness, 0.42);
   }
-
-  const g = mergeGeometries(parts, false);
-  if (!g) throw new Error('까마귀 지오메트리 병합 실패');
-  g.computeVertexNormals();
-  return g;
+  const tris = geo.index ? geo.index.count / 3 : geo.attributes['position']!.count / 3;
+  return { geo, mat, tris };
 }
 
-/** 날개 한 짝 — 원점이 어깨. side −1 = 왼쪽 */
-function makeWing(side: 1 | -1): THREE.BufferGeometry {
-  // (x = 바깥, z = 앞뒤). 앞전은 곧고 뒷전은 파여 있다.
-  // 까마귀는 **날개가 몸통보다 길다** — 한 짝 34 cm 대 몸통 35 cm. 짧게 만들면 비둘기가 된다.
-  // 접으면(FOLD_Y) 끝이 꼬리 끝에 닿는데, 그것도 실제 비율이다.
-  const lead: [number, number][] = [[0, 0.050], [0.110, 0.044], [0.222, 0.019], [0.340, -0.030]];
-  const trail: [number, number][] = [[0, -0.064], [0.104, -0.106], [0.213, -0.114], [0.325, -0.076]];
-  const pos: number[] = [], idx: number[] = [];
-  const put = (x: number, z: number, y: number) => { pos.push(x * side, y, z); return pos.length / 3 - 1; };
-  const a: number[] = [], b: number[] = [];
-  for (let i = 0; i < lead.length; i++) {
-    // 끝으로 갈수록 아래로 조금 처진다 (실제 날개의 캠버)
-    const drop = -0.004 - i * 0.006;
-    a.push(put(lead[i]![0], lead[i]![1], drop));
-    b.push(put(trail[i]![0], trail[i]![1], drop - 0.002));
+/**
+ * 날개 편 지오메트리를 어깨 평면(±cut)에서 셋으로 자른다.
+ * 삼각형은 **정점 다수결**로 배정한다 — 걸친 삼각형은 양쪽에 조금씩 남아 이음매를 메운다.
+ * 날개 조각은 원점을 어깨로 옮겨 회전축이 어깨가 되게 한다.
+ */
+function splitWings(src: THREE.BufferGeometry, cut: number) {
+  const geo = src.index ? src.toNonIndexed() : src;
+  const pos = geo.attributes['position'] as THREE.BufferAttribute;
+  const tri = pos.count / 3;
+  const pick: number[][] = [[], [], []];   // 0 = 몸통, 1 = 왼쪽(−X), 2 = 오른쪽(+X)
+  for (let t = 0; t < tri; t++) {
+    let l = 0, r = 0;
+    for (let k = 0; k < 3; k++) {
+      const x = pos.getX(t * 3 + k);
+      if (x < -cut) l++; else if (x > cut) r++;
+    }
+    pick[l >= 2 ? 1 : r >= 2 ? 2 : 0]!.push(t);
+    // 걸친 삼각형은 몸통에도 남겨 틈을 막는다
+    if (l === 1 || r === 1) pick[0]!.push(t);
   }
-  for (let i = 0; i < lead.length - 1; i++) {
-    const s = side > 0 ? [a[i]!, b[i]!, b[i + 1]!, a[i]!, b[i + 1]!, a[i + 1]!] : [a[i]!, b[i + 1]!, b[i]!, a[i]!, a[i + 1]!, b[i + 1]!];
-    idx.push(...s);
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setIndex(idx);
-  g.computeVertexNormals();
-  return g;
+  const take = (list: number[], shiftX: number, shiftY: number) => {
+    const g = new THREE.BufferGeometry();
+    for (const name of Object.keys(geo.attributes)) {
+      const a = geo.attributes[name] as THREE.BufferAttribute;
+      const out = new Float32Array(list.length * 3 * a.itemSize);
+      let o = 0;
+      for (const t of list) for (let k = 0; k < 3; k++) for (let c = 0; c < a.itemSize; c++) out[o++] = a.getComponent(t * 3 + k, c);
+      g.setAttribute(name, new THREE.BufferAttribute(out, a.itemSize));
+    }
+    if (shiftX || shiftY) g.translate(-shiftX, -shiftY, 0);
+    return g;
+  };
+  // 어깨 높이 = 날개 조각의 무게중심 높이. 여기를 축으로 삼아야 어깨에서 꺾인다
+  const tmp = take(pick[2]!, 0, 0);
+  tmp.computeBoundingBox();
+  const shoulderY = (tmp.boundingBox!.min.y + tmp.boundingBox!.max.y) / 2;
+  tmp.dispose();
+
+  const body = take(pick[0]!, 0, 0);
+  const wingL = take(pick[1]!, -cut, shoulderY);
+  const wingR = take(pick[2]!, cut, shoulderY);
+  for (const g of [body, wingL, wingR]) g.computeVertexNormals();
+  return { body, wingL, wingR, shoulderY, tris: tri };
 }
 
 function seeded(seed: number) {

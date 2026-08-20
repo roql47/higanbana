@@ -254,7 +254,10 @@ async function main() {
   }
   // --- 까마귀: 삼나무에 앉았다가 다가가면 날아오른다 ---
   let crows: Crows | null = null;
-  if (village) crows = new Crows(scene, village.cedars.perches, sfx, { count: 22 });
+  if (village) {
+    crows = new Crows(scene, village.cedars.perches, sfx, { count: 22 });
+    await crows.load().catch((e) => { console.warn('[crows]', e); crows = null; });
+  }
 
   // --- 연출형 요괴: 움직이는 지장 · 놋페라보 · 초칭오바케 ---
   let scares: Scares | null = null;
