@@ -209,3 +209,12 @@ body.touch .stats { display: none; }
 .ending-title { color: #f5ead2; font-size: 3rem; letter-spacing: 1.5rem; text-indent: 1.5rem; font-weight: 300; }
 .ending-sub { color: rgba(245,234,210,0.7); font-size: 1rem; letter-spacing: 0.3rem; }
 .ending-hint { margin-top: 28px; color: rgba(245,234,210,0.45); font-size: 0.85rem; }
+
+/* --- 스태미나 · 소금 · 은신 --- */
+.stamina { position: fixed; left: 50%; bottom: 42px; transform: translateX(-50%); width: 180px; height: 5px; background: rgba(255,255,255,0.12); border-radius: 3px; opacity: 0; transition: opacity 0.35s; pointer-events: none; z-index: 20; }
+.stamina.show { opacity: 1; }
+.stamina-fill { height: 100%; background: #d8cba8; border-radius: 3px; transition: background 0.3s; }
+.stamina.low .stamina-fill { background: #a3392e; }
+.salt-count { position: fixed; left: 18px; bottom: 16px; color: rgba(243,234,214,0.75); font-size: 12px; letter-spacing: 0.08em; text-shadow: 0 1px 3px #000; background: rgba(0,0,0,0.35); padding: 5px 10px; border-radius: 4px; pointer-events: none; z-index: 20; }
+.hidden-badge { position: fixed; left: 50%; bottom: 60px; transform: translateX(-50%); color: #9fb8d8; font-size: 12px; letter-spacing: 0.35em; text-indent: 0.35em; opacity: 0; transition: opacity 0.4s; pointer-events: none; z-index: 20; text-shadow: 0 1px 4px #000; }
+.hidden-badge.show { opacity: 0.85; }

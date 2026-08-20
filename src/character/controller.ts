@@ -9,6 +9,8 @@ export interface MoveInput {
   axis: { x: number; y: number };
   cameraYaw: number; // rad — 카메라가 바라보는 수평 방향
   walk: boolean;
+  /** 웅크림 — 최우선 속도(0.9 m/s), 소음·감지 축소는 호출부가 처리 */
+  crouch?: boolean;
   jumpPressed: boolean;
   jumpHeld: boolean;
 }
@@ -93,7 +95,7 @@ export class CharacterController {
     if (inputLen > 1e-4) this.moveDir.divideScalar(this.moveDir.length());
 
     // --- 수평 속도: 목표 속도로 지수 수렴 ---
-    const maxSpeed = input.walk ? m.walkSpeed : m.runSpeed;
+    const maxSpeed = input.crouch ? m.crouchSpeed : input.walk ? m.walkSpeed : m.runSpeed;
     const targetVx = this.moveDir.x * inputLen * maxSpeed;
     const targetVz = this.moveDir.z * inputLen * maxSpeed;
     const curSpeed = Math.hypot(this.velocity.x, this.velocity.z);

@@ -45,6 +45,9 @@ export class ThirdPersonCamera {
   startIntro(duration = 3.2) { this.introDur = duration; this.introT = duration; this.introYaw0 = this.yaw; }
   get inIntro() { return this.introT > 0; }
 
+  /** 웅크림 시 피벗을 낮추는 양(m) — main 이 설정, 내부에서 감쇠 적용 */
+  pivotDrop = 0;
+  private curDrop = 0;
   /** 좁은 통로에서 바깥이 눌러주는 최대 거리(m). null 이면 사용자 줌 값 그대로 */
   constrainDistance: number | null = null;
   /** 좁은 통로에서 바깥이 눌러주는 최대 피치(rad, 위로 보는 각). null 이면 제한 없음 */
@@ -74,7 +77,8 @@ export class ThirdPersonCamera {
     const wanted = this.constrainDistance !== null ? Math.min(this.targetDistance, this.constrainDistance) : this.targetDistance;
 
     // --- 피벗 추적 ---
-    this.tmpPivot.set(targetPos.x, targetPos.y + c.pivotHeight, targetPos.z);
+    this.curDrop = damp(this.curDrop, this.pivotDrop, 8, dt);
+    this.tmpPivot.set(targetPos.x, targetPos.y + c.pivotHeight - this.curDrop, targetPos.z);
     if (!this.pivotInit) { this.pivot.copy(this.tmpPivot); this.pivotInit = true; }
     const lagY = grounded ? c.followLag : c.followLag * 0.55; // 공중에선 수직 추적을 느슨하게
     this.pivot.x = damp(this.pivot.x, this.tmpPivot.x, c.followLag, dt);

@@ -39,6 +39,8 @@ import { Matsuri } from '@/audio/matsuri';
 import { Ambience } from '@/audio/ambience';
 import { Scares } from '@/world/village/scares';
 import { Rules, type OfferingDef } from '@/game/rules';
+import { Actions } from '@/game/actions';
+import { Hiding } from '@/game/hiding';
 
 interface CharacterVisual {
   update(dt: number, ctrl: CharacterController): void;
@@ -153,7 +155,7 @@ async function main() {
           onFootstep: (foot, speed) => {
             sfx.footstep(speed, surfaceAt(controller.position), foot);
             // 발소리 = 소음 이벤트. 논물 첨벙은 반경 2배 (기획 3.4)
-            const base = speed > 2.5 ? settings.ai.noiseRun : settings.ai.noiseWalk;
+            const base = crouching ? settings.ai.noiseCrouch : speed > 2.5 ? settings.ai.noiseRun : settings.ai.noiseWalk;
             const inWater = surfaceAt(controller.position) === 'water';
             senses?.emitNoise(controller.position, base * (inWater ? 2 : 1));
           },
@@ -244,6 +246,19 @@ async function main() {
 
   // --- 게임 규칙: 공물 5 → 봉납 → 탈출 ---
   let rules: Rules | null = null;
+  let actions: Actions | null = null;
+  let hiding: Hiding | null = null;
+  let crouching = false;
+  let stamina = settings.stamina.max;
+  let exhausted = false; // 소진 후 30% 이상 회복해야 다시 달릴 수 있다
+  const staminaEl = document.createElement('div'); staminaEl.className = 'stamina';
+  staminaEl.innerHTML = '<div class="stamina-fill"></div>';
+  document.getElementById('hud')!.appendChild(staminaEl);
+  const staminaFill = staminaEl.querySelector('.stamina-fill') as HTMLElement;
+  const saltEl = document.createElement('div'); saltEl.className = 'salt-count';
+  document.getElementById('hud')!.appendChild(saltEl);
+  const hiddenEl = document.createElement('div'); hiddenEl.className = 'hidden-badge'; hiddenEl.textContent = '숨었다';
+  document.getElementById('hud')!.appendChild(hiddenEl);
   // 우상단 미션 패널: 현재 목표 한 줄 + 공물 체크리스트 (단계 변화 시 renderHud 가 갱신)
   const missionEl = document.createElement('div'); missionEl.className = 'mission';
   missionEl.innerHTML = '<div class="mission-title">목표</div><div class="mission-goal"></div><ul class="mission-list"></ul>';
@@ -323,6 +338,9 @@ async function main() {
     });
     rules.onChange = renderHud;
     renderHud();
+    actions = new Actions(scene, village.ground, senses!, sfx);
+    hiding = new Hiding(village);
+    saltEl.textContent = '소금 × ' + actions.salt;
     // 출구 보이지 않는 벽 (봉납 전) — 얇은 박스, 봉납 후 제거
     // 봉납 시 제거, 리셋 시 복구 (봉납 후 죽으면 다시 막혀야 한다)
     const gateCenter = exitPos.clone().add(new THREE.Vector3(0, 1.2, 0)), gateHalf = new THREE.Vector3(2.4, 1.2, 0.15);
@@ -409,7 +427,13 @@ async function main() {
     }
     if (e.code === 'KeyQ' && chochin && !invUI.isOpen) { chochin.cycle(); sfx.lanternToggle(chochin.level); }
     if (e.code === 'KeyE' && rules && deathT <= 0) rules.interact(controller.position);
-    if (e.code === 'KeyR') { controller.teleport(spawn); for (const h of hunters) h.reset(); dorotabo?.reset(); rules?.reset(); renderHud(); endEl.classList.remove('show'); }
+    if (e.code === 'KeyC' && isVillage && !invUI.isOpen) crouching = !crouching;
+    if (e.code === 'KeyG' && actions && deathT <= 0) {
+      const r = actions.throwSalt(controller.position, controller.yaw, hunters);
+      if (r === -1) { toastEl.textContent = '소금이 없다'; toastEl.classList.add('show'); toastT = 1.6; }
+      saltEl.textContent = '소금 × ' + actions.salt;
+    }
+    if (e.code === 'KeyR') { controller.teleport(spawn); for (const h of hunters) h.reset(); dorotabo?.reset(); rules?.reset(); actions?.reset(); if (actions) saltEl.textContent = '소금 × ' + actions.salt; stamina = settings.stamina.max; exhausted = false; crouching = false; renderHud(); endEl.classList.remove('show'); }
     if (e.code === 'KeyM') { muted = !muted; sfx.setMaster(muted ? 0 : settings.audio.master); }
     if (e.code === 'KeyF') { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.(); }
   });
@@ -471,7 +495,7 @@ async function main() {
   window.addEventListener('keydown', (e) => { if (e.code === 'Enter' || e.code === 'Space') start(); }, { once: false });
 
   if (import.meta.env.DEV) {
-    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri, scares, rules, ambience };
+    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, chochin, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri, scares, rules, ambience, get actions() { return actions; }, get hiding() { return hiding; }, get crouching() { return crouching; }, setCrouch(v: boolean) { crouching = v; } };
   }
 
   // --- 리사이즈 ---
@@ -509,17 +533,41 @@ async function main() {
     // 공격 입력 (인벤토리 열려 있으면 무시)
     if (combat && !uiOpen && (input.justPressed('KeyJ') || (input.locked && input.justPressed('Mouse0')))) combat.tryAttack(controller);
     combat?.update(dt, controller);
+    // 돌 던지기 (village, 포인터락 좌클릭)
+    if (actions && !uiOpen && deathT <= 0 && input.locked && input.justPressed('Mouse0')) {
+      actions.throwStone(controller.position, camera);
+    }
     // 입력 → 캐릭터
     const axis = uiOpen ? { x: 0, y: 0 } : input.moveAxis();
     if (combat && combat.moveScale < 1) { axis.x *= combat.moveScale; axis.y *= combat.moveScale; }
     const shift = input.isDown('ShiftLeft') || input.isDown('ShiftRight');
+    // 스태미나 (기획 3.4): 달리기 6 s, 회복 8 s(정지 1.5×). 소진되면 30% 찰 때까지 못 달린다
+    let wantRun = isVillage ? shift && !crouching : !shift;
+    if (isVillage) {
+      const st = settings.stamina;
+      const moving = axis.x !== 0 || axis.y !== 0;
+      const running = wantRun && moving && stamina > 0 && !exhausted;
+      if (running) stamina = Math.max(0, stamina - dt);
+      else stamina = Math.min(st.max, stamina + dt * (st.max / st.recover) * (moving ? 1 : st.standingBonus));
+      if (stamina <= 0) exhausted = true;
+      if (exhausted && stamina > st.max * 0.3) exhausted = false;
+      wantRun = running && !exhausted;
+      // 숨소리: 게이지가 빌수록 거칠게
+      sfx.breath(exhausted ? 1 : (1 - stamina / st.max) * 0.85, dt);
+      const full = stamina >= st.max - 0.01;
+      staminaEl.classList.toggle('show', !full);
+      staminaFill.style.width = `${(stamina / st.max) * 100}%`;
+      staminaEl.classList.toggle('low', exhausted);
+    }
     controller.update(dt, {
       axis,
       cameraYaw: tpCam.headingYaw,
-      // 마을(공포)에서는 기본이 걷기, Shift 가 달리기 — 초원에서는 반대(v0.8 그대로)
-      walk: isVillage ? !shift : shift,
-      jumpPressed: !uiOpen && input.justPressed('Space'),
-      jumpHeld: input.isDown('Space'),
+      // 마을(공포)에서는 기본이 걷기, Shift 가 달리기(스태미나) — 초원에서는 반대(v0.8 그대로)
+      walk: isVillage ? !wantRun : shift,
+      crouch: isVillage && crouching,
+      // 점프 제거 (기획 3.4 — 실내에서 점프는 공포를 깬다). 초원 sandbox 는 유지
+      jumpPressed: !isVillage && !uiOpen && input.justPressed('Space'),
+      jumpHeld: !isVillage && input.isDown('Space'),
     });
     physics.step(dt);
     dummies?.update(dt);
@@ -535,10 +583,17 @@ async function main() {
           for (const h of hunters) h.reset();
           dorotabo?.reset();
           rules?.reset(); renderHud();
+          actions?.reset(); if (actions) saltEl.textContent = '소금 × ' + actions.salt;
+          stamina = settings.stamina.max; exhausted = false; crouching = false;
           deathEl.classList.remove('show');
         }
       } else {
-        for (const h of hunters) h.update(dt, controller.position, controller.horizontalSpeed);
+        const spot = hiding?.evaluate(controller.position, crouching, controller.horizontalSpeed) ?? null;
+        const tr = hiding?.transition();
+        if (tr === 'in') sfx.hideIn();
+        else if (tr === 'out') sfx.hideOut();
+        hiddenEl.classList.toggle('show', spot !== null);
+        for (const h of hunters) h.update(dt, controller.position, controller.horizontalSpeed, hiding?.hiddenFor(h) ?? false);
         if (dorotabo) {
           dorotabo.update(dt, controller.position, controller.horizontalSpeed);
           if (dorotabo.pushVelocity.lengthSq() > 0.01) controller.externalPush.copy(dorotabo.pushVelocity);
@@ -558,7 +613,8 @@ async function main() {
       // 규칙: 수집 수 → 난이도
       if (rules) {
         rules.update(dt, controller.position);
-        for (const h of hunters) { h.chaseSpeedOverride = rules.hunterSpeed; h.detectionMul = rules.detectionMul; }
+        const crouchMul = crouching ? settings.ai.crouchDetection : 1;
+        for (const h of hunters) { h.chaseSpeedOverride = rules.hunterSpeed; h.detectionMul = rules.detectionMul * crouchMul; }
         if (rules.escaped) { for (const h of hunters) h.reset(); }
       }
       if (toastT > 0) { toastT -= dt; if (toastT <= 0) toastEl.classList.remove('show'); }
@@ -598,6 +654,10 @@ async function main() {
       model.spinePitchTarget = 0;
       model.headPitchTarget = 0;
     }
+    actions?.update(dt, surfaceAt);
+    // 웅크림 자세: 상체 숙임 + 카메라 피벗 낮춤
+    if (isVillage && model && crouching) { model.spinePitchTarget = -0.5; model.headPitchTarget = 0.34; }
+    if (isVillage) tpCam.pivotDrop = crouching ? 0.5 : 0;
     visual.update(dt, controller);
     chochin?.update(dt, controller.yaw, controller.horizontalSpeed);
     {

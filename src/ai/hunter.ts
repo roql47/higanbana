@@ -8,7 +8,7 @@ import { NavGrid } from './navgrid';
 import { findPath } from './astar';
 import { Senses } from './senses';
 
-export type HunterState = 'PATROL' | 'INVESTIGATE' | 'CHASE' | 'SEARCH' | 'GRAB';
+export type HunterState = 'PATROL' | 'INVESTIGATE' | 'CHASE' | 'SEARCH' | 'GRAB' | 'STUN';
 
 export interface HunterEvents {
   /** CHASE 진입(발각) */
@@ -49,6 +49,9 @@ export class Hunter {
   private repathT = 0;
   private stateT = 0;
   private loseT = 0;
+  private stunT = 0;
+  /** CHASE 중 시야가 끊긴 시간(초) — 은신 성립 판정에 쓴다 */
+  get loseTime() { return this.loseT; }
   private mercyT = 0;
   private anchorI = 0;
 
@@ -144,6 +147,13 @@ export class Hunter {
   /** 플레이어를 붙잡는 데 성공했는가 (사망 연출 중 이동 정지용) */
   get grabbed() { return this.state === 'GRAB'; }
 
+  /** 소금 피격 — 6 s 정지 후 수색으로 (기획 3.6 STUN) */
+  stun() {
+    if (this.state === 'GRAB') return;
+    this.stunT = settings.ai.stunTime;
+    this.setState('STUN');
+  }
+
   reset(pos?: THREE.Vector3) {
     this.position.copy(pos ?? this.opts.spawn);
     this.setState('PATROL');
@@ -162,14 +172,18 @@ export class Hunter {
     if (s === 'GRAB') this.opts.events?.onGrab?.();
   }
 
-  /** @param playerPos 판정에만 쓴다(직접 추적 금지) @param playerMoving 이동 중 여부 @param playerSpeed 수평 속도 */
-  update(dt: number, playerPos: THREE.Vector3, playerSpeed: number) {
+  /**
+   * @param playerPos 판정에만 쓴다(직접 추적 금지)
+   * @param playerSpeed 수평 속도
+   * @param playerHidden 은신 성립 여부(main 이 이 요괴 기준으로 판정해 전달) — true 면 시야 무효
+   */
+  update(dt: number, playerPos: THREE.Vector3, playerSpeed: number, playerHidden = false) {
     if (!this.loaded) return;
     const ai = settings.ai;
     this.stateT += dt;
     this.eye.copy(this.position).add(this.tmp.set(0, this.opts.height * 0.9, 0));
     const playerMoving = playerSpeed > 0.3;
-    const seen = this.state !== 'GRAB' && this.senses.canSee(this.eye, this.facing, playerPos, playerMoving, this.detectionMul);
+    const seen = this.state !== 'GRAB' && !playerHidden && this.senses.canSee(this.eye, this.facing, playerPos, playerMoving, this.detectionMul);
     const dist = this.position.distanceTo(playerPos);
 
     // --- 전이 ---
@@ -208,6 +222,15 @@ export class Hunter {
       case 'GRAB':
         this.speed = damp(this.speed, 0, 12, dt);
         break;
+      case 'STUN': {
+        this.stunT -= dt;
+        this.speed = damp(this.speed, 0, 14, dt);
+        if (this.stunT <= 0) {
+          // 후퇴: 마지막 목격 지점 반대 방향으로 물러났다가 수색
+          this.setState('SEARCH');
+        }
+        break;
+      }
     }
 
     // --- 이동 ---
@@ -217,7 +240,7 @@ export class Hunter {
     else if (this.state === 'SEARCH') wantSpeed = ai.patrolSpeed * 1.2;
     else if (this.state === 'CHASE') wantSpeed = this.mercyT > 0 ? ai.patrolSpeed : (this.chaseSpeedOverride ?? ai.chaseSpeed);
 
-    if (this.state !== 'GRAB') {
+    if (this.state !== 'GRAB' && this.state !== 'STUN') {
       this.repathT -= dt;
       if (this.repathT <= 0) {
         this.repathT = this.state === 'CHASE' ? 0.7 : 1.6;

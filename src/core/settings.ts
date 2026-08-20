@@ -5,6 +5,7 @@
 export const settings = {
   movement: {
     walkSpeed: 1.5, // m/s (기본) — walk 클립 고유속도 1.15 → 재생 1.3×
+    crouchSpeed: 0.9, // m/s 웅크림 (기획 3.4)
     runSpeed: 3.6, // m/s (Shift 달리기) — run 클립 고유속도 3.6 → 재생 1.0×
     accelGround: 14, // 1/s — 목표 속도로 수렴하는 지수 감쇠 계수
     decelGround: 18,
@@ -100,6 +101,11 @@ export const settings = {
     gripPos: [0.13, -0.21, 0.0] as [number, number, number],
     size: 0.34, // 초칭 전체 높이(m)
   },
+  stamina: {
+    max: 6, // s — 전력 질주 지속 (기획 3.4)
+    recover: 8, // s — 빈 게이지가 다시 차는 시간
+    standingBonus: 1.5, // 정지 시 회복 배율
+  },
   ai: {
     baseDetection: 6, // m — 시야 기본 거리. 초칭 배율·이동 배율이 곱해진다
     patrolSpeed: 1.0, // m/s
@@ -109,6 +115,9 @@ export const settings = {
     loseSightTime: 3, // s — 시야가 이 시간 끊기면 추격 포기
     mercyTime: 1.2, // s — 발견 직후 가속 금지
     grabDistance: 1.15, // m
+    stunTime: 6, // s — 소금 피격 정지 (기획 3.5)
+    crouchDetection: 0.7, // 웅크림 감지 배율
+    noiseCrouch: 1.5, // m — 웅크림 발소리 소음 반경
     noiseWalk: 4, // m — 걷기 발소리 소음 반경
     noiseRun: 12, // m — 달리기
     gaitJitter: 0.35, // 0..1 — 걸음 어긋남(재생 속도 요동)

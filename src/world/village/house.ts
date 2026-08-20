@@ -220,6 +220,13 @@ export class House {
     return this.tmp.x > X0 - 0.3 && this.tmp.x < X1 + 0.3 && this.tmp.z > Z0 - 0.3 && this.tmp.z < Z1 + 0.3;
   }
 
+  /** 벽장(押入れ) 안인가 — 은신 판정 (기획 3.7) */
+  isInCloset(p: THREE.Vector3) {
+    if (!this.contains(p)) return false;
+    this.tmp.copy(p).applyMatrix4(this.inv);
+    return this.tmp.x > DOMA_X && this.tmp.x < ROOM_SPLIT && this.tmp.z > CLOSET_Z - 0.2;
+  }
+
   /** 실내 발밑 재질 — 봉당은 흙, 나머지는 나무/다다미 */
   surfaceAt(p: THREE.Vector3): Surface | null {
     if (!this.contains(p)) return null;
