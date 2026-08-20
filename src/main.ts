@@ -58,6 +58,15 @@ async function main() {
   const startBtn = document.getElementById('start-btn') as HTMLButtonElement;
   const debug = import.meta.env.DEV || new URLSearchParams(location.search).has('debug');
 
+  // --- 배포 하위 경로 보정: 코드 곳곳의 '/models/…' 류 절대 경로를 BASE_URL 로 리라이트 ---
+  // (GitHub Pages 는 /higanbana/ 하위라 루트 절대 경로가 404 난다. 개발 서버는 BASE_URL='/' 라 무변화)
+  const BASE = import.meta.env.BASE_URL;
+  if (BASE !== '/') {
+    THREE.DefaultLoadingManager.setURLModifier((url) =>
+      url.startsWith('/') && !url.startsWith(BASE) && !url.startsWith('//') ? BASE + url.slice(1) : url);
+  }
+  const withBase = (u: string) => (BASE !== '/' && u.startsWith('/') ? BASE + u.slice(1) : u);
+
   // --- 로딩 진행률 (three 의 기본 LoadingManager 를 모든 로더가 공유) ---
   let loadedItems = 0, totalItems = 0;
   const setProgress = (p: number) => { loadingFill.style.width = `${Math.round(p * 100)}%`; loadingPct.textContent = `${Math.round(p * 100)}%`; };
@@ -145,7 +154,7 @@ async function main() {
   let model: CharacterModel | null = null;
   let animator: CharacterAnimator | null = null;
   try {
-    const head = await fetch(CHARACTER.url, { method: 'HEAD' });
+    const head = await fetch(withBase(CHARACTER.url), { method: 'HEAD' });
     if (head.ok && (head.headers.get('content-type') ?? '').includes('gltf')) {
       model = await CharacterModel.load(CHARACTER, renderer);
       scene.remove((visual as PlaceholderCharacter).root);

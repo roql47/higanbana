@@ -147,7 +147,7 @@ export class SampleBank {
   total = 0;
   decoded = 0;
 
-  constructor(private manifestUrl = '/audio/manifest.json') {
+  constructor(private manifestUrl = import.meta.env.BASE_URL + 'audio/manifest.json') { // 배포 하위 경로(BASE_URL) 대응
     this.readyP = new Promise<void>((r) => { this.resolveReady = r; });
   }
 
