@@ -52,7 +52,7 @@ export class CharacterModel {
   /** 믹서·보정 뒤에 얹는 절차적 포즈 훅 (공격 등) */
   postPose: ((dt: number) => void) | null = null;
 
-  private constructor(gltf: GLTF, opts: CharacterModelOptions) {
+  private constructor(gltf: GLTF, opts: CharacterModelOptions, renderer?: THREE.WebGLRenderer) {
     const scene = gltf.scene;
     this.inner.add(scene);
     this.root.add(this.inner);
@@ -160,7 +160,7 @@ export class CharacterModel {
   static async load(opts: CharacterModelOptions, renderer?: THREE.WebGLRenderer): Promise<CharacterModel> {
     const loader = CharacterModel.loaders(renderer);
     const gltf = await loader.loadAsync(opts.url);
-    const model = new CharacterModel(gltf, opts);
+    const model = new CharacterModel(gltf, opts, renderer);
     if (opts.clips) {
       const entries = Object.entries(opts.clips);
       const results = await Promise.allSettled(entries.map(([, url]) => loader.loadAsync(url)));
@@ -183,7 +183,24 @@ export class CharacterModel {
     model.calibrateOffset('idle');
     model.innerBaseY = model.inner.position.y;
     model.gradeAlbedo();
+    model.applyAnisotropy(renderer);
     return model;
+  }
+
+  /**
+   * 이방성 필터링을 GPU 최대치로. 기본값 1 은 비스듬한 각도에서 텍스처가 뭉개진다(거의 무료).
+   * **gradeAlbedo() 뒤에 호출해야 한다** — 색보정이 알베도를 캔버스 텍스처로 갈아끼우면서
+   * anisotropy 가 1 로 초기화되기 때문(2026-08-19 실측).
+   */
+  applyAnisotropy(renderer?: THREE.WebGLRenderer) {
+    if (!renderer) return;
+    const maxAniso = renderer.capabilities.getMaxAnisotropy();
+    for (const mat of this.materials) {
+      const mm = mat as THREE.MeshStandardMaterial;
+      for (const t of [mm.map, mm.normalMap, mm.roughnessMap, mm.metalnessMap, mm.aoMap]) {
+        if (t && t.anisotropy !== maxAniso) { t.anisotropy = maxAniso; t.needsUpdate = true; }
+      }
+    }
   }
 
   addClip(name: string, clip: THREE.AnimationClip) {

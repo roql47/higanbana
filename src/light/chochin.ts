@@ -48,6 +48,10 @@ export class Chochin {
     this.body.add(paper);
 
     this.light = new THREE.PointLight(settings.chochin.color, 1, settings.chochin.rangeHigh, 2);
+    // decay 2(물리값)는 광원이 몸에서 30 cm 라 다리·치마가 순백으로 포화돼 텍스처가 사라진다
+    // (사용자 리포트 "정면 뷰에서 질감이 뭉개짐"). 1.5 로 완만하게 — 2 m 지점 밝기는 그대로,
+    // 0.3 m 근접 조도만 약 2.6배 낮아져 질감이 살아난다.
+    this.light.decay = 1.5;
     this.light.castShadow = true;
     this.light.shadow.mapSize.set(shadowMapSize, shadowMapSize);
     // 그림자 여드름 대책 (2026-08-19, "캐릭터가 조각 깨져 보임" 리포트):

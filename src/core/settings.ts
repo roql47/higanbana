@@ -90,15 +90,15 @@ export const settings = {
     level: 2,
     color: 0xffb063,
     rangeLow: 4.5,
-    rangeHigh: 11,
+    rangeHigh: 13,
     intensityLow: 0.85, // 사거리는 rangeHigh 로 고정 — 밝기로만 '약' 을 표현 (셰이더 재컴파일 방지)
-    intensityHigh: 4.6,
+    intensityHigh: 4.2, // decay 1.5 기준 (근접 포화 방지 — 2026-08-19)
     /** 감지 배율(H2 에서 senses 가 읽는다) — 끔/약/강 */
     detectionMul: [0.6, 1.4, 3.0],
     flicker: 0.14, // 0..1 불꽃 흔들림 세기
     swayLag: 9, // 1/s — 손을 따라가는 진자 감쇠(작을수록 크게 흔들림)
     /** 손 위치에 더하는 오프셋(m): [몸 바깥쪽, 위+/아래−, 앞+]. 바깥쪽은 골반→손 방향 */
-    gripPos: [0.13, -0.21, 0.0] as [number, number, number],
+    gripPos: [0.18, -0.18, 0.0] as [number, number, number], // 몸에서 더 떼어 근접 포화 완화
     size: 0.34, // 초칭 전체 높이(m)
   },
   stamina: {
@@ -175,7 +175,7 @@ export const settings = {
     aoIntensity: 2.4,
     aoRadius: 1.0,
     bloomIntensity: 0.75, // 밤 축제 = 등불 번짐이 주인공
-    bloomThreshold: 0.55,
+    bloomThreshold: 0.62, // 포화 영역이 번져 질감을 더 뭉개지 않도록 임계 상향
     vignetteDarkness: 0.68,
     vignetteOffset: 0.22,
     saturation: -0.18, // -1..1 (밤: 채도를 빼고 붉은 계열만 살린다 — 피안화는 H4)

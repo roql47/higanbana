@@ -427,7 +427,7 @@ async function main() {
     onSunChange: () => sky.updateSun(),
     onAudioChange: () => sfx.setMaster(settings.audio.master),
     onAmbientChange: () => sfx.setAmbient(settings.audio.ambient),
-    onCharacterGrade: () => model?.gradeAlbedo(),
+    onCharacterGrade: () => { model?.gradeAlbedo(); model?.applyAnisotropy(renderer); },
     weapon: { item: ITEMS['sword']!, onChange: () => equipment?.applyOffsets() },
     quality: { current: quality.level, levels: QUALITY_LEVELS, onChange: (lv: QualityLevel) => { saveQuality(lv); applyQualityLive(profileFor(lv)); } },
   }, debug);
