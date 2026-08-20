@@ -50,9 +50,13 @@ export class Chochin {
     this.light = new THREE.PointLight(settings.chochin.color, 1, settings.chochin.rangeHigh, 2);
     this.light.castShadow = true;
     this.light.shadow.mapSize.set(shadowMapSize, shadowMapSize);
-    this.light.shadow.bias = -0.004;
-    this.light.shadow.normalBias = 0.035;
-    this.light.shadow.camera.near = 0.06;
+    // 그림자 여드름 대책 (2026-08-19, "캐릭터가 조각 깨져 보임" 리포트):
+    // 광원이 몸에서 10~20 cm 라 큐브 그림자맵 텍셀 밀도가 극단적으로 낮다.
+    // near 0.06 은 깊이 정밀도를 낭비해 소매·치마에 밴딩(acne)이 기어다녔다 → near 0.25 + normalBias 0.12.
+    // (25 cm 안쪽은 그림자를 못 만들지만 — 손 자체 그림자 손실 — acne 보다 낫다)
+    this.light.shadow.bias = -0.002;
+    this.light.shadow.normalBias = 0.12;
+    this.light.shadow.camera.near = 0.25;
     // 광원은 **종이 몸통 한가운데**. 아래에 두면 등이 안에서 빛나지 않고 밑으로만 샌다 (2026-08-19 수정)
     this.light.position.set(0, 0, 0);
     this.body.add(this.light);
