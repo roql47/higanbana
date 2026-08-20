@@ -413,7 +413,16 @@ NavGrid + A* · 감각 시스템 · 상태머신 6종 · "뽀뽀뽀" 근접 음�
 - 라이선스 정책: CC0 > PD > CC BY(표기, `public/audio/CREDITS.md`). BY-SA·NC 는 파이프라인이 거른다
 - **1차 피드백(2026-08-19) "매미·하울링이 살짝 크고 반복되는 듯, 조용한 분위기 원함"** → 루프에 매니페스트 gain 이 안 먹던 버그 수정(그래서 컸다), 쓰르라미 0.4·나머지 0.45~0.5 로, Commons "Howling wind" 제거(합성 바람으로 폴백 — Freesound 잔잔한 바람이 오면 교체), 짧은 루프(귀뚜라미 9 s·방울벌레 13 s)는 **scatter**(무작위 조각 이어붙이기)로 반복 제거, 모든 바탕에 10~30 s 주기 **wander**(쓰르라미 0.1~1)로 밀려왔다 밀려가게. 쓰르라미 루프 56→80 s
 
-### Phase H6 — 확장(선택)
+### Phase H6 — 배포 ← 완료 (2026-08-19)
+- [x] 저장소: **github.com/roql47/higanbana** (main = 최신, horror = 개발, v0.8 스냅샷은 `c8e93af`). SSH 키 발급·등록(브라우저 자동화)
+- [x] 호스팅: **GitHub Pages** — https://roql47.github.io/higanbana/ · main 푸시 = Actions 자동 배포
+  - Vercel 은 기존 Hobby 팀이 fair-use 차단 상태여서 보류 (해제되면 저장소 import 만 하면 됨)
+  - 하위 경로 대응: vite `base '/higanbana/'` + **DefaultLoadingManager.setURLModifier** 로 코드 전역의 '/models/…' 절대 경로 일괄 리라이트(파일 15곳 무수정) + CHARACTER HEAD fetch·audio manifest(bank.ts 1줄)만 수동
+  - 첫 워크플로 실행이 Pages 활성화보다 빨라 실패 → 소스(GitHub Actions) 설정 후 재실행으로 해결
+  - 라이브 검증: index/JS/모델/오디오 200, 게임 구동 스크린샷 확인
+- 알려진 사소한 문제: 라이브 로딩 바가 95% 에서 멈춘 채 시작 버튼이 뜸(코스메틱 — 네트워크 로드 순서 차이, 기능 정상)
+
+### Phase H6 — 확장(선택, 원안)
 절차적 마을 배치 · 난이도 3단 · 클리어 시간 기록 · 산길/산 위 오쿠노인 구역 · 배포
 - ✅ 합격: 링크 하나로 남에게 보낼 수 있다
 
