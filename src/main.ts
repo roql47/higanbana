@@ -98,6 +98,7 @@ async function main() {
       spawn.copy(village.house.entrance);
       spawn.y = village.heightAt(spawn.x, spawn.z) + 0.05;
     }
+    settings.movement.jumpHeight = 1.05; // 마을: 점프는 살리되 낮게 — 공포 톤 유지 (사용자 피드백으로 제거→복원)
     console.info('[village] 논 배미', village.ground.paddyCells().length, '· 벼', village.paddy.riceCount, '· 토리이', village.torii.count, '· 삼나무', village.cedars.count);
   } else {
     const tex = await loadTerrainTextures(renderer);
@@ -428,6 +429,7 @@ async function main() {
     if (e.code === 'KeyQ' && chochin && !invUI.isOpen) { chochin.cycle(); sfx.lanternToggle(chochin.level); }
     if (e.code === 'KeyE' && rules && deathT <= 0) rules.interact(controller.position);
     if (e.code === 'KeyC' && isVillage && !invUI.isOpen) crouching = !crouching;
+    if (e.code === 'Space' && crouching) crouching = false; // 웅크림 중 스페이스 = 일어서기
     if (e.code === 'KeyG' && actions && deathT <= 0) {
       const r = actions.throwSalt(controller.position, controller.yaw, hunters);
       if (r === -1) { toastEl.textContent = '소금이 없다'; toastEl.classList.add('show'); toastT = 1.6; }
@@ -565,9 +567,9 @@ async function main() {
       // 마을(공포)에서는 기본이 걷기, Shift 가 달리기(스태미나) — 초원에서는 반대(v0.8 그대로)
       walk: isVillage ? !wantRun : shift,
       crouch: isVillage && crouching,
-      // 점프 제거 (기획 3.4 — 실내에서 점프는 공포를 깬다). 초원 sandbox 는 유지
-      jumpPressed: !isVillage && !uiOpen && input.justPressed('Space'),
-      jumpHeld: !isVillage && input.isDown('Space'),
+      // 점프: 마을에서도 허용하되 낮게(1.05 m). 웅크림 중 Space 는 점프가 아니라 일어서기
+      jumpPressed: !uiOpen && !crouching && input.justPressed('Space'),
+      jumpHeld: !crouching && input.isDown('Space'),
     });
     physics.step(dt);
     dummies?.update(dt);
@@ -655,8 +657,8 @@ async function main() {
       model.headPitchTarget = 0;
     }
     actions?.update(dt, surfaceAt);
-    // 웅크림 자세: 상체 숙임 + 카메라 피벗 낮춤
-    if (isVillage && model && crouching) { model.spinePitchTarget = -0.5; model.headPitchTarget = 0.34; }
+    // 웅크림 자세: 본 레벨(등 굽힘+무릎)로 실제 자세를 만든다 + 카메라 피벗 낮춤
+    if (isVillage && model) model.crouch = crouching ? 1 : 0;
     if (isVillage) tpCam.pivotDrop = crouching ? 0.5 : 0;
     visual.update(dt, controller);
     chochin?.update(dt, controller.yaw, controller.horizontalSpeed);

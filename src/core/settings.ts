@@ -190,7 +190,7 @@ export type Settings = typeof settings;
 
 /** `?scene=sandbox` (초원 섬, v0.8) 로 돌아갈 때 되돌리는 낮 세팅 */
 export const DAY_PRESET = {
-  movement: { walkSpeed: 1.6, runSpeed: 5.0 },
+  movement: { walkSpeed: 1.6, runSpeed: 5.0, jumpHeight: 1.6 },
   camera: { distance: 4.6, pivotHeight: 1.45, minDistance: 1.8, maxDistance: 9, shoulderOffset: 0.35, baseFov: 55, runFovBoost: 7, minCollisionDistance: 0.5, fadeDistance: 1.3 },
   render: { exposure: 0.62, aoIntensity: 2.0, aoRadius: 1.2, bloomIntensity: 0.2, bloomThreshold: 1.0, vignetteDarkness: 0.55, vignetteOffset: 0.35, saturation: 0.15, contrast: 0.08, shadowRadius: 30 },
 };

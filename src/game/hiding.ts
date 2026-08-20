@@ -11,7 +11,7 @@ import type { Hunter } from '@/ai/hunter';
  * 핵심 규칙: **은신은 도망의 마무리이지 시작이 아니다** — 추격 중 시야가 이어진 채(1 s 이내 목격)
  * 숨으면 그 요괴에게는 보인다. 시야를 먼저 끊고 숨어야 성립한다.
  */
-export type HideSpot = 'stall' | 'rice' | 'closet' | null;
+export type HideSpot = 'stall' | 'rice' | 'closet' | 'higanbana' | null;
 
 export class Hiding {
   spot: HideSpot = null;
@@ -21,6 +21,8 @@ export class Hiding {
 
   /** 이번 프레임의 은신 장소 판정 (요괴 무관 — 장소+자세만) */
   evaluate(playerPos: THREE.Vector3, crouching: boolean, speed: number): HideSpot {
+    // 피안화 군락: 자세 무관 — 요괴가 꽃밭에 들어오기를 꺼린다 (기획 1절)
+    if (this.village.higanbana.inCluster(playerPos)) { this.spot = 'higanbana'; return this.spot; }
     if (!crouching) { this.spot = null; return null; }
     // 벽장
     if (this.village.house.isInCloset(playerPos)) { this.spot = 'closet'; return this.spot; }

@@ -46,6 +46,12 @@ export class CharacterModel {
   private headBone: THREE.Object3D | null = null;
   private neckBone: THREE.Object3D | null = null;
   private spineBones: THREE.Object3D[] = [];
+  private thighBones: THREE.Object3D[] = [];
+  private calfBones: THREE.Object3D[] = [];
+  /** 웅크림 0..1 (main 이 설정) — 본 레벨로 등을 굽히고 무릎을 접는다 */
+  crouch = 0;
+  private crouchAmt = 0;
+  private innerBaseY = 0;
   private tmpQ = new THREE.Quaternion();
   private originalMaps = new Map<THREE.MeshStandardMaterial, THREE.Texture>();
   /** 믹서·보정 뒤에 얹는 절차적 포즈 훅 (공격 등) */
@@ -96,6 +102,8 @@ export class CharacterModel {
       if (/^(Head|mixamorig:Head)$/.test(o.name)) this.headBone = o;
       if (/^(NeckTwist01|Neck|mixamorig:Neck)$/.test(o.name)) this.neckBone = o;
       if (/^(Spine01|Spine02|mixamorig:Spine1|mixamorig:Spine2)$/.test(o.name)) this.spineBones.push(o);
+      if (/^([LR]_Thigh|mixamorig:(Left|Right)UpLeg)$/.test(o.name)) this.thighBones.push(o);
+      if (/^([LR]_Calf|mixamorig:(Left|Right)Leg)$/.test(o.name)) this.calfBones.push(o);
     });
     for (const mat of this.materials) {
       const std = mat as THREE.MeshStandardMaterial;
@@ -180,6 +188,7 @@ export class CharacterModel {
       });
     }
     model.calibrateOffset('idle');
+    model.innerBaseY = model.inner.position.y;
     model.gradeAlbedo();
     return model;
   }
@@ -324,6 +333,22 @@ export class CharacterModel {
       const share = settings.character.neckShare;
       if (this.neckBone) { this.tmpQ.setFromAxisAngle(AXIS_X, this.headPitch * share); this.neckBone.quaternion.multiply(this.tmpQ); }
       if (this.headBone) { this.tmpQ.setFromAxisAngle(AXIS_X, this.headPitch * (this.neckBone ? 1 - share : 1)); this.headBone.quaternion.multiply(this.tmpQ); }
+    }
+    // --- 웅크림: 등 굽힘(척추+목) + 무릎 접기 + 몸 낮추기 ---
+    this.crouchAmt = damp(this.crouchAmt, this.crouch, 9, dt);
+    if (this.crouchAmt > 0.01) {
+      const k = this.crouchAmt;
+      // 등: 앞으로 크게 굽힘 (음수 = 숙임), 머리는 정면 유지
+      for (const b of this.spineBones) { this.tmpQ.setFromAxisAngle(AXIS_X, -0.34 * k); b.quaternion.multiply(this.tmpQ); }
+      if (this.neckBone) { this.tmpQ.setFromAxisAngle(AXIS_X, 0.30 * k); this.neckBone.quaternion.multiply(this.tmpQ); }
+      if (this.headBone) { this.tmpQ.setFromAxisAngle(AXIS_X, 0.28 * k); this.headBone.quaternion.multiply(this.tmpQ); }
+      // 무릎: 허벅지 앞으로, 종아리 뒤로 — 치마 아래 실루엣이 낮아진다
+      for (const b of this.thighBones) { this.tmpQ.setFromAxisAngle(AXIS_X, -0.5 * k); b.quaternion.multiply(this.tmpQ); }
+      for (const b of this.calfBones) { this.tmpQ.setFromAxisAngle(AXIS_X, 0.62 * k); b.quaternion.multiply(this.tmpQ); }
+      // 접은 만큼 몸 전체를 낮춘다 (착지 스쿼시와 같은 inner 오프셋 사용)
+      this.inner.position.y = this.innerBaseY - 0.24 * k;
+    } else {
+      this.inner.position.y = this.innerBaseY;
     }
     this.postPose?.(dt);
   }

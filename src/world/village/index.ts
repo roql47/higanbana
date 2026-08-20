@@ -12,6 +12,7 @@ import { House } from './house';
 import { MatsuriSquare } from './matsuri';
 import { Landmarks } from './landmarks';
 import { Shrine } from './shrine';
+import { Higanbana } from './higanbana';
 
 export { VillageGround, PADDY_WATER } from './ground';
 
@@ -28,6 +29,7 @@ export class Village {
   readonly square: MatsuriSquare;
   readonly landmarks: Landmarks;
   readonly shrine: Shrine;
+  readonly higanbana: Higanbana;
   readonly mist: Mist;
   /** 스폰: 참배로 남쪽 끝, 논 한가운데. 북(−Z)을 보면 토리이 터널이 보인다 */
   readonly spawn = new THREE.Vector3();
@@ -46,6 +48,7 @@ export class Village {
     this.square = new MatsuriSquare(scene, physics, this.ground, { center: new THREE.Vector3(40, 0, 24), radius: 9.5 });
     this.landmarks = new Landmarks(scene, physics, this.ground);
     this.shrine = new Shrine(scene, physics, this.ground);
+    this.higanbana = new Higanbana(scene, this.ground);
     this.mist = new Mist(scene, 130);
 
     const p = this.ground.roadAt(24);
@@ -62,6 +65,7 @@ export class Village {
     this.square.update(dt);
     this.landmarks.update(dt);
     this.shrine.update(dt);
+    this.higanbana.update(dt);
     // 실내에서는 안개 평면이 방을 가로지르므로 끈다
     const indoors = this.house.contains(center);
     this.mist.group.visible = !indoors;
