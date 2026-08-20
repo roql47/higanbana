@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Physics } from '@/core/physics';
 import type { Surface } from '@/audio/sfx';
+import { makeHouseMaterials, type HouseMaterials } from './houseMaterials';
 
 /**
  * 폐가(空き家) — 마을의 실내 구역.
@@ -29,6 +30,15 @@ const DOMA_X = X0 + 4.4;        // 봉당과 마루의 경계
 const CORR_Z = Z0 + 2.1;        // 툇복도 안쪽 경계
 const ROOM_SPLIT = X0 + 10.2;   // 座敷 A / B 경계 (A 가 큰 방 — 이로리가 있다)
 const CLOSET_Z = Z1 - 1.1;      // 벽장 깊이
+const IRORI_X = (DOMA_X + ROOM_SPLIT) / 2, IRORI_Z = (CORR_Z + CLOSET_Z) / 2;
+
+/**
+ * 정적 지오메트리 세분화 간격(m).
+ * 버텍스 컬러로 구석 어둠·그을음을 구우려면 면 안쪽에 정점이 있어야 한다 —
+ * 박스는 면당 정점이 4 개뿐이라 10 m 벽에 지수 감쇠를 표현할 수 없다.
+ */
+const SEG = 0.7;
+const segs = (len: number) => Math.max(1, Math.min(22, Math.round(Math.abs(len) / SEG)));
 
 export interface HouseOptions {
   position: THREE.Vector3;
@@ -58,7 +68,7 @@ export class House {
     this.group.updateMatrixWorld(true);
     this.inv.copy(this.group.matrixWorld).invert();
 
-    const tex = makeTextures();
+    const tex: HouseMaterials = makeHouseMaterials();
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
     const origin = opts.position;
 
@@ -75,32 +85,45 @@ export class House {
 
     // ---------- 바닥 ----------
     const parts: { geo: THREE.BufferGeometry; mat: THREE.Material }[] = [];
-    const slab = (x0: number, z0: number, x1: number, z1: number, y: number, h: number, mat: THREE.Material) => {
-      const g = new THREE.BoxGeometry(x1 - x0, h, z1 - z0);
+    /**
+     * 지오메트리 한 조각을 등록한다. UV 는 **월드(로컬) 스페이스로 다시 쓴다** —
+     * BoxGeometry 의 기본 UV 는 면 크기와 무관하게 0..1 이라, 15 m 벽과 26 cm 기둥이
+     * 같은 텍셀 밀도를 갖지 못하고 긴 면은 그대로 늘어난다(툇복도 널마루가 5:1 로 뭉개졌던 원인).
+     */
+    const push = (geo: THREE.BufferGeometry, mat: THREE.Material, uv: UVSpec, mode: GrungeMode = 'interior') => {
+      projectUV(geo, uv);
+      bakeGrunge(geo, mode);
+      parts.push({ geo, mat });
+    };
+    const slab = (x0: number, z0: number, x1: number, z1: number, y: number, h: number, mat: THREE.Material, uv: UVSpec) => {
+      const g = new THREE.BoxGeometry(x1 - x0, h, z1 - z0, segs(x1 - x0), segs(h), segs(z1 - z0));
       g.translate((x0 + x1) / 2, y - h / 2, (z0 + z1) / 2);
-      parts.push({ geo: g, mat });
+      push(g, mat, uv);
     };
 
     // 土間 — 다진 흙바닥 (마루보다 낮다)
-    slab(X0, Z0, DOMA_X, Z1, 0, 0.3, tex.dirt);
+    slab(X0, Z0, DOMA_X, Z1, 0, 0.3, tex.dirt, UV_DIRT);
     // 마루: 툇복도(널마루) + 좌식방 둘(다다미) + 벽장
-    slab(DOMA_X, Z0, X1, CORR_Z, FLOOR, 0.3, tex.plank);
-    slab(DOMA_X, CORR_Z, ROOM_SPLIT, CLOSET_Z, FLOOR, 0.3, tex.tatami);
-    slab(ROOM_SPLIT, CORR_Z, X1, Z1, FLOOR, 0.3, tex.tatami);
-    slab(DOMA_X, CLOSET_Z, ROOM_SPLIT, Z1, FLOOR + 0.5, 0.3, tex.plank); // 벽장 아래칸 선반
+    // 널은 복도 길이 방향(로컬 X)으로 깔린다 — UV_PLANK 의 v 가 널 폭(18 cm)이다
+    slab(DOMA_X, Z0, X1, CORR_Z, FLOOR, 0.3, tex.plank, UV_PLANK);
+    // 다다미는 타일 한 장 = 실제 한 장. 방에 정수 장이 들어가도록 눈금을 맞춘다(잘린 장이 안 생긴다)
+    slab(DOMA_X, CORR_Z, ROOM_SPLIT, CLOSET_Z, FLOOR, 0.3, tex.tatami, matGrid(DOMA_X, CORR_Z, ROOM_SPLIT, CLOSET_Z, 6, 4));
+    slab(ROOM_SPLIT, CORR_Z, X1, Z1, FLOOR, 0.3, tex.tatami, matGrid(ROOM_SPLIT, CORR_Z, X1, Z1, 5, 5));
+    slab(DOMA_X, CLOSET_Z, ROOM_SPLIT, Z1, FLOOR + 0.5, 0.3, tex.plank, UV_PLANK); // 벽장 아래칸 선반
     collide(X0, Z0, X1, Z1, -0.35, 0);                 // 봉당 바닥
     collide(DOMA_X, Z0, X1, Z1, 0, FLOOR);             // 마루 단차(올라서는 턱)
 
     // ---------- 천장 ----------
-    slab(DOMA_X, Z0, X1, Z1, FLOOR + CEIL + 0.06, 0.06, tex.plankDark);
+    slab(DOMA_X, Z0, X1, Z1, FLOOR + CEIL + 0.06, 0.06, tex.plankDark, UV_CEIL);
 
     // ---------- 벽 ----------
     const wallTop = FLOOR + CEIL;
     /** 흙벽 한 장 (+ 콜라이더) */
     const wall = (x0: number, z0: number, x1: number, z1: number, y0 = 0, y1 = wallTop) => {
-      const g = new THREE.BoxGeometry(Math.max(x1 - x0, WALL_T), y1 - y0, Math.max(z1 - z0, WALL_T));
+      const w = Math.max(x1 - x0, WALL_T), hgt = y1 - y0, d = Math.max(z1 - z0, WALL_T);
+      const g = new THREE.BoxGeometry(w, hgt, d, segs(w), segs(hgt), segs(d));
       g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
-      parts.push({ geo: g, mat: tex.mud });
+      push(g, tex.mud, UV_MUD);
       collide(x0 - WALL_T / 2, z0 - WALL_T / 2, x1 + WALL_T / 2, z1 + WALL_T / 2, y0, y1);
     };
 
@@ -121,31 +144,33 @@ export class House {
     wall(ROOM_SPLIT, CLOSET_Z, ROOM_SPLIT, Z1, 0, wallTop);
 
     // ---------- 기둥·보 (민가는 구조재가 드러난다) ----------
+    // 100 년 된 민가에 정확한 직각 모서리는 없다. 1.5 cm 모따기가 초칭 빛을 받아 만드는
+    // 가는 하이라이트 선 — 이것이 "모델링된 물건"으로 읽히게 하는 시각적 서명이다.
     const postAt = (x: number, z: number, y1 = wallTop + 0.1) => {
-      const g = new THREE.BoxGeometry(POST * 2, y1, POST * 2);
+      const g = beveledBar(POST * 2, POST * 2, y1, 0.018, segs(y1), 'y');
       g.translate(x, y1 / 2, z);
-      parts.push({ geo: g, mat: tex.timber });
+      push(g, tex.timber, UV_POST);
     };
     for (const x of [X0, DOMA_X, ROOM_SPLIT, X1]) for (const z of [Z0, CORR_Z, Z1]) postAt(x, z);
     // 보(梁): 정면·복도 안쪽을 가로지르는 굵은 재
     for (const z of [Z0, CORR_Z]) {
-      const g = new THREE.BoxGeometry(W, 0.24, 0.20);
+      const g = beveledBar(0.24, 0.20, W, 0.02, 4, 'x'); // 보는 길이 방향 그라디언트가 저주파뿐이라 링 4 개면 된다
       g.translate(0, wallTop + 0.02, z);
-      parts.push({ geo: g, mat: tex.timber });
+      push(g, tex.timber, UV_TIMBER);
     }
 
     // ---------- 지붕 ----------
-    parts.push({ geo: makeRoof(), mat: tex.thatch });
+    push(makeRoof(), tex.thatch, UV_THATCH, 'exterior');
 
     // ---------- 부뚜막(かまど) — 봉당의 랜드마크 ----------
     {
-      const b = new THREE.BoxGeometry(1.5, 0.85, 0.95);
+      const b = new THREE.BoxGeometry(1.5, 0.85, 0.95, segs(1.5), segs(0.85), segs(0.95));
       b.translate(X0 + 1.1, 0.42, Z1 - 1.2);
-      parts.push({ geo: b, mat: tex.mud });
+      push(b, tex.mud, UV_MUD);
       collide(X0 + 0.35, Z1 - 1.68, X0 + 1.85, Z1 - 0.72, 0, 0.85);
-      const pot = new THREE.CylinderGeometry(0.34, 0.26, 0.3, 12);
+      const pot = new THREE.CylinderGeometry(0.34, 0.26, 0.3, 16, 2);
       pot.translate(X0 + 1.1, 1.0, Z1 - 1.2);
-      parts.push({ geo: pot, mat: tex.timber });
+      push(pot, tex.timber, cylUV(0.34, 0.3, UV_TIMBER));
     }
 
     // ---------- 이로리(囲炉裏) — 큰 방의 랜드마크 ----------
@@ -155,32 +180,40 @@ export class House {
       const S = 1.5; // 화덕 틀 한 변
       // 나무 틀 4변
       for (const [dx, dz, w, dep] of [[0, -S/2, S + 0.24, 0.24], [0, S/2, S + 0.24, 0.24], [-S/2, 0, 0.24, S - 0.24], [S/2, 0, 0.24, S - 0.24]] as [number, number, number, number][]) {
-        const g = new THREE.BoxGeometry(w, 0.14, dep);
+        const long = Math.max(w, dep);
+        const g = beveledBar(w > dep ? 0.14 : dep, w > dep ? dep : 0.14, long, 0.014, segs(long), w > dep ? 'x' : 'z');
         g.translate(cx + dx, FLOOR + 0.07, cz + dz);
-        parts.push({ geo: g, mat: tex.timber });
+        push(g, tex.timber, UV_TIMBER);
       }
       // 재(灰) 바닥 — 마루보다 낮게
-      const ash = new THREE.BoxGeometry(S - 0.2, 0.05, S - 0.2);
+      const ash = new THREE.BoxGeometry(S - 0.2, 0.05, S - 0.2, segs(S), 1, segs(S));
       ash.translate(cx, FLOOR + 0.02, cz);
-      parts.push({ geo: ash, mat: tex.mud });
+      push(ash, tex.mud, UV_DIRT);
       // 자재걸이(自在鉤): 천장에서 내려온 막대 + 갈고리의 주전자 실루엣
-      const rod = new THREE.CylinderGeometry(0.03, 0.03, CEIL - 0.9, 6);
-      rod.translate(cx, FLOOR + CEIL - (CEIL - 0.9) / 2, cz);
-      parts.push({ geo: rod, mat: tex.timber });
-      const pot = new THREE.CylinderGeometry(0.2, 0.16, 0.22, 10);
+      const rodH = CEIL - 0.9;
+      const rod = new THREE.CylinderGeometry(0.03, 0.03, rodH, 8, segs(rodH));
+      rod.translate(cx, FLOOR + CEIL - rodH / 2, cz);
+      push(rod, tex.timber, cylUV(0.03, rodH, UV_TIMBER));
+      const pot = new THREE.CylinderGeometry(0.2, 0.16, 0.22, 14, 2);
       pot.translate(cx, FLOOR + 0.95, cz);
-      parts.push({ geo: pot, mat: tex.timber });
+      push(pot, tex.timber, cylUV(0.2, 0.22, UV_TIMBER));
       // 오토스텝(0.35 m)이 틀(0.15 m)을 밟고 넘어 화덕·주전자를 관통한다 → 보이지 않는 벽을 0.6 m 로 (2026-08-19)
       collide(cx - S/2 - 0.12, cz - S/2 - 0.12, cx + S/2 + 0.12, cz + S/2 + 0.12, FLOOR, FLOOR + 0.6);
     }
 
     // ---------- 병합(정적 지오메트리) ----------
+    // 바닥·천장은 그림자를 **드리우지 않는다**. 유일한 그림자 광원인 초칭은 마루 위에 있어서
+    // 바닥면이 큐브맵에 기여하는 게 사실상 없는데, 포인트라이트 그림자는 6 면을 다 그리므로
+    // 비용만 6 배로 든다(실측: 폐가 castShadow 전부 끄면 42.6 → 45.7 fps).
+    const noCast = new Set<THREE.Material>([tex.dirt, tex.plank, tex.tatami, tex.plankDark]);
     for (const grp of groupByMaterial(parts)) {
       const merged = mergeGeometries(grp.geos, false);
       if (!merged) continue;
-      merged.computeVertexNormals();
+      // computeVertexNormals() 를 여기서 부르면 안 된다 — 모따기 면의 평면 노멀이
+      // 이웃 면과 평균돼 하이라이트 선이 사라진다. 원본 지오메트리 노멀을 그대로 쓴다.
+
       const mesh = new THREE.Mesh(merged, grp.mat);
-      mesh.castShadow = true;
+      mesh.castShadow = !noCast.has(grp.mat);
       mesh.receiveShadow = true;
       this.group.add(mesh);
     }
@@ -188,10 +221,22 @@ export class House {
     // ---------- 장지문 / 맹장지 ----------
     // 얇은 **양면 반투명 평면**. 그림자를 받으므로, 뒤에서 빛이 오면 사이에 낀 것이 실루엣으로 뜬다.
     const panel = (x0: number, z0: number, x1: number, z1: number, opaque = false) => {
-      const along = Math.hypot(x1 - x0, z1 - z0);
-      const g = new THREE.PlaneGeometry(along, CEIL - 0.12);
+      const along = Math.hypot(x1 - x0, z1 - z0), tall = CEIL - 0.12;
+      const g = new THREE.PlaneGeometry(along, tall, segs(along), segs(tall));
+      // 살(桟) 눈금을 실치수에 맞춘다 — 한 짝 폭 0.95 m 에 세로살 4 개(≈24 cm 간격)
+      const uv = g.attributes['uv'] as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (along / 0.95), uv.getY(i) * (tall / 1.05));
+      // 아래쪽이 더 삭았다 — 종이는 바닥에서부터 얼룩지고 찢어진다
+      const pos = g.attributes['position'] as THREE.BufferAttribute;
+      const col = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) {
+        const yy = pos.getY(i) + tall / 2;                       // 패널 하단 기준 높이
+        const k = Math.max(0.34, 1 - 0.5 * Math.exp(-yy / 0.42) - 0.10 * Math.exp(-(tall - yy) / 0.3));
+        col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = k;
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
       const m = new THREE.Mesh(g, opaque ? tex.fusuma : tex.shojiMat);
-      m.position.set((x0 + x1) / 2, FLOOR + (CEIL - 0.12) / 2, (z0 + z1) / 2);
+      m.position.set((x0 + x1) / 2, FLOOR + tall / 2, (z0 + z1) / 2);
       m.rotation.y = Math.atan2(x1 - x0, z1 - z0) + Math.PI / 2;
       m.castShadow = false;   // 종이는 그림자를 만들지 않는다
       m.receiveShadow = true; // 뒤에서 오는 빛의 그림자를 받아야 실루엣이 생긴다
@@ -264,23 +309,209 @@ function makeRoof(): THREE.BufferGeometry {
   const eave = 0.9;                 // 처마 내밀기
   const hw = W / 2 + eave, hd = D / 2 + eave;
   const base = FLOOR + CEIL + 0.15, peak = base + 3.9;
-  const v: number[] = [], idx: number[] = [];
-  // 용마루는 X 방향으로 뻗는다
-  const P = [
+  const P: [number, number, number][] = [
     [-hw, base, -hd], [hw, base, -hd], [hw, base, hd], [-hw, base, hd], // 0..3 처마 끝
     [-hw + 0.6, peak, 0], [hw - 0.6, peak, 0],                          // 4,5 용마루
   ];
-  for (const p of P) v.push(p[0]!, p[1]!, p[2]!);
-  idx.push(0, 1, 5, 0, 5, 4);   // 앞면 경사
-  idx.push(2, 3, 4, 2, 4, 5);   // 뒷면 경사
-  idx.push(0, 4, 3);            // 좌 박공
-  idx.push(1, 2, 5);            // 우 박공
+  const tris = [[0, 1, 5], [0, 5, 4], [2, 3, 4], [2, 4, 5], [0, 4, 3], [1, 2, 5]];
+  // 삼각형마다 정점을 복제한다 — 정점을 공유하면 병합 후 용마루가 둥글게 뭉개진다
+  const v: number[] = [], idx: number[] = [];
+  for (const t of tris) for (const k of t) { const p = P[k]!; v.push(p[0], p[1], p[2]); }
+  for (let k = 0; k < v.length / 3; k++) idx.push(k);
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array((v.length / 3) * 2).fill(0), 2));
   g.setIndex(idx);
   g.computeVertexNormals();
+  // 지붕은 면당 정점이 3 개뿐이라 그런지 그라디언트가 안 실린다 → 잘게 쪼갠다
+  return subdivide(g, 1.1);
+}
+
+/** 긴 삼각형을 SEG 안팎으로 잘게 나눈다 (버텍스 컬러 그라디언트용) */
+function subdivide(g: THREE.BufferGeometry, target: number): THREE.BufferGeometry {
+  let cur = g;
+  for (let pass = 0; pass < 4; pass++) {
+    const pos = cur.attributes['position'] as THREE.BufferAttribute;
+    const idx = cur.getIndex()!;
+    let longest = 0;
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    for (let t = 0; t < idx.count; t += 3) {
+      a.fromBufferAttribute(pos, idx.getX(t)); b.fromBufferAttribute(pos, idx.getX(t + 1)); c.fromBufferAttribute(pos, idx.getX(t + 2));
+      longest = Math.max(longest, a.distanceTo(b), b.distanceTo(c), c.distanceTo(a));
+    }
+    if (longest <= target) break;
+    const out: number[] = [];
+    const m1 = new THREE.Vector3(), m2 = new THREE.Vector3(), m3 = new THREE.Vector3();
+    const put = (...vs: THREE.Vector3[]) => { for (const p of vs) out.push(p.x, p.y, p.z); };
+    for (let t = 0; t < idx.count; t += 3) {
+      a.fromBufferAttribute(pos, idx.getX(t)); b.fromBufferAttribute(pos, idx.getX(t + 1)); c.fromBufferAttribute(pos, idx.getX(t + 2));
+      m1.addVectors(a, b).multiplyScalar(0.5); m2.addVectors(b, c).multiplyScalar(0.5); m3.addVectors(c, a).multiplyScalar(0.5);
+      put(a, m1, m3); put(m1, b, m2); put(m3, m2, c); put(m1, m2, m3);
+    }
+    const ng = new THREE.BufferGeometry();
+    ng.setAttribute('position', new THREE.Float32BufferAttribute(out, 3));
+    ng.setAttribute('uv', new THREE.Float32BufferAttribute(new Array((out.length / 3) * 2).fill(0), 2));
+    ng.setIndex([...Array(out.length / 3).keys()]);
+    ng.computeVertexNormals();
+    cur = ng;
+  }
+  return cur;
+}
+
+/**
+ * 모따기한 각재 — 단면이 팔각형인 기둥/보.
+ * 면마다 정점을 복제해 평면 셰이딩을 유지한다(모따기의 가는 하이라이트가 살아 있어야 한다).
+ * `axis` 는 길이 방향, 길이 중심은 원점.
+ */
+function beveledBar(w: number, h: number, len: number, bevel: number, rings: number, axis: 'x' | 'y' | 'z') {
+  const hw = w / 2, hh = h / 2, b = Math.min(bevel, Math.min(hw, hh) * 0.6);
+  const prof: [number, number][] = [
+    [-hw + b, -hh], [hw - b, -hh], [hw, -hh + b], [hw, hh - b],
+    [hw - b, hh], [-hw + b, hh], [-hw, hh - b], [-hw, -hh + b],
+  ];
+  const N = prof.length, R = Math.max(1, rings);
+  const pos: number[] = [], nrm: number[] = [], idx: number[] = [];
+  // 로컬 (p, q, t) → 축에 맞춘 (x, y, z)
+  const emit = (px: number, py: number, t: number, nx: number, ny: number) => {
+    if (axis === 'y') { pos.push(px, t, py); nrm.push(nx, 0, ny); }
+    else if (axis === 'x') { pos.push(t, py, px); nrm.push(0, ny, nx); }
+    else { pos.push(px, py, t); nrm.push(nx, ny, 0); }
+  };
+  for (let f = 0; f < N; f++) {
+    const p0 = prof[f]!, p1 = prof[(f + 1) % N]!;
+    const ex = p1[0] - p0[0], ey = p1[1] - p0[1], el = Math.hypot(ex, ey) || 1;
+    const nx = ey / el, ny = -ex / el;            // 바깥 법선
+    const base = pos.length / 3;
+    for (let r = 0; r <= R; r++) {
+      const t = -len / 2 + (len * r) / R;
+      emit(p0[0], p0[1], t, nx, ny);
+      emit(p1[0], p1[1], t, nx, ny);
+    }
+    for (let r = 0; r < R; r++) {
+      const o = base + r * 2;
+      idx.push(o, o + 1, o + 3, o, o + 3, o + 2);
+    }
+  }
+  // 양 끝 캡
+  for (const [t, s] of [[-len / 2, -1], [len / 2, 1]] as [number, number][]) {
+    const base = pos.length / 3;
+    for (const pt of prof) {
+      if (axis === 'y') { pos.push(pt[0], t, pt[1]); nrm.push(0, s, 0); }
+      else if (axis === 'x') { pos.push(t, pt[1], pt[0]); nrm.push(s, 0, 0); }
+      else { pos.push(pt[0], pt[1], t); nrm.push(0, 0, s); }
+    }
+    for (let k = 1; k < N - 1; k++) {
+      if (s > 0) idx.push(base, base + k, base + k + 1);
+      else idx.push(base, base + k + 1, base + k);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array((pos.length / 3) * 2).fill(0), 2));
+  g.setIndex(idx);
   return g;
+}
+
+// ---------------------------------------------------------------- UV / 그런지
+
+/**
+ * UV 사양. `su`/`sv` 는 **타일 한 장이 덮는 미터**다.
+ * `mul` 이면 박스 투영 대신 기존 UV 에 배수를 건다(원통처럼 자체 UV 가 나은 경우).
+ */
+export interface UVSpec { su: number; sv: number; ou?: number; ov?: number; swap?: boolean; mul?: boolean }
+
+const UV_DIRT: UVSpec = { su: 0.7, sv: 0.7 };
+const UV_PLANK: UVSpec = { su: 2.4, sv: 0.9 };   // v 축에 널 5 장 → 폭 18 cm
+const UV_CEIL: UVSpec = { su: 2.4, sv: 0.8 };
+const UV_MUD: UVSpec = { su: 1.5, sv: 1.5 };
+const UV_TIMBER: UVSpec = { su: 1.8, sv: 0.45 }; // 결이 u 를 따라 흐른다
+const UV_POST: UVSpec = { su: 1.8, sv: 0.45, swap: true }; // 기둥은 결이 수직 → u/v 를 바꾼다
+const UV_THATCH: UVSpec = { su: 1.6, sv: 2.6 };
+
+/** 방에 다다미가 정수 장 들어가도록 눈금을 맞춘 UV (잘린 장이 안 생긴다) */
+function matGrid(x0: number, z0: number, x1: number, z1: number, nx: number, nz: number): UVSpec {
+  const su = (x1 - x0) / nx, sv = (z1 - z0) / nz;
+  return { su, sv, ou: -x0 / su, ov: -z0 / sv };
+}
+
+/** 원통: 둘레·높이를 미터로 환산해 기존 UV 에 배수를 건다 */
+function cylUV(radius: number, height: number, base: UVSpec): UVSpec {
+  return { su: (2 * Math.PI * radius) / base.su, sv: height / base.sv, mul: true };
+}
+
+/** 박스 투영 — 정점 법선의 우세축을 빼고 남은 두 축을 미터 단위로 UV 에 쓴다 */
+function projectUV(g: THREE.BufferGeometry, s: UVSpec) {
+  const pos = g.attributes['position'] as THREE.BufferAttribute;
+  const uv = g.attributes['uv'] as THREE.BufferAttribute;
+  if (s.mul) {
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * s.su, uv.getY(i) * s.sv);
+    uv.needsUpdate = true;
+    return;
+  }
+  const nrm = g.attributes['normal'] as THREE.BufferAttribute;
+  const ou = s.ou ?? 0, ov = s.ov ?? 0;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const ax = Math.abs(nrm.getX(i)), ay = Math.abs(nrm.getY(i)), az = Math.abs(nrm.getZ(i));
+    let u: number, v: number;
+    if (ay >= ax && ay >= az) { u = x; v = z; }        // 바닥·천장
+    else if (ax >= az) { u = z; v = y; }               // ±X 면
+    else { u = x; v = y; }                             // ±Z 면
+    if (s.swap) { const t = u; u = v; v = t; }
+    uv.setXY(i, u / s.su + ou, v / s.sv + ov);
+  }
+  uv.needsUpdate = true;
+}
+
+export type GrungeMode = 'interior' | 'exterior';
+
+const XLINES = [X0, DOMA_X, ROOM_SPLIT, X1];
+const ZLINES = [Z0, CORR_Z, CLOSET_Z, Z1];
+
+/**
+ * 접촉 그런지를 버텍스 컬러로 굽는다.
+ *
+ * aoMap 은 three 에서 **간접광에만** 곱해진다 — 이 게임의 광원은 초칭(직접광)이라 거의 안 먹는다.
+ * 버텍스 컬러는 diffuseColor 자체에 곱해지므로 직접광에도 남는다. 그래서 구석 어둠·그을음은
+ * 여기서 굽는다. 덤으로 저주파 얼룩이 타일 반복을 깨 준다(셰이더 안티타일링보다 싸다).
+ */
+function bakeGrunge(g: THREE.BufferGeometry, mode: GrungeMode) {
+  const pos = g.attributes['position'] as THREE.BufferAttribute;
+  const nrm = g.attributes['normal'] as THREE.BufferAttribute;
+  const col = new Float32Array(pos.count * 3);
+  const ceil = FLOOR + CEIL;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    let k = 1;
+    if (mode === 'interior') {
+      if (Math.abs(nrm.getY(i)) < 0.5) {
+        // 수직면: 걸레받이 쪽과 천장 모서리가 어둡다
+        k -= 0.44 * Math.exp(-Math.abs(y - FLOOR) / 0.22);
+        k -= 0.28 * Math.exp(-Math.abs(y - ceil) / 0.30);
+      } else {
+        // 수평면: 벽·칸막이 선에 가까울수록 어둡다 (먼지가 구석에 쌓인다)
+        let d = 99;
+        for (const v of XLINES) d = Math.min(d, Math.abs(x - v));
+        for (const v of ZLINES) d = Math.min(d, Math.abs(z - v));
+        k -= 0.40 * Math.exp(-d / 0.26);
+      }
+      // 이로리 위 그을음 — 실내에서만, 천장에 가까울수록 짙다
+      if (y < ceil + 0.2) {
+        const up = Math.max(0, Math.min(1, (y - (FLOOR + CEIL * 0.4)) / (CEIL * 0.6)));
+        k -= 0.58 * up * up * Math.exp(-Math.hypot(x - IRORI_X, z - IRORI_Z) / 1.6);
+      }
+    } else {
+      // 지붕: 처마 끝이 어둡고 용마루가 밝다 (비바람에 씻긴 정도)
+      k -= 0.34 * Math.exp(-Math.abs(y - (FLOOR + CEIL + 0.15)) / 0.9);
+    }
+    // 저주파 얼룩 — 같은 재질이 통짜로 보이지 않게 한다
+    const n = Math.sin(x * 1.13 + z * 0.71) + Math.sin(x * 0.37 - z * 1.53 + 2.1) + Math.sin(y * 0.9 + x * 0.6);
+    k *= 0.90 + 0.10 * (n / 3 * 0.5 + 0.5);
+    k = Math.max(0.16, k);
+    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = k;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
 }
 
 function groupByMaterial(parts: { geo: THREE.BufferGeometry; mat: THREE.Material }[]) {
@@ -290,102 +521,4 @@ function groupByMaterial(parts: { geo: THREE.BufferGeometry; mat: THREE.Material
     map.get(p.mat)!.push(p.geo);
   }
   return [...map.entries()].map(([mat, geos]) => ({ mat, geos }));
-}
-
-// --- 재질: 전부 캔버스로 그린다 (외부 에셋 없음, 밤이라 1K 도 필요 없다) ---
-interface HouseTextures {
-  dirt: THREE.Material; plank: THREE.Material; plankDark: THREE.Material;
-  tatami: THREE.Material; mud: THREE.Material; timber: THREE.Material;
-  thatch: THREE.Material; shojiMat: THREE.Material; fusuma: THREE.Material;
-}
-let cached: HouseTextures | null = null;
-
-function makeTextures(): HouseTextures {
-  if (cached) return cached;
-  const std = (map: THREE.Texture, rough: number, color = 0xffffff) =>
-    new THREE.MeshStandardMaterial({ map, roughness: rough, metalness: 0, color });
-
-  cached = {
-    dirt: std(canvasTex(64, (c) => {
-      c.fillStyle = '#3a3128'; c.fillRect(0, 0, 64, 64);
-      for (let i = 0; i < 420; i++) { c.fillStyle = `rgba(${90 + Math.random() * 50},${74 + Math.random() * 40},${58 + Math.random() * 30},0.5)`; c.fillRect(Math.random() * 64, Math.random() * 64, 1.4, 1.4); }
-    }, 8), 1.0),
-    plank: std(plankCanvas('#4b3a28', '#3a2c1e'), 0.82),
-    plankDark: std(plankCanvas('#2b211a', '#1e1712'), 0.9),
-    tatami: std(tatamiCanvas(), 0.95),
-    mud: std(canvasTex(64, (c) => {
-      c.fillStyle = '#6b6250'; c.fillRect(0, 0, 64, 64);
-      for (let i = 0; i < 260; i++) { c.fillStyle = `rgba(${150 + Math.random() * 60},${140 + Math.random() * 50},${112 + Math.random() * 40},0.35)`; c.fillRect(Math.random() * 64, Math.random() * 64, 2.2, 1); } // 여물(짚) 흔적
-    }, 4), 0.98),
-    timber: std(plankCanvas('#33261b', '#241a12'), 0.85),
-    thatch: std(canvasTex(64, (c) => {
-      c.fillStyle = '#31291f'; c.fillRect(0, 0, 64, 64);
-      for (let i = 0; i < 500; i++) { c.strokeStyle = `rgba(${70 + Math.random() * 45},${60 + Math.random() * 38},${44 + Math.random() * 26},0.55)`; c.lineWidth = 1; const x = Math.random() * 64, y = Math.random() * 64; c.beginPath(); c.moveTo(x, y); c.lineTo(x + 1.5, y + 7); c.stroke(); }
-    }, 6), 1.0),
-    // 장지문: **거의 불투명**한 양면 + 그림자 수신.
-    // 사람이 종이 너머로 직접 보이면 안 된다 — 보이는 건 등불이 종이에 던진 **그림자 실루엣**뿐.
-    // 종이는 빛을 투과하므로 디퓨즈 항의 saturate(dotNL) 을 abs(dotNL) 로 바꿔 **뒷면에서 온 빛도 밝힌다**.
-    // 포인트라이트 그림자는 dotNL 이전에 directLight.color 에 곱해지므로 실루엣은 양면 모두에 남는다 (2026-08-19)
-    shojiMat: (() => {
-      const m = new THREE.MeshStandardMaterial({
-        map: shojiCanvas(),
-        color: 0xf2ead8, roughness: 1, metalness: 0,
-        side: THREE.DoubleSide, transparent: true, opacity: 0.94, depthWrite: false,
-      });
-      m.onBeforeCompile = (shader) => {
-        shader.fragmentShader = shader.fragmentShader.replace(
-          '#include <lights_physical_pars_fragment>',
-          THREE.ShaderChunk['lights_physical_pars_fragment']!
-            .replace(/saturate\( dot\( geometryNormal, directLight\.direction \) \)/g,
-                     'abs( dot( geometryNormal, directLight.direction ) ) * 0.85'),
-        );
-      };
-      return m;
-    })(),
-    fusuma: new THREE.MeshStandardMaterial({
-      map: canvasTex(64, (c) => {
-        c.fillStyle = '#4a4335'; c.fillRect(0, 0, 64, 64);
-        for (let i = 0; i < 90; i++) { c.fillStyle = `rgba(${120 + Math.random() * 40},${112 + Math.random() * 35},${92 + Math.random() * 30},0.25)`; c.fillRect(Math.random() * 64, Math.random() * 64, 3, 2); }
-      }, 2),
-      roughness: 0.95, metalness: 0, side: THREE.DoubleSide,
-    }),
-  };
-  return cached;
-}
-
-function canvasTex(size: number, draw: (c: CanvasRenderingContext2D) => void, repeat = 1) {
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = size;
-  draw(cv.getContext('2d')!);
-  const t = new THREE.CanvasTexture(cv);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(repeat, repeat);
-  return t;
-}
-
-function plankCanvas(base: string, dark: string) {
-  return canvasTex(128, (c) => {
-    c.fillStyle = base; c.fillRect(0, 0, 128, 128);
-    for (let i = 0; i < 5; i++) { c.fillStyle = dark; c.fillRect(0, i * 26 + 24, 128, 1.6); } // 널 이음매
-    for (let i = 0; i < 240; i++) { c.strokeStyle = `rgba(0,0,0,${0.05 + Math.random() * 0.12})`; c.lineWidth = 0.8; const y = Math.random() * 128; c.beginPath(); c.moveTo(0, y); c.lineTo(128, y + (Math.random() - 0.5) * 3); c.stroke(); }
-  }, 3);
-}
-
-function tatamiCanvas() {
-  return canvasTex(128, (c) => {
-    c.fillStyle = '#6d6c41'; c.fillRect(0, 0, 128, 128);
-    for (let y = 0; y < 128; y += 2) { c.strokeStyle = `rgba(${150 + Math.random() * 30},${146 + Math.random() * 28},${96 + Math.random() * 24},0.30)`; c.lineWidth = 1; c.beginPath(); c.moveTo(0, y); c.lineTo(128, y); c.stroke(); }
-    c.fillStyle = '#20201a'; c.fillRect(0, 0, 128, 5); c.fillRect(0, 123, 128, 5); // 다다미 가장자리 천(縁)
-  }, 2);
-}
-
-function shojiCanvas() {
-  return canvasTex(128, (c) => {
-    c.fillStyle = '#efe6d2'; c.fillRect(0, 0, 128, 128);
-    c.strokeStyle = '#2e241a'; c.lineWidth = 3.2;              // 살(桟)
-    for (let i = 0; i <= 4; i++) { const p = (i / 4) * 128; c.beginPath(); c.moveTo(p, 0); c.lineTo(p, 128); c.stroke(); }
-    for (let i = 0; i <= 6; i++) { const p = (i / 6) * 128; c.beginPath(); c.moveTo(0, p); c.lineTo(128, p); c.stroke(); }
-    for (let i = 0; i < 26; i++) { c.fillStyle = `rgba(60,48,34,${0.06 + Math.random() * 0.12})`; c.fillRect(Math.random() * 128, Math.random() * 128, 4 + Math.random() * 12, 3 + Math.random() * 9); } // 얼룩·찢김
-  }, 1);
 }
