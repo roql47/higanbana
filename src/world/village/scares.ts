@@ -144,7 +144,7 @@ export class Scares {
     this.rokuroNeck = neck;
     this.rokuroHead = head;
     // 백라이트: 실루엣 뒤(집 안) 등불 — 켜지면 장지문이 밝아지며 그림자가 뜬다
-    this.rokuroLight = new THREE.PointLight(0xffb060, 0, 6, 2);
+    this.rokuroLight = new THREE.PointLight(0xffb060, 0.001, 6, 2);
     this.rokuroLight.position.copy(this.house.frontShoji).addScaledVector(this.house.frontNormal, -1.6);
     this.rokuroLight.castShadow = false;
     this.scene.add(this.rokuroLight);
@@ -262,10 +262,10 @@ export class Scares {
     const stretch = 1 + THREE.MathUtils.smoothstep(t, 1.0, 4.0) * 0.95; // 목 1 → 1.95배 (머리가 장지문 안에 머문다)
     this.rokuroNeck.scale.y = stretch;
     if (this.rokuroHead) this.rokuroHead.position.y = 0.7 + (stretch - 1) * 0.98;
-    if (this.rokuroLight) this.rokuroLight.intensity = fade * 2.6; // 안쪽 등불이 함께 살아난다
+    if (this.rokuroLight) this.rokuroLight.intensity = Math.max(0.001, fade * 2.6); // 안쪽 등불이 함께 살아난다
     if (t > 5.0) {
       this.rokuro.visible = false;
-      if (this.rokuroLight) this.rokuroLight.intensity = 0; // 불이 뚝 꺼진다
+      if (this.rokuroLight) this.rokuroLight.intensity = 0.001; // 불이 뚝 꺼진다 (0 은 재컴파일 함정)
       this.rokuroState = 'done';
     }
   }

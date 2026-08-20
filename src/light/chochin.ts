@@ -120,7 +120,8 @@ export class Chochin {
     this.light.visible = c.level > 0;
     this.light.distance = c.level === 2 ? c.rangeHigh : c.rangeLow;
     this.paperMat.emissiveIntensity = c.level === 0 ? 0.0 : c.level === 1 ? 0.35 : 0.85;
-    this.paperMat.opacity = c.level === 0 ? 0.85 : 0.98;
+    // opacity 는 건드리지 않는다 — transparent 재질의 불투명도 변화도 렌더 상태를 바꿔
+    // 셰이더 변형이 갈릴 수 있다(실측 재컴파일 확인). 꺼짐은 emissive 로만 표현.
   }
 
   cycle() { this.setLevel(settings.chochin.level + 1); }
@@ -156,7 +157,9 @@ export class Chochin {
     this.body.quaternion.copy(this.qParent).invert().multiply(this.qCur);
 
     // --- 불꽃 흔들림 (요괴가 가까울수록 심하게 — 초칭이 무서워한다) ---
-    if (c.level > 0) {
+    if (c.level === 0) {
+      this.light.intensity = 0.02; // "꺼짐" — 라이트 자체는 유지 (재컴파일 방지)
+    } else {
       const th = this.threat;
       const f = c.flicker * (1 + th * 2.6);
       const speed = 1 + th * 0.9; // 근접 시 떨림도 빨라진다
@@ -169,8 +172,9 @@ export class Chochin {
       const targetF = 1 + n * f - dip * f;
       this.flickerVal = damp(this.flickerVal, targetF, 24, dt);
       const base = c.level === 2 ? c.intensityHigh : c.intensityLow;
-      this.light.intensity = Math.max(0, base * this.flickerVal);
-      this.light.distance = (c.level === 2 ? c.rangeHigh : c.rangeLow) * (0.94 + 0.06 * this.flickerVal);
+      this.light.intensity = Math.max(0.02, base * this.flickerVal);
+      // distance 는 고정 — 바꾸면 셰이더 변형이 갈린다. 약(level 1)은 세기로만 좁힌다
+      this.light.distance = c.rangeHigh;
       this.paperMat.emissiveIntensity = (c.level === 1 ? 0.35 : 0.85) * this.flickerVal;
     }
   }

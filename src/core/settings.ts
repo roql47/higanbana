@@ -91,7 +91,7 @@ export const settings = {
     color: 0xffb063,
     rangeLow: 4.5,
     rangeHigh: 11,
-    intensityLow: 1.3,
+    intensityLow: 0.85, // 사거리는 rangeHigh 로 고정 — 밝기로만 '약' 을 표현 (셰이더 재컴파일 방지)
     intensityHigh: 4.6,
     /** 감지 배율(H2 에서 senses 가 읽는다) — 끔/약/강 */
     detectionMul: [0.6, 1.4, 3.0],

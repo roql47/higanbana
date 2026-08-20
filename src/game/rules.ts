@@ -30,6 +30,8 @@ export class Rules {
   offered = false;
   escaped = false;
   private pickups = new Map<OfferingId, THREE.Object3D>();
+  /** 표식 라이트 — 씬에 **상주**한다. 제거하면 라이트 수가 바뀌어 전 셰이더 재컴파일(픽업 시 110 ms 히치) */
+  private pickupLights = new Map<OfferingId, THREE.PointLight>();
   private glowMats: THREE.MeshStandardMaterial[] = [];
   private t = 0;
   private altarGlow: THREE.PointLight | null = null;
@@ -51,6 +53,11 @@ export class Rules {
   ) {
     for (const o of offerings) this.spawnPickup(o);
     this.buildGate();
+    // 제단 글로우도 상주 (봉납 때 켜기만)
+    this.altarGlow = new THREE.PointLight(0xfff0c8, 0.001, 9, 2);
+    this.altarGlow.position.copy(this.altar).add(new THREE.Vector3(0, 1.0, -0.6));
+    this.altarGlow.castShadow = false;
+    this.scene.add(this.altarGlow);
   }
 
   get count() { return this.collected.size; }
@@ -70,20 +77,28 @@ export class Rules {
   get secondHunterRoams() { return this.collected.size >= 2; }
 
   private spawnPickup(o: OfferingDef) {
-    // 공물 표식: 작은 받침 + 발광 구체 + 위아래로 떠오르는 빛. 모델은 단순 — 어둠 속에서 "거기 있다"만 읽히면 된다
+    // 공물 표식: 작은 받침 + 발광 구체. 라이트는 별도 상주 객체 — 그룹과 함께 없애지 않는다
     const g = new THREE.Group();
     const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.18, 12), new THREE.MeshStandardMaterial({ color: 0x3a2f25, roughness: 0.9 }));
     pedestal.position.y = 0.09; pedestal.castShadow = true; g.add(pedestal);
     const mat = new THREE.MeshStandardMaterial({ color: o.color, emissive: new THREE.Color(o.color), emissiveIntensity: 1.4, roughness: 0.4, metalness: 0.1 });
     const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.13, 2), mat);
     orb.position.y = 0.55; orb.name = 'orb'; g.add(orb);
-    const l = new THREE.PointLight(o.color, 1.1, 4.5, 2); l.position.y = 0.6; l.castShadow = false; g.add(l);
     g.position.copy(o.pos);
     g.name = `offering-${o.id}`;
-    g.userData['light'] = l;
     this.glowMats.push(mat);
     this.scene.add(g);
     this.pickups.set(o.id, g);
+    let l = this.pickupLights.get(o.id);
+    if (!l) {
+      l = new THREE.PointLight(o.color, 1.1, 4.5, 2);
+      l.castShadow = false;
+      l.position.copy(o.pos).add(new THREE.Vector3(0, 0.6, 0));
+      this.scene.add(l);
+      this.pickupLights.set(o.id, l);
+    } else {
+      l.intensity = 1.1;
+    }
   }
 
   /** 출구: 마을 남쪽, 참배로 시작점 너머의 다리. 봉납 전엔 안개 벽 + 금줄로 막혀 있다(= 전승 "같은 다리로 돌아온다") */
@@ -153,7 +168,9 @@ export class Rules {
     if (this.nearPickup) {
       const id = this.nearPickup;
       const g = this.pickups.get(id)!;
-      g.removeFromParent();
+      g.removeFromParent(); // 메시만 — 라이트는 상주
+      const l = this.pickupLights.get(id);
+      if (l) l.intensity = 0.001; // 0 이면 라이트 목록에서 빠져 셰이더 재컴파일
       this.pickups.delete(id);
       this.collected.add(id);
       const def = this.offerings.find((o) => o.id === id)!;
@@ -164,10 +181,8 @@ export class Rules {
     }
     if (!this.offered && this.allCollected && this.altar.distanceTo(playerPos) < 2.4) {
       this.offered = true;
-      // 제단에 공물 5개 놓임 + 빛
-      const l = new THREE.PointLight(0xfff0c8, 2.2, 9, 2);
-      l.position.copy(this.altar).add(new THREE.Vector3(0, 1.0, -0.6));
-      this.scene.add(l); this.altarGlow = l;
+      // 제단에 공물 5개 놓임 + 빛 (상주 라이트 점등)
+      if (this.altarGlow) this.altarGlow.intensity = 2.2;
       let i = 0;
       for (const o of this.offerings) {
         const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.1, 2), new THREE.MeshStandardMaterial({ color: o.color, emissive: new THREE.Color(o.color), emissiveIntensity: 1.5 }));
@@ -196,7 +211,7 @@ export class Rules {
     this.glowMats.length = 0;
     this.collected.clear();
     this.offered = false; this.escaped = false;
-    if (this.altarGlow) { this.altarGlow.removeFromParent(); this.altarGlow = null; }
+    if (this.altarGlow) this.altarGlow.intensity = 0; // 상주 — 끄기만
     for (const o of this.offerings) this.spawnPickup(o);
     // 게이트 복구
     if (this.gate) { this.gate.removeFromParent(); this.gate = null; this.buildGate(); }

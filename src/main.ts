@@ -495,11 +495,43 @@ async function main() {
 
   // --- 로딩 완료 → 시작 대기 → 진입 연출 ---
   setProgress(1);
+  // 셰이더 사전 컴파일: 초칭 끔/약/강은 라이트 상태가 달라 셰이더 변형이 따로 컴파일된다.
+  // 화면에 보인 재질만 컴파일되는 렌더 프리워밍으로는 부족해서(다른 곳에서 첫 끔 = 400 ms+ 히치),
+  // compileAsync 로 **씬 전체 재질 × 3상태**를 로딩 화면 중에 끝내둔다.
+  if (chochin) {
+    loadingPct.textContent = '그림자를 준비하는 중…';
+    // compileAsync 는 **그 카메라에 보이는 것만** 컴파일한다. 스폰 시야 밖의 재질
+    // (요괴·먼 소품)이 빠져서 나중에 히치가 났다 → 컴파일 동안 대상들을 카메라 앞에 세워 둔다.
+    const stash: { obj: THREE.Object3D; pos: THREE.Vector3 }[] = [];
+    const front = camera.position.clone().add(new THREE.Vector3(0, 0, -6).applyQuaternion(camera.quaternion));
+    for (const h of hunters) stash.push({ obj: h.root, pos: h.root.position.clone() });
+    if (dorotabo) stash.push({ obj: dorotabo.root, pos: dorotabo.root.position.clone() });
+    stash.forEach((s2, i) => s2.obj.position.set(front.x + (i - 1) * 2.2, front.y, front.z));
+    // compileAsync 만으로는 그림자 유무 변형까지 못 잡는다(실측: 첫 끔에서 그림자 받는 재질 28개
+    // 재컴파일 → 300~900 ms). 세 상태를 **실제로 한 프레임씩 렌더**해 확실히 굽는다.
+    for (const lv of [2, 1, 0, 2, 1, 0]) {
+      chochin.setLevel(lv);
+      try { await renderer.compileAsync(scene, camera); } catch { /* 구형 브라우저 폴백 */ }
+      postfx.composer.render(1 / 60);
+      await new Promise((r) => setTimeout(r, 0)); // 프레임 양보 — 로딩 화면이 멈춘 것처럼 보이지 않게
+    }
+    for (const s2 of stash) s2.obj.position.copy(s2.pos);
+    chochin.setLevel(2);
+  }
   loadingPct.textContent = totalItems ? `${loadedItems}/${totalItems} 로드 완료` : '준비 완료';
   startBtn.hidden = false;
   let started = false;
+  // 셰이더 프리워밍: 초칭 끔/약/강은 각각 다른 셰이더 변형이라 첫 전환 때 한 번 컴파일된다
+  // (실측: 플레이 중 첫 Q 끔 = 120~1,000 ms 히치). 인트로 동안 세 상태를 한 프레임씩
+  // 렌더해 미리 컴파일해 둔다 — 등불이 살짝 깜빡이는 정도라 연출로도 자연스럽다.
+  // 인트로(3.4 s 시네마틱) 동안 초칭 세 상태를 실제 카메라로 한 프레임씩 렌더한다.
+  // 로딩 중 compileAsync 로도 안 잡히는 재질이 남는데(프러스텀 밖), 인트로는 카메라가 크게 훑고
+  // 지나가므로 여기서 마저 구워진다 — 남는 히치가 있어도 연출 중이라 보이지 않는다.
+  const PREWARM_SEQ = [0, 1, 2, 0, 1, 2, 0, 2];
+  let prewarmFrame = -1;
   const start = () => {
     if (started) return; started = true;
+    prewarmFrame = chochin ? 0 : -1;
     sfx.unlock();
     if (isVillage) sfx.startNight();
     loadingEl.classList.add('hidden');
@@ -686,6 +718,11 @@ async function main() {
     sky.follow(shadowTarget, dt);
     physics.updateDebug(scene, settings.render.showColliders);
 
+    if (prewarmFrame >= 0 && prewarmFrame < PREWARM_SEQ.length && chochin) {
+      chochin.setLevel(PREWARM_SEQ[prewarmFrame]!);
+      prewarmFrame++;
+      if (prewarmFrame >= PREWARM_SEQ.length) chochin.setLevel(settings.chochin.level || 2);
+    }
     if (render) postfx.composer.render(dt);
     input.endFrame();
 
