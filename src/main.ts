@@ -18,6 +18,7 @@ import { CharacterController } from '@/character/controller';
 import { PlaceholderCharacter } from '@/character/placeholder';
 import { CharacterModel } from '@/character/model';
 import { CharacterAnimator } from '@/character/animator';
+import { CrouchPose } from '@/character/crouchPose';
 import { Sfx, type Surface } from '@/audio/sfx';
 import { CHARACTER } from '@/character/config';
 import { ThirdPersonCamera } from '@/camera/thirdPerson';
@@ -172,9 +173,13 @@ async function main() {
 
   // --- 초칭(왼손 등불) — 마을의 유일한 그림자 광원 ---
   let chochin: Chochin | null = null;
+  let crouchPose: CrouchPose | null = null;
   if (isVillage && model) {
     chochin = new Chochin(model.root, quality.shadowMap >= 3072 ? 1024 : 512);
     console.info('[chochin] level', chochin.level);
+    crouchPose = new CrouchPose(model);
+    const mdl = model;
+    mdl.postPose = (pdt) => crouchPose!.apply(pdt, controller.yaw, controller.horizontalSpeed);
   }
 
   // --- 요괴 (H2: 팔척귀신 + 여우 요괴) ---
@@ -658,8 +663,8 @@ async function main() {
       model.headPitchTarget = 0;
     }
     actions?.update(dt, surfaceAt);
-    // 웅크림 자세: 본 레벨(등 굽힘+무릎)로 실제 자세를 만든다 + 카메라 피벗 낮춤
-    if (isVillage && model) model.crouch = crouching ? 1 : 0;
+    // 웅크림 자세(CrouchPose, postPose 훅) + 카메라 피벗 낮춤
+    crouchPose?.setTarget(crouching ? 1 : 0);
     if (isVillage) tpCam.pivotDrop = crouching ? 0.5 : 0;
     visual.update(dt, controller);
     chochin?.update(dt, controller.yaw, controller.horizontalSpeed);
