@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import { Props } from '@/world/props';
 import type { Landmarks } from './landmarks';
 import type { MatsuriSquare } from './matsuri';
+import type { House } from './house';
 import type { Chochin } from '@/light/chochin';
 import type { Sfx } from '@/audio/sfx';
+import type { Senses } from '@/ai/senses';
 
 /**
  * 연출형 요괴 — 추격 AI 없이 1회성/상시 스크립트로 공포를 만든다.
@@ -23,13 +25,30 @@ export class Scares {
   private eyeT = 0;
   private eyeCooldown = 25;
   private tmp = new THREE.Vector3();
+  // 야구라 북
+  private drumT = 30;
+  private drumPanner: PannerNode | null = null;
+  // 이로리 불씨
+  private emberLight: THREE.PointLight | null = null;
+  private emberMat: THREE.MeshStandardMaterial | null = null;
+  private emberT = 0;
+  private emberFlared = false;
+  private emberFlare = 0;
+  // 로쿠로쿠비
+  private rokuro: THREE.Group | null = null;
+  private rokuroNeck: THREE.Mesh | null = null;
+  private rokuroState: 'waiting' | 'playing' | 'done' = 'waiting';
+  private rokuroT = 0;
+  private rokuroLight: THREE.PointLight | null = null;
 
   constructor(
     private scene: THREE.Scene,
     private landmarks: Landmarks,
     private square: MatsuriSquare,
+    private house: House,
     private chochin: Chochin | null,
     private sfx: Sfx,
+    private senses: Senses | null,
   ) {}
 
   async load() {
@@ -82,6 +101,56 @@ export class Scares {
     }
   }
 
+  /** 이로리 불씨 + 로쿠로쿠비 실루엣 준비 (지오메트리 전용 — load 와 별개로 동기) */
+  setupHouse() {
+    // --- 이로리 불씨: 꺼진 지 오래여야 할 화덕에 잉걸불이 살아 있다 ---
+    const coals = new THREE.Group();
+    this.emberMat = new THREE.MeshStandardMaterial({ color: 0x1a0c08, emissive: new THREE.Color(0xff5a1e), emissiveIntensity: 0.5, roughness: 0.9 });
+    const rng = () => Math.random();
+    for (let i = 0; i < 7; i++) {
+      const c = new THREE.Mesh(new THREE.IcosahedronGeometry(0.035 + rng() * 0.03, 0), this.emberMat);
+      c.position.set((rng() - 0.5) * 0.5, 0.02, (rng() - 0.5) * 0.5);
+      c.rotation.set(rng() * 3, rng() * 3, 0);
+      coals.add(c);
+    }
+    coals.position.copy(this.house.irori);
+    this.scene.add(coals);
+    this.emberLight = new THREE.PointLight(0xff6a22, 0.5, 3.5, 2);
+    this.emberLight.position.copy(this.house.irori).add(this.tmp.set(0, 0.25, 0));
+    this.emberLight.castShadow = false;
+    this.scene.add(this.emberLight);
+
+    // --- 로쿠로쿠비: 정면 장지문 **안쪽**에 붙은 검은 실루엣. 종이의 반투명이 실루엣을 만든다 ---
+    const tex = makeSilhouetteTexture();
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, color: 0x05050a, depthWrite: false });
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 1.3), mat);
+    body.position.y = -0.5;
+    const neck = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 1.0), mat.clone());
+    (neck.material as THREE.MeshBasicMaterial).map = makeNeckTexture();
+    neck.position.y = 0.12; // 어깨 위 — scale.y 로 늘어난다
+    neck.geometry.translate(0, 0.5, 0); // 아래 기준 스케일
+    const head = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.42), mat.clone());
+    (head.material as THREE.MeshBasicMaterial).map = makeHeadTexture();
+    head.position.y = 0.7;
+    g.add(body, neck, head);
+    // 장지문 안쪽 0.12 m, 문 정면을 등지고
+    g.position.copy(this.house.frontShoji).addScaledVector(this.house.frontNormal, -0.12);
+    g.position.y = this.house.frontShoji.y - 0.35;
+    g.lookAt(g.position.clone().add(this.house.frontNormal));
+    g.visible = false;
+    this.scene.add(g);
+    this.rokuro = g;
+    this.rokuroNeck = neck;
+    this.rokuroHead = head;
+    // 백라이트: 실루엣 뒤(집 안) 등불 — 켜지면 장지문이 밝아지며 그림자가 뜬다
+    this.rokuroLight = new THREE.PointLight(0xffb060, 0, 6, 2);
+    this.rokuroLight.position.copy(this.house.frontShoji).addScaledVector(this.house.frontNormal, -1.6);
+    this.rokuroLight.castShadow = false;
+    this.scene.add(this.rokuroLight);
+  }
+  private rokuroHead: THREE.Mesh | null = null;
+
   /**
    * @param playerPos   플레이어 위치
    * @param camera      시야 판정용
@@ -91,6 +160,114 @@ export class Scares {
     this.updateJizo(dt, camera);
     this.updateNoppera(dt, playerPos, camera);
     this.updateEye(dt, threat);
+    this.updateDrum(dt, playerPos);
+    this.updateEmbers(dt, playerPos);
+    this.updateRokuro(dt, playerPos);
+  }
+
+  // ---- 야구라 북: 아무도 없는 망루에서 북이 저절로 울린다 — 소음 이벤트라 요괴가 광장으로 모인다 ----
+  private updateDrum(dt: number, playerPos: THREE.Vector3) {
+    this.drumT -= dt;
+    if (this.drumT > 0) return;
+    const dist = this.square.drumPos.distanceTo(playerPos);
+    if (dist > 55) { this.drumT = 10; return; } // 너무 멀면 미룸
+    this.drumT = 50 + Math.random() * 45;
+    const ctx = this.sfx.context, master = this.sfx.masterGain;
+    if (ctx && master && ctx.state === 'running') {
+      if (!this.drumPanner) {
+        this.drumPanner = ctx.createPanner();
+        this.drumPanner.panningModel = 'HRTF';
+        this.drumPanner.distanceModel = 'exponential';
+        this.drumPanner.refDistance = 6;
+        this.drumPanner.rolloffFactor = 1.1;
+        this.drumPanner.connect(master);
+      }
+      const p = this.drumPanner;
+      p.positionX.value = this.square.drumPos.x; p.positionY.value = this.square.drumPos.y; p.positionZ.value = this.square.drumPos.z;
+      const beats = 2 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < beats; i++) {
+        const t = ctx.currentTime + i * (0.55 + Math.random() * 0.1);
+        const o = ctx.createOscillator(); o.type = 'sine';
+        o.frequency.setValueAtTime(64, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.35);
+        const e = ctx.createGain();
+        e.gain.setValueAtTime(0.0001, t); e.gain.exponentialRampToValueAtTime(1.1, t + 0.008); e.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+        o.connect(e).connect(p); o.start(t); o.stop(t + 0.75);
+      }
+    }
+    // 요괴가 듣는 소음 — 플레이어 발소리보다 크고 멀리 (광장으로 유인되는 위험/기회)
+    this.senses?.emitNoise(this.square.drumPos, 30, 1.4);
+  }
+
+  // ---- 이로리 불씨: 평소엔 약하게 숨쉬고, 처음 다가가면 확 살아난다 ----
+  private updateEmbers(dt: number, playerPos: THREE.Vector3) {
+    if (!this.emberLight || !this.emberMat) return;
+    this.emberT += dt;
+    const dist = this.house.irori.distanceTo(playerPos);
+    if (!this.emberFlared && dist < 2.6) {
+      this.emberFlared = true;
+      this.emberFlare = 2.2;
+      // 타닥 — 불씨 튀는 소리 (컨텍스트 직접, sfx.ts 는 사운드 세션 영역)
+      const ctx = this.sfx.context, master = this.sfx.masterGain;
+      if (ctx && master && ctx.state === 'running') {
+        for (let i = 0; i < 6; i++) {
+          const t = ctx.currentTime + Math.random() * 0.9;
+          const o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = 2400 + Math.random() * 2200;
+          const e = ctx.createGain();
+          e.gain.setValueAtTime(0.0001, t); e.gain.exponentialRampToValueAtTime(0.12, t + 0.002); e.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
+          o.connect(e).connect(master); o.start(t); o.stop(t + 0.05);
+        }
+      }
+    }
+    if (this.emberFlare > 0) this.emberFlare -= dt;
+    const breathe = 0.5 + 0.5 * Math.sin(this.emberT * 1.1) * Math.sin(this.emberT * 2.7);
+    const flare = Math.max(0, this.emberFlare / 2.2);
+    this.emberLight.intensity = 0.35 + breathe * 0.3 + flare * 2.2;
+    this.emberMat.emissiveIntensity = 0.35 + breathe * 0.3 + flare * 1.8;
+  }
+
+  // ---- 로쿠로쿠비: 장지문 뒤 실루엣의 목이 천장으로 늘어난다. 1회성 ----
+  private updateRokuro(dt: number, playerPos: THREE.Vector3) {
+    if (!this.rokuro || !this.rokuroNeck || this.rokuroState === 'done') return;
+    if (this.rokuroState === 'waiting') {
+      // 집 밖 + 정면 8 m 이내 + 실내가 아닐 때
+      this.tmp.copy(playerPos).sub(this.house.frontShoji);
+      const outside = this.tmp.dot(this.house.frontNormal) > 0.5;
+      if (outside && this.tmp.length() < 8 && !this.house.contains(playerPos)) {
+        this.rokuroState = 'playing';
+        this.rokuroT = 0;
+        this.rokuro.visible = true;
+        // 낮은 삐걱 — 목이 늘어나는 소리
+        const ctx = this.sfx.context, master = this.sfx.masterGain;
+        if (ctx && master && ctx.state === 'running') {
+          const t0 = ctx.currentTime;
+          const o = ctx.createOscillator(); o.type = 'sawtooth';
+          o.frequency.setValueAtTime(180, t0); o.frequency.exponentialRampToValueAtTime(420, t0 + 3.2);
+          const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 500; bp.Q.value = 9;
+          const e = ctx.createGain();
+          e.gain.setValueAtTime(0.0001, t0); e.gain.exponentialRampToValueAtTime(0.16, t0 + 0.6);
+          e.gain.setValueAtTime(0.16, t0 + 2.8); e.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.6);
+          o.connect(bp).connect(e).connect(master); o.start(t0); o.stop(t0 + 3.7);
+        }
+      }
+      return;
+    }
+    // playing: 1 s 페이드인 → 3 s 목 늘어남(머리가 따라 올라감) → 0.6 s 뒤 소멸
+    this.rokuroT += dt;
+    const t = this.rokuroT;
+    const fade = THREE.MathUtils.smoothstep(t, 0, 1) * (t > 4.4 ? Math.max(0, 1 - (t - 4.4) / 0.5) : 1);
+    for (const c of this.rokuro.children) {
+      const m = (c as THREE.Mesh).material as THREE.MeshBasicMaterial;
+      m.opacity = fade * 0.92;
+    }
+    const stretch = 1 + THREE.MathUtils.smoothstep(t, 1.0, 4.0) * 0.95; // 목 1 → 1.95배 (머리가 장지문 안에 머문다)
+    this.rokuroNeck.scale.y = stretch;
+    if (this.rokuroHead) this.rokuroHead.position.y = 0.7 + (stretch - 1) * 0.98;
+    if (this.rokuroLight) this.rokuroLight.intensity = fade * 2.6; // 안쪽 등불이 함께 살아난다
+    if (t > 5.0) {
+      this.rokuro.visible = false;
+      if (this.rokuroLight) this.rokuroLight.intensity = 0; // 불이 뚝 꺼진다
+      this.rokuroState = 'done';
+    }
   }
 
   // ---- 1) 움직이는 지장 ----
@@ -163,4 +340,43 @@ export class Scares {
       this.sfx.eyeOpen();
     }
   }
+}
+
+
+// --- 로쿠로쿠비 실루엣 텍스처 (캔버스 알파) ---
+function silhouetteCanvas(w: number, h: number, draw: (c: CanvasRenderingContext2D) => void) {
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const c = cv.getContext('2d')!;
+  c.fillStyle = '#000';
+  draw(c);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** 어깨·상체 (치켜올라간 좁은 어깨) */
+function makeSilhouetteTexture() {
+  return silhouetteCanvas(128, 160, (c) => {
+    c.beginPath();
+    c.moveTo(24, 160); c.lineTo(20, 70); c.quadraticCurveTo(28, 34, 56, 30);
+    c.lineTo(72, 30); c.quadraticCurveTo(100, 34, 108, 70); c.lineTo(104, 160);
+    c.closePath(); c.fill();
+  });
+}
+/** 목 — 세로로 스케일해도 티가 안 나게 상하 균일 */
+function makeNeckTexture() {
+  return silhouetteCanvas(32, 128, (c) => {
+    c.fillRect(8, 0, 16, 128);
+  });
+}
+/** 머리 — 흐트러진 머리채가 아래로 */
+function makeHeadTexture() {
+  return silhouetteCanvas(96, 128, (c) => {
+    c.beginPath(); c.ellipse(48, 44, 30, 36, 0, 0, Math.PI * 2); c.fill();
+    for (let i = 0; i < 7; i++) {
+      const x = 20 + i * 9;
+      c.fillRect(x, 60, 4, 30 + Math.sin(i * 2.7) * 14);
+    }
+  });
 }

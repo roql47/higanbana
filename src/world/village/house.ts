@@ -41,6 +41,11 @@ export class House {
   readonly entrance = new THREE.Vector3();
   /** 장지문 패널들 — H4 에서 실루엣 연출에 쓴다 */
   readonly shoji: THREE.Mesh[] = [];
+  /** 이로리 화덕 중심(월드) — 불씨 연출용 */
+  readonly irori = new THREE.Vector3();
+  /** 정면 장지문 중앙(월드)과 바깥쪽 법선 — 로쿠로쿠비 실루엣용 */
+  readonly frontShoji = new THREE.Vector3();
+  readonly frontNormal = new THREE.Vector3();
   private worldBox = new THREE.Box3();
   private inv = new THREE.Matrix4();
   private tmp = new THREE.Vector3();
@@ -146,6 +151,7 @@ export class House {
     // ---------- 이로리(囲炉裏) — 큰 방의 랜드마크 ----------
     {
       const cx = (DOMA_X + ROOM_SPLIT) / 2, cz = (CORR_Z + CLOSET_Z) / 2;
+      this.irori.set(cx, FLOOR + 0.1, cz).applyQuaternion(q).add(origin);
       const S = 1.5; // 화덕 틀 한 변
       // 나무 틀 4변
       for (const [dx, dz, w, dep] of [[0, -S/2, S + 0.24, 0.24], [0, S/2, S + 0.24, 0.24], [-S/2, 0, 0.24, S - 0.24], [S/2, 0, 0.24, S - 0.24]] as [number, number, number, number][]) {
@@ -209,6 +215,9 @@ export class House {
     );
     // 현관 앞 (로컬 −Z 방향 2 m)
     this.entrance.set(X0 + 1.75, 0, Z0 - 2.0).applyQuaternion(q).add(opts.position);
+    // 정면 장지문 중앙(마루 쪽 개구부의 한가운데) + 바깥 법선
+    this.frontShoji.set((DOMA_X + X1) / 2, FLOOR + CEIL / 2, Z0).applyQuaternion(q).add(opts.position);
+    this.frontNormal.set(0, 0, -1).applyQuaternion(q).normalize();
 
     scene.add(this.group);
   }

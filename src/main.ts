@@ -240,7 +240,8 @@ async function main() {
   // --- 연출형 요괴: 움직이는 지장 · 놋페라보 · 초칭오바케 ---
   let scares: Scares | null = null;
   if (village) {
-    scares = new Scares(scene, village.landmarks, village.square, chochin, sfx);
+    scares = new Scares(scene, village.landmarks, village.square, village.house, chochin, sfx, senses);
+    scares.setupHouse();
     // await — void 로 두면 setProgress(1) 뒤에 DefaultLoadingManager.onProgress 가 다시 불려 로딩 바가 95% 로 되돌아간다
     await scares.load().catch((e) => console.warn('[scares]', e));
   }
