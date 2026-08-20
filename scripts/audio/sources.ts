@@ -79,6 +79,10 @@ const OGA_FOOTSTEPS_PAGE = 'https://opengameart.org/content/footsteps-on-differe
 
 const CC0 = 'CC0 1.0';
 
+/** OpenGameArt 파일 서버 */
+const OGA = 'https://opengameart.org/sites/default/files';
+const ogaPage = (slug: string) => `https://opengameart.org/content/${slug}`;
+
 export const SOUNDS: SoundDef[] = [
   // ───────────────────────── 발소리 (플레이어) ─────────────────────────
   {
@@ -275,21 +279,48 @@ export const SOUNDS: SoundDef[] = [
 
   // ───────────────────────── 요괴·심장 ─────────────────────────
   {
-    key: 'yokai/po', kind: 'oneshot', gain: 0.9, note: '팔척귀신 "뽀… 뽀… 뽀…" — 여성 허밍 단음',
+    // 이 게임에서 가장 중요한 소리 — 음악이 끊기고 이것만 남는 순간이 발각 신호다(기획 3.3).
+    // 실제 여성 허밍 녹음(66 s)에서 지속음 구간만 8토막 내고 rate 0.88 로 낮춰 "사람이 아닌 것" 쪽으로 민다
+    key: 'yokai/po', kind: 'oneshot', gain: 0.9, max: 8, note: '팔척귀신 "뽀… 뽀… 뽀…" — 여성 허밍 단음',
     sources: [
+      { provider: 'url', url: `${OGA}/ghostly_humming.ogg`, license: CC0, author: 'Nocturnal_Vanguard (AuraVoice)', source: ogaPage('ghostly-humming'), title: 'Ghostly Humming',
+        // 한 음절 0.53 s(rate 0.88 → 0.60 s). 길면 0.95 s 간격에도 꼬리가 겹쳐 "이어진 허밍" 이 되고
+        // "뽀… 뽀… 뽀…" 의 끊어짐이 사라진다 — 음절 사이에 0.35 s 정적이 남도록 맞췄다
+        slices: [[1.30, 1.83], [2.90, 3.43], [6.10, 6.63], [12.00, 12.53], [20.20, 20.73], [27.00, 27.53], [34.10, 34.63], [42.00, 42.53]],
+        rate: 0.88, hp: 90, fadeIn: 0.05, fadeOut: 0.22 },
       { provider: 'freesound', query: 'female voice hum short single note', filter: 'tag:voice', pick: 3, minDur: 0.3, maxDur: 2 },
     ],
   },
   {
-    key: 'yokai/wail', kind: 'oneshot', gain: 0.9, note: '도로타보 울부짖음 ("논 돌려내라")',
+    key: 'yokai/wail', kind: 'oneshot', gain: 0.9, note: '도로타보 울부짖음 ("논 돌려내라") — 낮은 신음 5종',
     sources: [
+      { provider: 'zip', url: `${OGA}/qubodup-GhostMoans.zip`, files: ['qubodup-GhostMoans/wav/*.wav'], license: CC0, author: 'qubodup', source: ogaPage('ghost-monster-voice-moaning-growling'), title: 'Ghost Monster Voice Moaning & Growling',
+        // 원본이 최대 6.3 s 인데 울음 간격이 3.2~4.6 s 라 그대로 두면 다음 울음과 겹쳐 뭉갠다 → 3.4 s 로 자른다
+        rate: 0.9, hp: 55, trim: [0, 3.4], fadeOut: 0.6 },
       { provider: 'freesound', query: 'monster groan low moan', pick: 3, minDur: 0.8, maxDur: 4 },
     ],
   },
   {
+    // 진흙 실녹음("진흙에서 소리를 내봤다")을 rate 0.72 로 늘려 큰 덩어리가 솟는 무게를 준다
     key: 'yokai/mud', kind: 'oneshot', gain: 0.9, note: '도로타보 — 진흙이 갈라지며 솟는 소리',
     sources: [
+      { provider: 'zip', url: `${OGA}/25-CC0-mud-sfx.zip`, files: ['mud_02.ogg', 'mud_03.ogg', 'mud_04.ogg', 'mud_07.ogg', 'mud_17.ogg', 'mud_18.ogg', 'mud_19.ogg', 'mud_20.ogg'], license: CC0, author: 'rubberduck', source: ogaPage('25-cc0-mud-sfx'), title: '25 CC0 mud sfx',
+        rate: 0.72, fadeOut: 0.12 },
       { provider: 'freesound', query: 'mud squelch thick', filter: 'tag:mud', pick: 3, minDur: 0.5, maxDur: 4 },
+    ],
+  },
+  {
+    // 놋페라보가 돌아보는 순간의 "숨" — 원본이 사람 숨을 25% 속도로 늘린 것이라 그대로 비인간적이다
+    key: 'yokai/breath', kind: 'oneshot', gain: 0.7, note: '놋페라보가 돌아본다 — 느려진 숨 (합성 저음 현 위에 얹는다)',
+    sources: [
+      { provider: 'url', url: `${OGA}/ghostbreath.flac`, license: CC0, author: 'qubodup', source: ogaPage('ghost-breath'), title: 'Ghost breath', trim: [0.55, 2.95], hp: 200, fadeIn: 0.1, fadeOut: 0.5 },
+    ],
+  },
+  {
+    // 초칭오바케가 눈을 뜬다 — 젖은 진흙 소리를 빠르게(rate 1.7) 재생하면 축축한 눈꺼풀이 된다
+    key: 'yokai/eye', kind: 'oneshot', gain: 0.6, note: '초칭오바케 눈 뜸 — 젖은 눈꺼풀',
+    sources: [
+      { provider: 'zip', url: `${OGA}/25-CC0-mud-sfx.zip`, files: ['mud_06.ogg', 'mud_09.ogg', 'mud_12.ogg', 'mud_21.ogg'], license: CC0, author: 'rubberduck', source: ogaPage('25-cc0-mud-sfx'), title: '25 CC0 mud sfx', rate: 1.7, hp: 700, fadeOut: 0.05 },
     ],
   },
   {

@@ -379,7 +379,10 @@ export class Sfx {
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.55, t0 + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.1);
     o.connect(lp).connect(g).connect(this.master!); o.start(t0); o.stop(t0 + 1.2);
-    this.noiseBurst({ dur: 0.35, gain: 0.25, type: 'bandpass', freq: 1800, q: 0.8, attack: 0.05 });
+    // 위에 얹는 숨: 샘플(사람 숨을 25% 속도로 늘린 것)이 있으면 그것을, 없으면 옷자락 노이즈
+    if (!this.bank.play('yokai/breath', { gain: 0.9, rate: 0.95 + Math.random() * 0.1 })) {
+      this.noiseBurst({ dur: 0.35, gain: 0.25, type: 'bandpass', freq: 1800, q: 0.8, attack: 0.05 });
+    }
   }
   /** 놋페라보 소멸: 짧은 역재생 느낌의 고역 슬라이드 */
   nopperaVanish() {
@@ -388,7 +391,10 @@ export class Sfx {
   /** 초칭오바케 눈 뜸: 젖은 눈 깜빡임 — 아주 짧은 고역 틱 두 번 */
   eyeOpen() {
     if (!this.ready()) return;
-    this.noiseBurst({ dur: 0.04, gain: 0.5, type: 'highpass', freq: 4000, attack: 0.002 });
+    // 눈꺼풀이 열리는 축축한 소리 — 샘플 우선. 뒤따르는 하강 사인이 "눈" 의 성격을 만든다
+    if (!this.bank.play('yokai/eye', { gain: 0.9, rate: 0.95 + Math.random() * 0.12 })) {
+      this.noiseBurst({ dur: 0.04, gain: 0.5, type: 'highpass', freq: 4000, attack: 0.002 });
+    }
     const ctx = this.ctx!, t0 = ctx.currentTime + 0.07;
     const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(1900, t0); o.frequency.exponentialRampToValueAtTime(900, t0 + 0.09);
     const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.3, t0 + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.1);

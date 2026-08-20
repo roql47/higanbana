@@ -30,6 +30,11 @@ CC BY 항목은 배포 시 이 파일(또는 게임 내 크레딧)에 표기를 
 | `hide/cloth` | 은신 들어가고 나올 때 옷자락 | [rpg-audio](https://kenney.nl/assets/rpg-audio) | Kenney (kenney.nl) | CC0 1.0 |
 | `matsuri/bed` | 마츠리바야시 실녹음 — 요괴 위치에서 나는 바탕. 멀면 북만(로우패스), 가까울수록 피리가 뚫고 나온다 | [Drums and flute at Sanja Matsuri.ogg](https://commons.wikimedia.org/wiki/File%3ADrums_and_flute_at_Sanja_Matsuri.ogg) | Torsodog | CC BY 3.0 |
 | `throw/whoosh` | 돌·오미쿠지 던지기 — 가벼운 휘익 | [Swishes Sound Pack (light)](https://opengameart.org/content/swishes-sound-pack) | artisticdude | CC0 1.0 |
+| `yokai/breath` | 놋페라보가 돌아본다 — 느려진 숨 (합성 저음 현 위에 얹는다) | [Ghost breath](https://opengameart.org/content/ghost-breath) | qubodup | CC0 1.0 |
+| `yokai/eye` | 초칭오바케 눈 뜸 — 젖은 눈꺼풀 | [25 CC0 mud sfx](https://opengameart.org/content/25-cc0-mud-sfx) | rubberduck | CC0 1.0 |
+| `yokai/mud` | 도로타보 — 진흙이 갈라지며 솟는 소리 | [25 CC0 mud sfx](https://opengameart.org/content/25-cc0-mud-sfx) | rubberduck | CC0 1.0 |
+| `yokai/po` | 팔척귀신 "뽀… 뽀… 뽀…" — 여성 허밍 단음 | [Ghostly Humming](https://opengameart.org/content/ghostly-humming) | Nocturnal_Vanguard (AuraVoice) | CC0 1.0 |
+| `yokai/wail` | 도로타보 울부짖음 ("논 돌려내라") — 낮은 신음 5종 | [Ghost Monster Voice Moaning & Growling](https://opengameart.org/content/ghost-monster-voice-moaning-growling) | qubodup | CC0 1.0 |
 
 ## 라이선스 링크
 - CC0 1.0: https://creativecommons.org/publicdomain/zero/1.0/

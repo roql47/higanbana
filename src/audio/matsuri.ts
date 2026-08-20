@@ -130,7 +130,8 @@ export class Matsuri {
     if (this.chase) {
       // 추격: 음악 없음. "뽀… 뽀… 뽀…" + 빠른 북
       this.poT -= dt;
-      if (this.poT <= 0) { this.poT = 1.6 + Math.random() * 0.5; this.po(ctx); }
+      // 샘플은 한 묶음(3음절)이 약 2.3 s — 합성음(1.0 s)보다 간격을 벌려야 겹치지 않는다
+      if (this.poT <= 0) { this.poT = (this.sfx.bank.has('yokai/po') ? 3.3 : 1.6) + Math.random() * 0.7; this.po(ctx); }
       this.beatT -= dt;
       if (this.beatT <= 0) { this.beatT = 0.42; this.drum(ctx, 1.0, 72); }
       this.layers.drum.gain.value = 0.9;
@@ -264,7 +265,9 @@ export class Matsuri {
   /** "뽀… 뽀… 뽀…" — 샘플(`yokai/po`) 3연발 또는 여성 험 근사(포먼트 밴드패스). 추격 중 반복 */
   private po(ctx: AudioContext) {
     if (this.sfx.bank.has('yokai/po')) {
-      for (let i = 0; i < 3; i++) this.sfx.bank.play('yokai/po', { gain: 0.9, rate: 0.96 + Math.random() * 0.08, at: i * 0.36, dest: this.layers!.drum, duration: 0.32 });
+      // 한 음절 0.60 s 를 0.95 s 간격으로 — 사이에 정적이 남아야 "뽀… 뽀… 뽀…" 로 들린다.
+      // duration 으로 자르지 않는다 (허밍 중간이 잘리면 딸깍거린다)
+      for (let i = 0; i < 3; i++) this.sfx.bank.play('yokai/po', { gain: 0.85, rate: 0.96 + Math.random() * 0.08, at: i * 0.95, dest: this.layers!.drum });
       return;
     }
     for (let i = 0; i < 3; i++) {

@@ -804,5 +804,186 @@
    "source": "https://kenney.nl/assets/rpg-audio",
    "files": []
   }
+ ],
+ "yokai/po": [
+  {
+   "key": "yokai/po",
+   "provider": "url",
+   "title": "Ghostly Humming",
+   "author": "Nocturnal_Vanguard (AuraVoice)",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/ghostly-humming",
+   "files": []
+  }
+ ],
+ "yokai/wail": [
+  {
+   "key": "yokai/wail",
+   "provider": "zip",
+   "title": "Ghost Monster Voice Moaning & Growling — qubodup-GhostMoan01.wav",
+   "author": "qubodup",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/ghost-monster-voice-moaning-growling",
+   "files": []
+  },
+  {
+   "key": "yokai/wail",
+   "provider": "zip",
+   "title": "Ghost Monster Voice Moaning & Growling — qubodup-GhostMoan02.wav",
+   "author": "qubodup",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/ghost-monster-voice-moaning-growling",
+   "files": []
+  },
+  {
+   "key": "yokai/wail",
+   "provider": "zip",
+   "title": "Ghost Monster Voice Moaning & Growling — qubodup-GhostMoan03.wav",
+   "author": "qubodup",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/ghost-monster-voice-moaning-growling",
+   "files": []
+  },
+  {
+   "key": "yokai/wail",
+   "provider": "zip",
+   "title": "Ghost Monster Voice Moaning & Growling — qubodup-GhostMoan04.wav",
+   "author": "qubodup",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/ghost-monster-voice-moaning-growling",
+   "files": []
+  },
+  {
+   "key": "yokai/wail",
+   "provider": "zip",
+   "title": "Ghost Monster Voice Moaning & Growling — qubodup-GhostMoan05.wav",
+   "author": "qubodup",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/ghost-monster-voice-moaning-growling",
+   "files": []
+  }
+ ],
+ "yokai/mud": [
+  {
+   "key": "yokai/mud",
+   "provider": "zip",
+   "title": "25 CC0 mud sfx — mud_02.ogg",
+   "author": "rubberduck",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/25-cc0-mud-sfx",
+   "files": []
+  },
+  {
+   "key": "yokai/mud",
+   "provider": "zip",
+   "title": "25 CC0 mud sfx — mud_03.ogg",
+   "author": "rubberduck",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/25-cc0-mud-sfx",
+   "files": []
+  },
+  {
+   "key": "yokai/mud",
+   "provider": "zip",
+   "title": "25 CC0 mud sfx — mud_04.ogg",
+   "author": "rubberduck",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/25-cc0-mud-sfx",
+   "files": []
+  },
+  {
+   "key": "yokai/mud",
+   "provider": "zip",
+   "title": "25 CC0 mud sfx — mud_07.ogg",
+   "author": "rubberduck",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/25-cc0-mud-sfx",
+   "files": []
+  },
+  {
+   "key": "yokai/mud",
+   "provider": "zip",
+   "title": "25 CC0 mud sfx — mud_17.ogg",
+   "author": "rubberduck",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/25-cc0-mud-sfx",
+   "files": []
+  },
+  {
+   "key": "yokai/mud",
+   "provider": "zip",
+   "title": "25 CC0 mud sfx — mud_18.ogg",
+   "author": "rubberduck",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/25-cc0-mud-sfx",
+   "files": []
+  },
+  {
+   "key": "yokai/mud",
+   "provider": "zip",
+   "title": "25 CC0 mud sfx — mud_19.ogg",
+   "author": "rubberduck",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/25-cc0-mud-sfx",
+   "files": []
+  },
+  {
+   "key": "yokai/mud",
+   "provider": "zip",
+   "title": "25 CC0 mud sfx — mud_20.ogg",
+   "author": "rubberduck",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/25-cc0-mud-sfx",
+   "files": []
+  }
+ ],
+ "yokai/breath": [
+  {
+   "key": "yokai/breath",
+   "provider": "url",
+   "title": "Ghost breath",
+   "author": "qubodup",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/ghost-breath",
+   "files": []
+  }
+ ],
+ "yokai/eye": [
+  {
+   "key": "yokai/eye",
+   "provider": "zip",
+   "title": "25 CC0 mud sfx — mud_06.ogg",
+   "author": "rubberduck",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/25-cc0-mud-sfx",
+   "files": []
+  },
+  {
+   "key": "yokai/eye",
+   "provider": "zip",
+   "title": "25 CC0 mud sfx — mud_09.ogg",
+   "author": "rubberduck",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/25-cc0-mud-sfx",
+   "files": []
+  },
+  {
+   "key": "yokai/eye",
+   "provider": "zip",
+   "title": "25 CC0 mud sfx — mud_12.ogg",
+   "author": "rubberduck",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/25-cc0-mud-sfx",
+   "files": []
+  },
+  {
+   "key": "yokai/eye",
+   "provider": "zip",
+   "title": "25 CC0 mud sfx — mud_21.ogg",
+   "author": "rubberduck",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/25-cc0-mud-sfx",
+   "files": []
+  }
  ]
 }

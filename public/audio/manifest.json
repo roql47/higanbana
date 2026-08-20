@@ -1,6 +1,6 @@
 {
  "version": 1,
- "generated": "2026-08-19T15:13:36.076Z",
+ "generated": "2026-08-20T11:49:17.605Z",
  "sounds": {
   "amb/bonsho": {
    "files": [
@@ -403,6 +403,103 @@
     0.079,
     0.118,
     0.123
+   ]
+  },
+  "yokai/breath": {
+   "files": [
+    "yokai/breath/0.mp3"
+   ],
+   "gain": 0.7,
+   "loop": false,
+   "license": "CC0 1.0",
+   "durations": [
+    2.4
+   ]
+  },
+  "yokai/eye": {
+   "files": [
+    "yokai/eye/0.mp3",
+    "yokai/eye/1.mp3",
+    "yokai/eye/2.mp3",
+    "yokai/eye/3.mp3"
+   ],
+   "gain": 0.6,
+   "loop": false,
+   "license": "CC0 1.0",
+   "durations": [
+    0.122,
+    0.216,
+    0.233,
+    0.168
+   ]
+  },
+  "yokai/mud": {
+   "files": [
+    "yokai/mud/0.mp3",
+    "yokai/mud/1.mp3",
+    "yokai/mud/2.mp3",
+    "yokai/mud/3.mp3",
+    "yokai/mud/4.mp3",
+    "yokai/mud/5.mp3",
+    "yokai/mud/6.mp3",
+    "yokai/mud/7.mp3"
+   ],
+   "gain": 0.9,
+   "loop": false,
+   "license": "CC0 1.0",
+   "durations": [
+    0.732,
+    0.781,
+    0.835,
+    0.828,
+    0.902,
+    0.628,
+    0.794,
+    0.581
+   ]
+  },
+  "yokai/po": {
+   "files": [
+    "yokai/po/0.mp3",
+    "yokai/po/1.mp3",
+    "yokai/po/2.mp3",
+    "yokai/po/3.mp3",
+    "yokai/po/4.mp3",
+    "yokai/po/5.mp3",
+    "yokai/po/6.mp3",
+    "yokai/po/7.mp3"
+   ],
+   "gain": 0.9,
+   "loop": false,
+   "license": "CC0 1.0",
+   "durations": [
+    0.602,
+    0.602,
+    0.602,
+    0.602,
+    0.602,
+    0.602,
+    0.602,
+    0.602
+   ]
+  },
+  "yokai/wail": {
+   "files": [
+    "yokai/wail/0.mp3",
+    "yokai/wail/1.mp3",
+    "yokai/wail/2.mp3",
+    "yokai/wail/3.mp3",
+    "yokai/wail/4.mp3"
+   ],
+   "gain": 0.9,
+   "loop": false,
+   "license": "CC0 1.0",
+   "durations": [
+    3.297,
+    3.716,
+    3.742,
+    3.665,
+    1.927
    ]
   }
  }

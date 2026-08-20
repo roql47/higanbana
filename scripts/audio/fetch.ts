@@ -91,12 +91,14 @@ async function download(url: string, ext?: string): Promise<string> {
   return file;
 }
 
-function extractZip(zipPath: string): string {
-  const dir = zipPath.replace(/\.[^.]+$/, '') + '.d';
+/** zip 은 unzip, 그 외(7z·tar 등)는 bsdtar(libarchive) 로 푼다 — macOS 기본 bsdtar 가 7z 를 읽는다 */
+function extractZip(archivePath: string): string {
+  const dir = archivePath.replace(/\.[^.]+$/, '') + '.d';
   if (existsSync(dir) && readdirSync(dir).length > 0) return dir;
   mkdirSync(dir, { recursive: true });
-  if (which('unzip')) run('unzip', ['-o', '-q', zipPath, '-d', dir]);
-  else run('bsdtar', ['-xf', zipPath, '-C', dir]);
+  const isZip = /\.zip$/i.test(archivePath);
+  if (isZip && which('unzip')) run('unzip', ['-o', '-q', archivePath, '-d', dir]);
+  else run('bsdtar', ['-xf', archivePath, '-C', dir]);
   return dir;
 }
 
