@@ -1,4 +1,4 @@
-import { makePhoto } from './photo';
+import { makePhoto, modelPhotoFront } from './photo';
 
 /**
  * 가족사진 뷰어 — **이 게임의 열쇠 소품을 다시 여는 창구** (PLAN-STORY P2)
@@ -62,10 +62,16 @@ export class PhotoViewer {
   show(damaged = 1) {
     if (this.drawn !== damaged) {
       const { front, back } = makePhoto({ damaged });
-      // CanvasTexture 의 소스 캔버스를 **DOM 으로 옮기지 않는다** — 같은 노드를 three 가
-      // 텍스처로 물고 있어서, 옮기면 ACT 2 의 사진 프롭이 빈 판이 된다. 픽셀만 베껴 온다
-      // (`toDataURL` 도 되지만 768×512 두 장이 base64 2.3 MB 라 굳이)
-      blit(front.image as HTMLCanvasElement, this.frontEl);
+      /**
+       * 앞면은 **모델에서 딴 원판**을 먼저 쓴다(`captureModelPhoto`).
+       * 인벤 아이콘만 모델로 바꿨더니 「클릭하면 옛날 사진이 나온다」는 리포트가 왔다 —
+       * 가방 속 그림과 펼친 그림이 다른 물건일 수는 없다. 모델이 아직/못 왔으면 캔버스 사진으로 돈다.
+       *
+       * CanvasTexture 의 소스 캔버스를 **DOM 으로 옮기지 않는다** — 같은 노드를 three 가
+       * 텍스처로 물고 있어서, 옮기면 ACT 2 의 사진 프롭이 빈 판이 된다. 픽셀만 베껴 온다
+       * (`toDataURL` 도 되지만 768×512 두 장이 base64 2.3 MB 라 굳이)
+       */
+      blit(modelPhotoFront(damaged) ?? (front.image as HTMLCanvasElement), this.frontEl);
       blit(back.image as HTMLCanvasElement, this.backEl);
       this.drawn = damaged;
     }

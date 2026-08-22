@@ -250,6 +250,133 @@ export function makeFaceBleed(photoWidth: number, z: number, damaged = 1): THREE
   return mesh;
 }
 
+/**
+ * **뷰어용 원판을 모델에서 딴다** — 인벤에서 사진을 열었을 때 나오는 그 그림.
+ *
+ * 아이콘만 모델로 바꿨더니 「클릭하면 옛날 사진이 나온다」는 리포트가 왔다. 당연하다 —
+ * 가방 속 그림과 펼친 그림이 다른 물건일 수는 없다. 뷰어도 같은 모델에서 뜬다.
+ *
+ * **종이 영역은 레이캐스트로 찾는다.** 손가락이 사진 위아래로 감겨 있어서 바운딩으로 자르면
+ * 손이 함께 들어온다. 격자로 훑어 **정확히 두 면**(종이의 앞·뒤)만 뚫리는 칸을 모으면
+ * 그게 가려지지 않은 종이다 — 손가락 앞이면 네 면이 뚫린다.
+ *
+ * 얼룩은 굽지 않고 **따로 들고 있는다**: 원판은 깨끗하게 두고 훼손도별로 얹어 캐시한다.
+ * ACT 30 은 `damaged 0` 으로 같은 원판을 다시 받는다.
+ */
+let modelShot: { canvas: HTMLCanvasElement; face: { x: number; y: number; r: number } } | null = null;
+const modelFronts = new Map<number, HTMLCanvasElement>();
+
+export async function captureModelPhoto(
+  renderer: THREE.WebGLRenderer,
+  url = '/models/props/photo-hands.glb',
+  width = 768,
+): Promise<void> {
+  const gltf = await Props.loader().loadAsync(url);
+  const root = gltf.scene;
+  const scene = new THREE.Scene();
+  scene.add(root);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa2b0, 2.4));
+  const key = new THREE.DirectionalLight(0xffffff, 1.1);
+  key.position.set(0.3, 0.6, 1);
+  scene.add(key);
+  root.updateMatrixWorld(true);
+
+  const box = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3());
+  const c = box.getCenter(new THREE.Vector3());
+  const planeSize = Math.max(size.x, size.y);
+
+  // --- 종이 영역 찾기 (격자 레이캐스트) ---
+  const ray = new THREE.Raycaster();
+  const N = 56;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  const dir = new THREE.Vector3(0, 0, -1);
+  const org = new THREE.Vector3();
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const x = box.min.x + (size.x * (i + 0.5)) / N;
+    const y = box.min.y + (size.y * (j + 0.5)) / N;
+    ray.set(org.set(x, y, box.max.z + size.z), dir);
+    if (ray.intersectObject(root, true).length !== 2) continue;   // 2 = 종이만
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+  }
+  if (!(maxX > minX && maxY > minY)) throw new Error('사진면을 못 찾았다');
+  /**
+   * 안쪽으로 4 % 접는다. 손끝이 사진 **모서리를 조금 물고** 들어오기 때문이다
+   * (실측: 격자 56×56 에서 종이 1706 칸 · 손 142 칸, 종이의 바운딩은 모델 폭의 98 %).
+   * 「종이만 있는 최대 직사각형」도 재 봤는데 손이 가로로 가로질러서 세로 띠(폭 16 %)가 나온다 —
+   * 쓸 수 없다. 바운딩을 조금 접는 쪽이 사진을 온전히 남기면서 손끝만 자른다.
+   */
+  const insetX = (maxX - minX) * 0.04, insetY = (maxY - minY) * 0.04;
+  minX += insetX; maxX -= insetX; minY += insetY; maxY -= insetY;
+
+  // 3:2 로 맞춰 자른다 (뷰어 카드가 그 비율이다). 긴 쪽을 줄여 가운데를 남긴다
+  let rw = maxX - minX, rh = maxY - minY;
+  const rcx = (minX + maxX) / 2, rcy = (minY + maxY) / 2;
+  if (rw / rh > 1.5) rw = rh * 1.5; else rh = rw / 1.5;
+
+  const height = Math.round(width / 1.5);
+  const cam = new THREE.OrthographicCamera(-rw / 2, rw / 2, rh / 2, -rh / 2, 0.01, size.z * 8 + 1);
+  cam.position.set(rcx, rcy, box.max.z + size.z);
+  cam.lookAt(rcx, rcy, box.min.z);
+
+  const rt = new THREE.WebGLRenderTarget(width, height);
+  rt.texture.colorSpace = THREE.SRGBColorSpace;
+  const prevRT = renderer.getRenderTarget();
+  renderer.setRenderTarget(rt);
+  renderer.render(scene, cam);
+  const buf = new Uint8Array(width * height * 4);
+  renderer.readRenderTargetPixels(rt, 0, 0, width, height, buf);
+  renderer.setRenderTarget(prevRT);
+
+  const img = new ImageData(width, height);
+  const row = width * 4;
+  for (let y = 0; y < height; y++) img.data.set(buf.subarray((height - 1 - y) * row, (height - y) * row), y * row);
+  const cv = document.createElement('canvas');
+  cv.width = width; cv.height = height;
+  cv.getContext('2d')!.putImageData(img, 0, 0);
+
+  // 얼룩 자리 — 모델 좌표(FACE)를 이 잘라낸 사각형 기준의 비율로
+  modelShot = {
+    canvas: cv,
+    face: {
+      x: 0.5 + (FACE.right * planeSize + c.x - rcx) / rw,
+      y: 0.5 - (FACE.up * planeSize + c.y - rcy) / rh,
+      r: (FACE.r * planeSize) / rw,
+    },
+  };
+  modelFronts.clear();
+  rt.dispose();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.geometry.dispose();
+    for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+      const std = mat as THREE.MeshStandardMaterial;
+      for (const t of [std.map, std.normalMap, std.roughnessMap, std.metalnessMap]) t?.dispose();
+      std.dispose();
+    }
+  });
+}
+
+/** 모델에서 딴 앞면 (훼손도별). 아직 안 찍었으면 null → 호출부가 캔버스 사진으로 폴백 */
+export function modelPhotoFront(damaged = 1): HTMLCanvasElement | null {
+  if (!modelShot) return null;
+  const hit = modelFronts.get(damaged);
+  if (hit) return hit;
+  const src = modelShot.canvas;
+  const cv = document.createElement('canvas');
+  cv.width = src.width; cv.height = src.height;
+  const ctx = cv.getContext('2d')!;
+  ctx.drawImage(src, 0, 0);
+  if (damaged > 0) {
+    const f = modelShot.face;
+    bleed(ctx, src.width * f.x, src.height * f.y, src.width * f.r, damaged);
+  }
+  modelFronts.set(damaged, cv);
+  return cv;
+}
+
 /** 훼손도별 축소본 캐시 */
 const thumbs = new Map<number, string>();
 
