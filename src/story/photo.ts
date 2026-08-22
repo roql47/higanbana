@@ -213,6 +213,43 @@ const CROP = { zoom: 0.46, lift: 0.08 };
  */
 const FACE = { right: -0.026, up: 0.202, r: 0.040 };
 
+/**
+ * **사진 모델 위에 얹는 물얼룩 데칼** (ACT 2 의 손에 든 사진).
+ *
+ * 모델 텍스처에는 언니의 얼굴이 그대로 남아 있다 — 30 cm 앞에서 그대로 보인다.
+ * 텍스처를 다시 굽는 대신 얼굴 자리에 판 한 장을 띄운다. 좌표는 아이콘과 **같은 상수**(`FACE`)를
+ * 쓰므로 둘이 어긋날 수 없고, ACT 30 은 이 메시를 감추기만 하면 얼굴이 드러난다.
+ *
+ * @param photoWidth 모델의 사진 폭(월드 단위) — `FACE` 는 이 폭에 대한 비율이다
+ * @param z          사진면의 국소 z (레이캐스트로 재서 준다). 여기서 살짝 앞으로 띄운다
+ */
+export function makeFaceBleed(photoWidth: number, z: number, damaged = 1): THREE.Mesh {
+  const PX = 256;          // 캔버스 한 변
+  const R = 62;            // 그 안에서의 얼룩 반지름
+  const CY = 0.34;         // 얼룩 중심의 세로 위치 — 아래는 흘러내린 자국 몫으로 비워 둔다
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = PX;
+  bleed(cv.getContext('2d')!, PX * 0.5, PX * CY, R, damaged);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const rWorld = FACE.r * photoWidth;
+  const size = (PX / R) * rWorld;
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(size, size),
+    // 종이 위의 얼룩이므로 종이와 같은 빛을 받아야 한다 — Basic 으로 두면 붙여 넣은 스티커가 된다.
+    // 모델 알베도를 0.62 로 눌러 놨으므로(`act2.ts`) 여기도 같이 눌러 톤을 맞춘다
+    new THREE.MeshStandardMaterial({
+      map: tex, transparent: true, depthWrite: false, roughness: 0.7, metalness: 0,
+      color: new THREE.Color(0.62, 0.62, 0.62), polygonOffset: true, polygonOffsetFactor: -2,
+    }),
+  );
+  mesh.name = 'face-bleed';
+  mesh.position.set(FACE.right * photoWidth, FACE.up * photoWidth - (0.5 - CY) * size, z + rWorld * 0.06);
+  mesh.renderOrder = 11;    // 사진(10) 바로 위
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
 /** 훼손도별 축소본 캐시 */
 const thumbs = new Map<number, string>();
 

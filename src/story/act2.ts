@@ -4,7 +4,7 @@ import type { FirstPerson } from './firstPerson';
 import type { Bus } from '@/world/bus';
 import type { Sequencer } from './sequencer';
 import type { Sfx } from '@/audio/sfx';
-import { makePhoto } from './photo';
+import { makePhoto, makeFaceBleed } from './photo';
 import { Props } from '@/world/props';
 import type { Phone } from './phone';
 
@@ -241,6 +241,12 @@ const PHOTO_WIDTH = 0.288;
  * 위쪽(언니의 얼굴)이 멀어진다 — 이 ACT 에서 반드시 읽혀야 할 곳이 제일 안 읽혔다.
  */
 const PHOTO_TILT = -0.12;
+/**
+ * 사진 속 **언니의 얼굴** — 사진 폭에 대한 비율(`story/photo.ts` 의 `FACE` 와 같은 값).
+ * 레이를 쏠 지점을 정하는 데만 쓴다. 얼룩 자체의 위치는 `makeFaceBleed` 안에서 같은 상수로 잡힌다.
+ */
+const FACE_X = -0.026;
+const FACE_Y = 0.202;
 
 async function loadPhotoModel(): Promise<THREE.Object3D> {
   // 빌드 산출물은 meshopt 압축이다(`build-props`) — 디코더를 단 로더가 아니면 로드 자체가 실패한다
@@ -269,6 +275,21 @@ async function loadPhotoModel(): Promise<THREE.Object3D> {
       std.metalness = 0;
     }
   });
+
+  /**
+   * **언니의 얼굴을 덮는다.** 이 모델의 텍스처에는 얼굴이 그대로 구워져 있어서,
+   * 30 cm 앞에 들면 아이템 설명(「언니의 얼굴만 물에 번진 것처럼 지워져 있다」)과 정면으로 어긋난다.
+   *
+   * 얼룩판을 **사진면 바로 앞**에 띄운다. 그 깊이는 짐작하지 않고 **레이캐스트로 잰다** —
+   * 손가락이 사진 앞뒤로 감겨 있어서 바운딩만 보면 종이가 아니라 손끝에 붙는다.
+   */
+  g.updateMatrixWorld(true);
+  const width = new THREE.Box3().setFromObject(g).getSize(new THREE.Vector3()).x;
+  const ray = new THREE.Raycaster();
+  ray.set(new THREE.Vector3(FACE_X * width, FACE_Y * width, width), new THREE.Vector3(0, 0, -1));
+  const hit = ray.intersectObject(g, true)[0];
+  if (hit) g.add(makeFaceBleed(width, hit.point.z));
+  else console.warn('[act2] 사진면을 못 찾았다 — 얼룩 생략');
   return g;
 }
 
