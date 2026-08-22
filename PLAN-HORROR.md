@@ -415,7 +415,18 @@ NavGrid + A* · 감각 시스템 · 상태머신 6종 · "뽀뽀뽀" 근접 음�
 
 ### Phase H6 — 배포 ← 완료 (2026-08-19)
 - [x] 저장소: **github.com/roql47/higanbana** (main = 최신, horror = 개발, v0.8 스냅샷은 `c8e93af`). SSH 키 발급·등록(브라우저 자동화)
-- [x] 호스팅: **GitHub Pages** — https://roql47.github.io/higanbana/ · main 푸시 = Actions 자동 배포
+- [x] 호스팅 ① **GitHub Pages** — https://roql47.github.io/higanbana/ · main 푸시 = Actions 자동 배포
+- [x] 호스팅 ② **Cloudflare Pages** — https://higanbana-8vj.pages.dev (프로젝트 `higanbana`, 프로덕션 브랜치 `main`)
+  - ⚠️ **Git 연동이 아니라 직접 업로드다.** 푸시해도 배포되지 않는다 — 빌드 후 아래를 실행해야 올라간다:
+
+    ```
+    npm run build     # base '/' (BASE_PATH 없이)
+    npx wrangler pages deploy dist --project-name=higanbana --branch main --commit-dirty=true
+    ```
+
+  - `--branch main` 이 프로덕션 별칭(`higanbana-8vj.pages.dev`)을 갱신한다. 빼면 프리뷰 URL 만 생긴다
+  - 인증은 이 맥의 wrangler OAuth 토큰(`~/Library/Preferences/.wrangler/config/`). CI 에 옮기려면 API 토큰 필요
+  - 검증(2026-08-22): index 해시 일치 · `/models/sayo.glb` 200(1.89 MB) · `Cache-Control: public, max-age=86400` 단일 값
   - Vercel 은 기존 Hobby 팀이 fair-use 차단 상태여서 보류 (해제되면 저장소 import 만 하면 됨)
   - 하위 경로 대응: vite `base '/higanbana/'` + **DefaultLoadingManager.setURLModifier** 로 코드 전역의 '/models/…' 절대 경로 일괄 리라이트(파일 15곳 무수정) + CHARACTER HEAD fetch·audio manifest(bank.ts 1줄)만 수동
   - 첫 워크플로 실행이 Pages 활성화보다 빨라 실패 → 소스(GitHub Actions) 설정 후 재실행으로 해결
