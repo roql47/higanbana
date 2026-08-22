@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Props } from '@/world/props';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 /**
@@ -104,6 +105,98 @@ export function makePhoto(opts: PhotoOpts = {}): { front: THREE.CanvasTexture; b
 
 /** 로케 원판이 있는가 — 없으면 그려진 폴백이 나온다 */
 export function photoIsShot() { return shot !== null; }
+
+/**
+ * **인벤토리 아이콘을 사진 모델에서 딴다** (`props/photo-hands.glb` — 사진을 쥔 두 손).
+ *
+ * 캔버스로 그린 사진을 줄여 넣어 봤더니 「이전 느낌 그대로」였다(사용자). 그럴 수밖에 —
+ * 가방에 든 것은 도판이 아니라 **손에 쥐는 물건**이고, 그 물건은 이미 모델로 있다.
+ * 정면에서 직교 카메라로 한 컷 찍어 정사각으로 자른다. 배경은 투명이라 슬롯 위에 그대로 얹힌다.
+ *
+ * 정면 축은 **바운딩 박스에서 찾는다** — 가장 얇은 축이 사진의 법선이다. 모델 규약(+Z 앞면)에
+ * 기대지 않는 이유는, 소품이 교체되면 그 규약부터 깨지기 때문이다.
+ */
+export async function photoThumbFromModel(
+  renderer: THREE.WebGLRenderer,
+  url = '/models/props/photo-hands.glb',
+  size = 256,
+  damaged = 1,
+): Promise<string> {
+  const gltf = await Props.loader().loadAsync(url);
+  const root = gltf.scene;
+  const scene = new THREE.Scene();
+  scene.add(root);
+  // 스캔 모델의 알베도는 이미 빛을 물고 있다 — 평평하게 밝히기만 한다
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa2b0, 2.4));
+  const key = new THREE.DirectionalLight(0xffffff, 1.1);
+  key.position.set(0.3, 0.6, 1);
+  scene.add(key);
+
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  const s3 = box.getSize(new THREE.Vector3());
+  const c = box.getCenter(new THREE.Vector3());
+  // 가장 얇은 축 = 사진의 법선. 그 축에서 바라본다
+  const thin = s3.x <= s3.y && s3.x <= s3.z ? 'x' : s3.y <= s3.z ? 'y' : 'z';
+  const dir = new THREE.Vector3(thin === 'x' ? 1 : 0, thin === 'y' ? 1 : 0, thin === 'z' ? 1 : 0);
+  const planeSize = thin === 'x' ? Math.max(s3.y, s3.z) : thin === 'y' ? Math.max(s3.x, s3.z) : Math.max(s3.x, s3.y);
+  /**
+   * 정사각 크롭. 모델 전체를 담으면 아래 4 분의 1 이 **손이 잘린 빈자리**로 남는다(실측) —
+   * 사진이 슬롯을 채우도록 조이고(0.55), 사진 중심이 모델 중심보다 위에 있으므로 살짝 들어 올린다.
+   */
+  const half = planeSize * 0.5 * 0.55;
+  const target = c.clone().add(new THREE.Vector3(0, planeSize * 0.06, 0));
+  const cam = new THREE.OrthographicCamera(-half, half, half, -half, 0.01, planeSize * 8);
+  cam.position.copy(target).addScaledVector(dir, planeSize * 3);
+  cam.up.set(0, 1, 0);
+  if (thin === 'y') cam.up.set(0, 0, -1);   // 위에서 내려다보는 경우의 상단 방향
+  cam.lookAt(target);
+
+  const rt = new THREE.WebGLRenderTarget(size, size);
+  rt.texture.colorSpace = THREE.SRGBColorSpace;
+  const prevRT = renderer.getRenderTarget();
+  const prevAlpha = renderer.getClearAlpha();
+  renderer.setClearAlpha(0);                 // 배경 투명 — 슬롯 색이 비쳐야 한다
+  renderer.setRenderTarget(rt);
+  renderer.clear();
+  renderer.render(scene, cam);
+  const buf = new Uint8Array(size * size * 4);
+  renderer.readRenderTargetPixels(rt, 0, 0, size, size, buf);
+  renderer.setRenderTarget(prevRT);
+  renderer.setClearAlpha(prevAlpha);
+
+  const img = new ImageData(size, size);
+  const row = size * 4;
+  for (let y = 0; y < size; y++) img.data.set(buf.subarray((size - 1 - y) * row, (size - y) * row), y * row);
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  const cctx = cv.getContext('2d')!;
+  cctx.putImageData(img, 0, 0);
+  /**
+   * **얼룩은 여기서 얹는다.** 모델 텍스처에는 언니의 얼굴이 **그대로 남아 있다**(실측) —
+   * 아이템 설명(「언니의 얼굴만 물에 번진 것처럼 지워져 있다」)과 ACT 30 의 복원 연출이
+   * 그 얼굴에 걸려 있으므로, 아이콘에서 지운 채로 내보낸다.
+   * 좌표는 렌더가 고정이라 비율로 박아 둔다(언니 = 왼쪽 큰 쪽, 화면 38 % · 21 %).
+   */
+  if (damaged > 0) bleed(cctx, size * FACE.x, size * FACE.y, size * 0.085, damaged);
+
+  // 정리 — 아이콘 한 장 때문에 1 MB 짜리 메시가 메모리에 남으면 안 된다
+  rt.dispose();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.geometry.dispose();
+    for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+      const std = mat as THREE.MeshStandardMaterial;
+      for (const t of [std.map, std.normalMap, std.roughnessMap, std.metalnessMap]) t?.dispose();
+      std.dispose();
+    }
+  });
+  return cv.toDataURL('image/png');
+}
+
+/** 모델 아이콘 안에서 **언니의 얼굴**이 있는 자리 (렌더가 고정이라 비율 상수로 둔다) */
+const FACE = { x: 0.385, y: 0.215 };
 
 /** 훼손도별 축소본 캐시 */
 const thumbs = new Map<number, string>();

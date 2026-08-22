@@ -59,7 +59,7 @@ import { Sayo } from '@/story/sayo';
 import { Pursuers } from '@/story/pursuers';
 import { Lightning } from '@/world/lightning';
 import { Bus } from '@/world/bus';
-import { preparePhoto, photoThumb } from '@/story/photo';
+import { preparePhoto, photoThumb, photoThumbFromModel } from '@/story/photo';
 import type { Act2 } from '@/story/act2';
 import type { Act1 } from '@/story/act1';
 import { Act3 } from '@/story/act3';
@@ -1000,9 +1000,18 @@ async function main() {
       sayo = null;
       if (isVillage) give('photo');
     }
-    // 가족사진의 인벤토리 아이콘 = **찍은 사진 그 자체**. 이모지(🖼️)로는 「액자 그림」이지
-    // 「가방에 든 그 사진」이 아니다. 촬영이 끝난 지금 완성본을 잘라 넣는다 (`story/photo.ts`)
+    /**
+     * 가족사진의 인벤토리 아이콘 = **손에 쥔 그 물건**.
+     *
+     * ① 먼저 캔버스 사진을 줄여 넣는다 — 즉시 뜨는 폴백.
+     * ② 곧이어 `photo-hands.glb`(사진을 쥔 두 손)를 정면에서 한 컷 찍어 갈아 끼운다.
+     *    이모지(🖼️)도, 캔버스 도판도 「가방에 든 사진」으로는 안 읽혔다(사용자).
+     * 인벤은 열 때마다 다시 그리므로 도중에 바뀌어도 문제없다.
+     */
     try { ITEMS['photo']!.icon = photoThumb(); } catch (e) { console.warn('[photo] 아이콘 생성 실패', e); }
+    void photoThumbFromModel(renderer)
+      .then((url) => { ITEMS['photo']!.icon = url; if (invUI.isOpen) invUI.render(); })
+      .catch((e) => console.warn('[photo] 모델 아이콘 실패 → 캔버스 축소본 유지', e));
   };
   let hintExpired = false;
   startBtn.addEventListener('click', start);
