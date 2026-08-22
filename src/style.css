@@ -138,6 +138,9 @@ body.touch .stats { display: none; }
 .inv-slot.filled { border-color: rgba(232,223,201,0.28); }
 .inv-slot-equip { width: 72px; border-color: rgba(47,92,90,0.9); background: rgba(47,92,90,0.25); font-size: 32px; }
 .inv-icon { filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5)); }
+/* 이미지 아이콘(가족사진) — 슬롯을 꽉 채우되 인물이 잘리지 않게 cover, 모서리는 슬롯을 따라간다 */
+.inv-img { width: 82%; height: 82%; object-fit: cover; border-radius: 3px; box-shadow: 0 2px 6px rgba(0,0,0,0.6); }
+.inv-slot-equip .inv-img { width: 78%; height: 78%; }
 .inv-count { position: absolute; right: 5px; bottom: 3px; font: 11px ui-monospace, Menlo, monospace; opacity: 0.85; }
 .inv-tooltip { position: absolute; z-index: 2; max-width: 240px; padding: 8px 10px; border-radius: 8px; background: rgba(18,17,15,0.95); border: 1px solid rgba(232,223,201,0.2); font-size: 12px; line-height: 1.45; pointer-events: none; }
 .inv-tooltip.hidden { display: none; }
@@ -243,6 +246,10 @@ body.touch .stats { display: none; }
 /* z-index 42 — seq-fade(40) 위. 암전 화면 위에서 말하는 장면이 프롤로그의 핵심이라 자막이 페이드에 묻히면 안 된다 */
 .dialogue { position: fixed; left: 50%; bottom: 13.5vh; transform: translateX(-50%); width: min(760px, 86vw); text-align: center; z-index: 42; pointer-events: none; opacity: 0; transition: opacity 0.25s; }
 .dialogue.show { opacity: 1; }
+/* 폰이 떠 있는 동안(ACT 2·마을) 자막을 **폰 왼쪽으로** 비켜 세운다.
+   폰은 left 57 % 에서 시작하므로, 자막 상자를 30 % 중심 · 최대 50vw 로 줄이면 끝이 폰 앞에서 멈춘다.
+   자막을 위로 올리는 방법도 있지만 폰이 세로로 길어(화면의 45 %) 결국 겹친다. */
+body.phone-up .dialogue { left: 28%; width: min(500px, 46vw); transition: left 0.34s ease, width 0.34s ease; }
 .dialogue .who { font-size: 12px; letter-spacing: 0.3em; text-indent: 0.3em; color: var(--who, rgba(243, 234, 214, 0.6)); margin-bottom: 6px; text-shadow: 0 1px 3px #000; }
 .dialogue .line { font-size: 17px; line-height: 1.65; color: #f3ead6; font-family: "Noto Serif KR", "Apple SD Gothic Neo", serif; text-shadow: 0 1px 3px #000, 0 0 18px rgba(0, 0, 0, 0.8); }
 

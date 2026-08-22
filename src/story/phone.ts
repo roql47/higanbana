@@ -56,19 +56,29 @@ export class Phone {
 
   get visible() { return this.shown; }
 
-  /** 화면을 켜고 올린다 */
+  /**
+   * 화면을 켜고 올린다.
+   *
+   * `body.phone-up` 을 같이 켠다 — **자막이 폰 위를 가로지르기 때문이다.**
+   * 폰은 화면 오른쪽 아래(left 57 %, 세로로 길다)에 서고 자막은 가운데 정렬 86vw 라,
+   * 실측 670×663 창에서 가로 156 px · 세로 49 px 가 겹쳤다. 게다가 폰이 z-index 43 으로
+   * 자막(42) 위에 있어서 **자막 글자가 폰 뒤로 잘려 들어갔다**(사용자 리포트).
+   * 폰이 떠 있는 동안만 자막을 왼쪽으로 비켜 세운다(`style.css` 의 `.phone-up .dialogue`).
+   */
   show(screen: PhoneScreen = 'lock') {
     this.seen = true;
     this.set(screen);
     if (this.shown) return;
     this.shown = true;
     this.root.classList.add('show');
+    document.body.classList.add('phone-up');
   }
 
   hide() {
     if (!this.shown) return;
     this.shown = false;
     this.root.classList.remove('show');
+    document.body.classList.remove('phone-up');
   }
 
   set(screen: PhoneScreen) {
@@ -86,5 +96,5 @@ export class Phone {
     this.root.classList.toggle('failed', screen === 'failed');
   }
 
-  dispose() { this.root.remove(); }
+  dispose() { this.root.remove(); document.body.classList.remove('phone-up'); }
 }

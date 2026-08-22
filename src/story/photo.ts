@@ -27,6 +27,12 @@ const W = 768, H = 512;
 const M = 26;
 /** 사진 속 지면선 — 인물의 발이 여기 선다 */
 const GROUND = M + (H - M * 2) * 0.74;
+/**
+ * 어린 미오의 축소율 — 미오 모델(1.62 m, 열여섯)을 **여섯 살**로 줄인다.
+ * 1.15 / 1.62 ≈ 0.71. 사요(1.49 m) 옆에 세우면 키 비가 0.77 로, 여섯 살과 열두 살의 차이다.
+ * (언니를 미오 모델로 대신하던 시절에는 0.62 였다 — 그때는 옆에 선 것이 1.62 m 였으니까)
+ */
+const YOUNG = 0.71;
 /** 인물 목표 크기(px)와 가로 위치(0..1) */
 const SAYO = { h: 244, x: 0.575 };
 const MIO = { h: 158, x: 0.40 };
@@ -46,8 +52,24 @@ export interface PhotoModel {
   height: number;
 }
 
+/**
+ * 사진 속 **언니** — 사요의 3D 모델(`story/sayo.ts`).
+ *
+ * 예전에는 미오 모델을 두 번 렌더해서 언니 자리에 세웠다(「자매가 닮았다」는 핑계였지만,
+ * 사실은 사요 모델이 없었다). 2026-08-22 에 사요가 생겼으니 언니는 언니로 찍는다 —
+ * ACT 30 에서 얼룩이 걷히며 드러나는 얼굴도 그때부터 **사요의 얼굴**이 된다.
+ */
+export interface PhotoSister {
+  root: THREE.Object3D;
+  height: number;
+  /** 클립의 한 프레임으로 세운다 */
+  pose(name: string, t: number): void;
+}
+
 export interface PhotoContext {
   model: PhotoModel;
+  /** 있으면 언니를 이 모델로 찍는다. 없으면 예전처럼 미오 모델을 두 번 쓴다 */
+  sister?: PhotoSister | null;
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   village: { ground: { roadAt(s: number): { x: number; z: number; dirX: number; dirZ: number }; heightAt(x: number, z: number): number }; toriiS0: number };
@@ -83,6 +105,31 @@ export function makePhoto(opts: PhotoOpts = {}): { front: THREE.CanvasTexture; b
 /** 로케 원판이 있는가 — 없으면 그려진 폴백이 나온다 */
 export function photoIsShot() { return shot !== null; }
 
+/** 훼손도별 축소본 캐시 */
+const thumbs = new Map<number, string>();
+
+/**
+ * **인벤토리 아이콘용 축소본**(data URL).
+ *
+ * 아이콘이 🖼️ 이모지였다. 인벤토리에 든 것은 *액자 그림*이 아니라 **이 사진 한 장**이고,
+ * 이미 완성본 캔버스를 들고 있으니 그걸 잘라 쓰면 된다 — 슬롯이 정사각형이라 가운데(인물 둘)를
+ * 정사각으로 자른다. 로케 원판이 없으면 그려진 폴백이 그대로 축소된다.
+ */
+export function photoThumb(damaged = 1): string {
+  const hit = thumbs.get(damaged);
+  if (hit) return hit;
+  const src = makePhoto({ damaged }).front.image as HTMLCanvasElement;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d')!;
+  ctx.imageSmoothingQuality = 'high';
+  const sw = src.height;                       // 정사각 크롭 (인물은 가운데 0.4~0.58 에 있다)
+  ctx.drawImage(src, (src.width - sw) / 2, 0, sw, src.height, 0, 0, 128, 128);
+  const url = c.toDataURL('image/png');
+  thumbs.set(damaged, url);
+  return url;
+}
+
 /**
  * 실제 씬에서 사진을 찍는다. **월드 로드가 끝난 뒤, 프레임 루프가 돌기 전** 한 번 부른다(main).
  * 시간대를 '낮'으로 돌리고 → 캐릭터 둘을 도리이 앞에 세우고 → 메인 렌더러로 RT 한 컷 →
@@ -90,6 +137,7 @@ export function photoIsShot() { return shot !== null; }
  */
 export function preparePhoto(cx: PhotoContext, opts: PhotoOpts = {}) {
   const { model, renderer, scene, village, timeOfDay } = cx;
+  const sister = cx.sister ?? null;
   const g = village.ground;
   const keep = {
     parent: model.root.parent,
@@ -99,6 +147,7 @@ export function preparePhoto(cx: PhotoContext, opts: PhotoOpts = {}) {
     visible: model.root.visible,
     time: timeOfDay.name,
     hidden: (cx.hide ?? []).map((o) => ({ o, v: o.visible })),
+    sis: sister ? { pos: sister.root.position.clone(), rot: sister.root.rotation.clone(), visible: sister.root.visible } : null,
   };
   let rt: THREE.WebGLRenderTarget | null = null;
   let young: THREE.Object3D | null = null;
@@ -123,25 +172,39 @@ export function preparePhoto(cx: PhotoContext, opts: PhotoOpts = {}) {
     const clipName = model.clipNames.includes('standing_relax') ? 'standing_relax' : 'idle';
     const clip = model.actions.get(clipName)?.getClip() ?? null;
 
-    // 사요 = 본체
-    model.root.visible = true;
-    model.root.scale.setScalar(1);
-    place(model.root, 0.34, 0, -0.08);
-    model.play(clipName, 0);
-    model.mixer.update(clip ? clip.duration * 0.32 : 0.4);
+    if (sister) {
+      // --- 언니는 언니로 --- 사요 모델을 그 자리에 세운다
+      sister.root.visible = true;
+      place(sister.root, 0.34, 0, -0.08);
+      sister.pose('idle', 1.2);
+      // 어린 미오 = 미오 모델 **본체**를 0.71 배로. 복제할 이유가 없어졌다(둘이 다른 모델이다)
+      model.root.visible = true;
+      model.root.scale.setScalar(YOUNG);
+      place(model.root, -0.38, 0.1, 0.12);
+      model.play(clipName, 0);
+      model.mixer.update(clip ? clip.duration * 0.71 : 0.5);
+      model.root.updateMatrixWorld(true);
+      sister.root.updateMatrixWorld(true);
+    } else {
+      // --- 폴백: 사요 모델이 없으면 예전처럼 미오를 두 번 쓴다 ---
+      model.root.visible = true;
+      model.root.scale.setScalar(1);
+      place(model.root, 0.34, 0, -0.08);
+      model.play(clipName, 0);
+      model.mixer.update(clip ? clip.duration * 0.32 : 0.4);
 
-    // 어린 미오 = 복제 0.62 배, 다른 프레임
-    young = cloneSkeleton(model.root);
-    young.scale.setScalar(0.62);
-    place(young, -0.38, 0.1, 0.12);
-    scene.add(young);
-    if (clip) {
-      const mixer = new THREE.AnimationMixer(young);
-      mixer.clipAction(clip).play();
-      mixer.update(clip.duration * 0.71);
+      young = cloneSkeleton(model.root);
+      young.scale.setScalar(0.62);
+      place(young, -0.38, 0.1, 0.12);
+      scene.add(young);
+      if (clip) {
+        const mixer = new THREE.AnimationMixer(young);
+        mixer.clipAction(clip).play();
+        mixer.update(clip.duration * 0.71);
+      }
+      model.root.updateMatrixWorld(true);
+      young.updateMatrixWorld(true);
     }
-    model.root.updateMatrixWorld(true);
-    young.updateMatrixWorld(true);
 
     // --- 카메라: 길 남쪽에서 북(도리이·신사 쪽)을 본다. 2배 해상도 = 다운스케일 안티에일리어싱 ---
     const camP = g.roadAt(s0 - 6.0);
@@ -169,8 +232,9 @@ export function preparePhoto(cx: PhotoContext, opts: PhotoOpts = {}) {
     worldC.getContext('2d')!.putImageData(img, 0, 0);
 
     // 물얼룩 = 사요 머리의 화면 좌표 (사진 영역 기준으로 환산)
-    const hv = model.root.position.clone();
-    hv.y += model.height * 0.87;   // 정수리가 아니라 **얼굴**을 지워야 한다
+    const head = sister ?? { root: model.root, height: model.height };
+    const hv = head.root.position.clone();
+    hv.y += head.height * 0.87;   // 정수리가 아니라 **얼굴**을 지워야 한다
     hv.project(cam);
     const bleedAt = {
       x: M + (hv.x * 0.5 + 0.5) * (W - M * 2),
@@ -185,6 +249,11 @@ export function preparePhoto(cx: PhotoContext, opts: PhotoOpts = {}) {
   } finally {
     // 전부 원위치 — 사진 한 장 때문에 세계가 이동해 있으면 안 된다
     if (young) { scene.remove(young); }
+    if (sister && keep.sis) {
+      sister.root.position.copy(keep.sis.pos);
+      sister.root.rotation.copy(keep.sis.rot);
+      sister.root.visible = keep.sis.visible;
+    }
     model.root.position.copy(keep.pos);
     model.root.rotation.copy(keep.rot);
     model.root.scale.copy(keep.scale);

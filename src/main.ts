@@ -59,7 +59,7 @@ import { Sayo } from '@/story/sayo';
 import { Pursuers } from '@/story/pursuers';
 import { Lightning } from '@/world/lightning';
 import { Bus } from '@/world/bus';
-import { preparePhoto } from '@/story/photo';
+import { preparePhoto, photoThumb } from '@/story/photo';
 import type { Act2 } from '@/story/act2';
 import type { Act1 } from '@/story/act1';
 import { Act3 } from '@/story/act3';
@@ -351,10 +351,13 @@ async function main() {
   }
   /**
    * **사요** — ACT 1 에서 미오 앞을 달리는 언니(`story/sayo.ts`).
-   * 프롤로그를 볼 때만 읽는다. 실패해도 ACT 1 은 그대로 돌아간다(손은 원래 상태 플래그였다).
+   *
+   * 프롤로그를 건너뛰어도 읽는다 — **가족사진의 언니가 이 모델**이라(`story/photo.ts`),
+   * 안 읽으면 건너뛴 사람만 다른 사진을 갖게 된다. 촬영이 끝나면 바로 정리한다.
+   * 실패해도 ACT 1 은 그대로 돌아간다(손은 원래 상태 플래그였다).
    */
   let sayo: Sayo | null = null;
-  if (isVillage && !skipIntro) {
+  if (isVillage) {
     try {
       sayo = await Sayo.load(scene, { url: withBase('/models/sayo.glb') });
       console.info('[sayo] loaded, clips:', sayo.clipNames);
@@ -954,7 +957,8 @@ async function main() {
       // ACT 2 의 가족사진 — 실제 씬(도리이 앞·낮)에서 로케 촬영. 프레임 루프 전이라 화면엔 안 보인다
       if (model && timeOfDay) {
         try {
-          preparePhoto({ model, renderer, scene, village, timeOfDay, hide: chochin ? [chochin.root, chochin.body] : [] });
+          // 언니는 **사요 모델로** 찍는다 (없으면 photo.ts 가 미오 두 번으로 폴백)
+          preparePhoto({ model, renderer, scene, village, timeOfDay, sister: sayo, hide: chochin ? [chochin.root, chochin.body] : [] });
         } catch (e) { console.warn('[photo]', e); }
       }
       void playPrologue({
@@ -988,11 +992,17 @@ async function main() {
       // 로케 촬영도 여기서 한 번 해 둔다(안 하면 뷰어가 그려진 폴백을 띄운다)
       if (isVillage && model && timeOfDay && village) {
         try {
-          preparePhoto({ model, renderer, scene, village, timeOfDay, hide: chochin ? [chochin.root, chochin.body] : [] });
+          preparePhoto({ model, renderer, scene, village, timeOfDay, sister: sayo, hide: chochin ? [chochin.root, chochin.body] : [] });
         } catch (e) { console.warn('[photo]', e); }
       }
+      // 프롤로그가 없으니 언니가 나올 자리도 없다 — 사진만 찍고 돌려준다
+      sayo?.dispose();
+      sayo = null;
       if (isVillage) give('photo');
     }
+    // 가족사진의 인벤토리 아이콘 = **찍은 사진 그 자체**. 이모지(🖼️)로는 「액자 그림」이지
+    // 「가방에 든 그 사진」이 아니다. 촬영이 끝난 지금 완성본을 잘라 넣는다 (`story/photo.ts`)
+    try { ITEMS['photo']!.icon = photoThumb(); } catch (e) { console.warn('[photo] 아이콘 생성 실패', e); }
   };
   let hintExpired = false;
   startBtn.addEventListener('click', start);

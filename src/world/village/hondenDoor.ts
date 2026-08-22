@@ -36,8 +36,10 @@ export interface HondenDoorOpts {
 const W = 1.62;          // 두 짝 합친 폭
 const HGT = 1.9;         // 문 높이
 const THICK = 0.07;
-/** stage 2~3 의 틈 — 안쪽 모서리가 2 cm 벌어지는 각 (반폭 0.81 m 기준) */
+/** stage 2 의 틈 — 안쪽 모서리가 2 cm 벌어지는 각 (반폭 0.81 m 기준) */
 const GAP_ANGLE = 0.02 / (W / 2);
+/** stage 3 — **손이 그만큼 더 벌린다**. 4.5 cm 는 손가락이 걸릴 만한 폭이다 */
+const HAND_ANGLE = 0.045 / (W / 2);
 const OPEN_ANGLE = 0.86;
 
 export class HondenDoor {
@@ -75,10 +77,17 @@ export class HondenDoor {
     dark.position.set(o.cx, midY, o.faceZ - 0.02);
     this.group.add(dark);
 
-    // --- 흰 손: 어둠과 문 사이. stage 3 에서만 보인다 ---
+    /**
+     * --- 흰 손 (stage 3) ---
+     *
+     * 처음엔 문 **뒤**(어둠과 문 사이)에 뒀다. 2 cm 슬릿 너머 1.7 cm 깊이라 정면에서도 거의
+     * 안 보였고 비스듬히 서면 아무것도 없었다(실측). 스토리보드의 그림은 *틈으로 나온 손*이다 —
+     * 손가락이 **문짝 모서리를 잡고 있다**. 그래서 문 **앞**으로 옮기고 이음매에 세운다.
+     * 대신 폭을 좁혀(0.19 m) 문에 붙은 손이지 벽에 걸린 그림이 되지 않게 한다.
+     */
     this.handMat = new THREE.MeshBasicMaterial({ map: makeHandTexture(), transparent: true, opacity: 0, depthWrite: false });
-    this.hand = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.5), this.handMat);
-    this.hand.position.set(o.cx + 0.02, o.baseY + HGT * 0.56, o.faceZ - 0.012);
+    this.hand = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.30), this.handMat);
+    this.hand.position.set(o.cx - 0.055, o.baseY + HGT * 0.56, o.faceZ + THICK + 0.02);
     this.hand.visible = false;
     this.group.add(this.hand);
 
@@ -145,7 +154,7 @@ export class HondenDoor {
     const s = Math.max(0, Math.min(4, Math.floor(n)));
     if (s === this.st) return;
     this.st = s;
-    this.target = s >= 4 ? OPEN_ANGLE : s >= 2 ? GAP_ANGLE : 0;
+    this.target = s >= 4 ? OPEN_ANGLE : s === 3 ? HAND_ANGLE : s === 2 ? GAP_ANGLE : 0;
     // 금줄은 단계마다 한 가닥씩 삭는다. 4 에서 끊어진다
     for (let i = 0; i < this.shide.length; i++) this.shide[i]!.visible = s < 4 && i < 4 - s;
     if (this.rope) {

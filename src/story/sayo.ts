@@ -94,6 +94,8 @@ export class Sayo {
   private mixer: THREE.AnimationMixer;
   private actions = new Map<string, THREE.AnimationAction>();
   private materials: THREE.Material[] = [];
+  /** 정규화된 신장(m) — 사진 촬영(`story/photo.ts`)이 얼굴 높이를 여기서 낸다 */
+  readonly height: number;
   /** 왼팔 체인 — 뒤로 뻗어 미오의 손을 잡는 팔 */
   private clav: THREE.Object3D | null = null;
   private upper: THREE.Object3D | null = null;
@@ -145,6 +147,7 @@ export class Sayo {
     this.inner.scale.setScalar(s);
     const center = box.getCenter(this.v2);
     this.inner.position.set(-center.x * s, -box.min.y * s, -center.z * s);
+    this.height = target;
 
     this.mixer = new THREE.AnimationMixer(scene);
     for (const clip of gltf.animations) {
@@ -241,6 +244,22 @@ export class Sayo {
   show(v: boolean) {
     this.root.visible = v;
     if (v) this.setOpacity(1);
+  }
+
+  /**
+   * **한 프레임으로 세운다** — 사진 촬영용(`story/photo.ts`). 재생이 아니라 정지 자세다.
+   * 다른 액션을 모두 멈추고 클립의 t 지점을 그대로 적용한다.
+   */
+  pose(name: string, t: number) {
+    const a = this.actions.get(name);
+    if (!a) return;
+    for (const other of this.actions.values()) other.stop();
+    a.reset().play();
+    a.setEffectiveWeight(1);
+    a.time = t;
+    this.current = a;
+    this.mixer.update(0);
+    this.root.updateMatrixWorld(true);
   }
 
   /** 처음 세울 때 — 감쇠 없이 그 자리에 놓는다 (첫 프레임에 화면을 가로질러 날아오지 않게) */
