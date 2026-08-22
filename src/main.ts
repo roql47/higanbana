@@ -1009,9 +1009,14 @@ async function main() {
      * 인벤은 열 때마다 다시 그리므로 도중에 바뀌어도 문제없다.
      */
     try { ITEMS['photo']!.icon = photoThumb(); } catch (e) { console.warn('[photo] 아이콘 생성 실패', e); }
-    void photoThumbFromModel(renderer)
+    /**
+     * 아이콘은 **가족사진 심볼**에서 딴다 — Tripo 로 뽑은 「말린 인화지 한 장」에
+     * 우리 사진을 평면 투영으로 입힌 소품(`props/photo-symbol.glb`).
+     * 얼룩은 텍스처에 이미 구워져 있으므로 덧그리지 않는다(`damaged 0`).
+     */
+    void photoThumbFromModel(renderer, '/models/props/photo-symbol.glb', 256, 0)
       .then((url) => { ITEMS['photo']!.icon = url; if (invUI.isOpen) invUI.render(); })
-      .catch((e) => console.warn('[photo] 모델 아이콘 실패 → 캔버스 축소본 유지', e));
+      .catch((e) => console.warn('[photo] 심볼 아이콘 실패 → 캔버스 축소본 유지', e));
     // 뷰어로 펼쳤을 때의 원판 — 사용자가 준 사진 한 장(`public/textures/photo-front.webp`)
     void loadPhotoFront()
       .catch((e) => console.warn('[photo] 원판 로드 실패 → 캔버스 사진 유지', e));

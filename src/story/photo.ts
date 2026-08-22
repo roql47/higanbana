@@ -118,9 +118,10 @@ export function photoIsShot() { return shot !== null; }
  */
 export async function photoThumbFromModel(
   renderer: THREE.WebGLRenderer,
-  url = '/models/props/photo-hands.glb',
+  url = '/models/props/photo-symbol.glb',
   size = 256,
-  damaged = 1,
+  damaged = 0,
+  crop = CROP,
 ): Promise<string> {
   const gltf = await Props.loader().loadAsync(url);
   const root = gltf.scene;
@@ -145,8 +146,8 @@ export async function photoThumbFromModel(
    * **손가락이 들어온다**(사용자 리포트). 사진 안쪽만 남도록 조이고(0.46) 들어 올린다(0.08) —
    * 아이콘에 필요한 건 「쥐고 있는 모양」이 아니라 **사진에 찍힌 둘**이다.
    */
-  const half = planeSize * 0.5 * CROP.zoom;
-  const target = c.clone().add(new THREE.Vector3(0, planeSize * CROP.lift, 0));
+  const half = planeSize * 0.5 * crop.zoom;
+  const target = c.clone().add(new THREE.Vector3(0, planeSize * crop.lift, 0));
   const cam = new THREE.OrthographicCamera(-half, half, half, -half, 0.01, planeSize * 8);
   cam.position.copy(target).addScaledVector(dir, planeSize * 3);
   cam.up.set(0, 1, 0);
@@ -184,7 +185,7 @@ export async function photoThumbFromModel(
     // 조일 때마다 얼룩이 얼굴에서 벗어난다(그래서 한 번 어긋났다)
     const span = 2 * half / planeSize;                       // 화면 한 변이 담는 모델 폭(비율)
     const fx = 0.5 + FACE.right / span;
-    const fy = 0.5 - (FACE.up - CROP.lift) / span;
+    const fy = 0.5 - (FACE.up - crop.lift) / span;
     bleed(cctx, size * fx, size * fy, size * (FACE.r / span), damaged);
   }
 
@@ -203,8 +204,15 @@ export async function photoThumbFromModel(
   return cv.toDataURL('image/png');
 }
 
-/** 아이콘 크롭 — 모델의 사진 폭(`planeSize`) 대비 배율과 들어 올림 */
-const CROP = { zoom: 0.46, lift: 0.08 };
+/**
+ * 아이콘 크롭 — 모델의 사진 폭(`planeSize`) 대비 배율과 들어 올림.
+ *
+ * 기본값은 **가족사진 심볼**(`props/photo-symbol.glb`, Tripo 로 뽑은 말린 인화지 한 장)용이다:
+ * 통째로 담되 아주 조금만 조인다. 손이 함께 있는 `photo-hands.glb` 를 담을 때는
+ * 0.46 · 0.08 이었다(손끝을 잘라내야 했다).
+ */
+const CROP = { zoom: 0.98, lift: 0 };
+export const CROP_HANDS = { zoom: 0.46, lift: 0.08 };
 /**
  * 모델 사진 속 **언니의 얼굴** 위치와 크기. 모델 중심 기준 `planeSize` 배다.
  * 머리카락 픽셀로 재려다 배경(처마·나무)까지 물어 10 % 어긋났다 — **얼굴을 4 배로 확대해
