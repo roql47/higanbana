@@ -229,7 +229,9 @@ export function makeFaceBleed(photoWidth: number, z: number, damaged = 1): THREE
   const CY = 0.34;         // 얼룩 중심의 세로 위치 — 아래는 흘러내린 자국 몫으로 비워 둔다
   const cv = document.createElement('canvas');
   cv.width = cv.height = PX;
-  bleed(cv.getContext('2d')!, PX * 0.5, PX * CY, R, damaged);
+  const bctx = cv.getContext('2d')!;
+  bleed(bctx, PX * 0.5, PX * CY, R, damaged);
+  bleed(bctx, PX * 0.5, PX * CY, R * 0.8, damaged);   // 한 겹으로는 얼굴이 비친다 (뷰어와 같은 이유)
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   const rWorld = FACE.r * photoWidth;
@@ -251,105 +253,56 @@ export function makeFaceBleed(photoWidth: number, z: number, damaged = 1): THREE
 }
 
 /**
- * **뷰어용 원판을 모델에서 딴다** — 인벤에서 사진을 열었을 때 나오는 그 그림.
+ * **뷰어용 원판** — 인벤에서 사진을 열었을 때 나오는 그 그림.
  *
- * 아이콘만 모델로 바꿨더니 「클릭하면 옛날 사진이 나온다」는 리포트가 왔다. 당연하다 —
- * 가방 속 그림과 펼친 그림이 다른 물건일 수는 없다. 뷰어도 같은 모델에서 뜬다.
+ * 세 번 바뀌었다: 캔버스로 그린 사진 → 모델(`photo-hands.glb`)에서 딴 컷 → **원본 사진 한 장**.
+ * 모델에서 뜬 컷은 3D 스캔이라 가장자리가 뭉개지고 손이 함께 들어왔다. 사용자가 원판 이미지를
+ * 직접 주었으므로 그걸 그대로 쓴다(`public/textures/photo-front.webp` — 회색 배경을 잘라내고
+ * 1400×1005 로 구웠다. 인화지의 말린 가장자리는 그대로 남겼다).
  *
- * **손까지 통째로 담는다**(사용자 지시). 한 번은 종이만 잘라내 봤는데(격자 레이캐스트로
- * 면이 정확히 둘 뚫리는 칸 = 가려지지 않은 종이) 그건 「쥐고 있는 물건」이 아니라 도판이 된다.
- * 지금은 모델 전체를 정면에서 담고, 카드 비율(3:2)에 맞춰 **넓혀서** 채운다 — 잘라내지 않는다.
- *
- * 얼룩은 굽지 않고 **따로 들고 있는다**: 원판은 깨끗하게 두고 훼손도별로 얹어 캐시한다.
- * ACT 30 은 `damaged 0` 으로 같은 원판을 다시 받는다.
+ * 얼룩은 **굽지 않는다.** 원판은 깨끗하게 두고 훼손도별로 얹어 캐시한다 —
+ * ACT 30 은 `damaged 0` 으로 같은 원판을 얼룩 없이 받는다.
  */
-let modelShot: { canvas: HTMLCanvasElement; face: { x: number; y: number; r: number } } | null = null;
+let frontShot: HTMLCanvasElement | null = null;
 const modelFronts = new Map<number, HTMLCanvasElement>();
+/**
+ * 원판 안에서 **언니의 얼굴**이 있는 자리. x·r 은 가로 폭 대비, y 는 세로 높이 대비 비율.
+ * 원판에 10 % 격자를 얹어 눈으로 읽었다 — 얼굴 중심 (0.445, 0.245), 얼굴 폭이 가로의 7 % 라
+ * 얼룩은 그보다 크게 5.2 % 반지름.
+ */
+const PHOTO_FACE = { x: 0.445, y: 0.245, r: 0.052 };
 
-export async function captureModelPhoto(
-  renderer: THREE.WebGLRenderer,
-  url = '/models/props/photo-hands.glb',
-  width = 768,
-): Promise<void> {
-  const gltf = await Props.loader().loadAsync(url);
-  const root = gltf.scene;
-  const scene = new THREE.Scene();
-  // 뷰어 배경과 같은 계열의 어두운 판. 투명하게 두면 카드 그림자가 허공에 뜬다
-  scene.background = new THREE.Color(0x0b0e13);
-  scene.add(root);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa2b0, 2.4));
-  const key = new THREE.DirectionalLight(0xffffff, 1.1);
-  key.position.set(0.3, 0.6, 1);
-  scene.add(key);
-  root.updateMatrixWorld(true);
-
-  const box = new THREE.Box3().setFromObject(root);
-  const size = box.getSize(new THREE.Vector3());
-  const c = box.getCenter(new THREE.Vector3());
-  const planeSize = Math.max(size.x, size.y);
-
-  // --- 담을 사각형: 모델 전체 + 여유, 카드 비율(3:2)로 **넓혀서** 맞춘다 ---
-  let rw = size.x * 1.06, rh = size.y * 1.06;
-  if (rw / rh < 1.5) rw = rh * 1.5; else rh = rw / 1.5;
-  const rcx = c.x, rcy = c.y;
-
-  const height = Math.round(width / 1.5);
-  const cam = new THREE.OrthographicCamera(-rw / 2, rw / 2, rh / 2, -rh / 2, 0.01, size.z * 8 + 1);
-  cam.position.set(rcx, rcy, box.max.z + size.z);
-  cam.lookAt(rcx, rcy, box.min.z);
-
-  const rt = new THREE.WebGLRenderTarget(width, height);
-  rt.texture.colorSpace = THREE.SRGBColorSpace;
-  const prevRT = renderer.getRenderTarget();
-  renderer.setRenderTarget(rt);
-  renderer.render(scene, cam);
-  const buf = new Uint8Array(width * height * 4);
-  renderer.readRenderTargetPixels(rt, 0, 0, width, height, buf);
-  renderer.setRenderTarget(prevRT);
-
-  const img = new ImageData(width, height);
-  const row = width * 4;
-  for (let y = 0; y < height; y++) img.data.set(buf.subarray((height - 1 - y) * row, (height - y) * row), y * row);
-  const cv = document.createElement('canvas');
-  cv.width = width; cv.height = height;
-  cv.getContext('2d')!.putImageData(img, 0, 0);
-
-  // 얼룩 자리 — 모델 좌표(FACE)를 이 잘라낸 사각형 기준의 비율로
-  modelShot = {
-    canvas: cv,
-    face: {
-      x: 0.5 + (FACE.right * planeSize + c.x - rcx) / rw,
-      y: 0.5 - (FACE.up * planeSize + c.y - rcy) / rh,
-      r: (FACE.r * planeSize) / rw,
-    },
-  };
-  modelFronts.clear();
-  rt.dispose();
-  root.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (!m.isMesh) return;
-    m.geometry.dispose();
-    for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
-      const std = mat as THREE.MeshStandardMaterial;
-      for (const t of [std.map, std.normalMap, std.roughnessMap, std.metalnessMap]) t?.dispose();
-      std.dispose();
-    }
+export async function loadPhotoFront(url = '/textures/photo-front.webp'): Promise<void> {
+  const img = await new Promise<HTMLImageElement>((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = () => rej(new Error('사진 원판 로드 실패: ' + url));
+    i.src = url;
   });
+  const cv = document.createElement('canvas');
+  cv.width = img.naturalWidth;
+  cv.height = img.naturalHeight;
+  cv.getContext('2d')!.drawImage(img, 0, 0);
+  frontShot = cv;
+  modelFronts.clear();
 }
 
-/** 모델에서 딴 앞면 (훼손도별). 아직 안 찍었으면 null → 호출부가 캔버스 사진으로 폴백 */
+/** 원판에 훼손도를 얹은 앞면. 아직 안 읽었으면 null → 호출부가 캔버스 사진으로 폴백 */
 export function modelPhotoFront(damaged = 1): HTMLCanvasElement | null {
-  if (!modelShot) return null;
+  if (!frontShot) return null;
   const hit = modelFronts.get(damaged);
   if (hit) return hit;
-  const src = modelShot.canvas;
+  const src = frontShot;
   const cv = document.createElement('canvas');
   cv.width = src.width; cv.height = src.height;
   const ctx = cv.getContext('2d')!;
   ctx.drawImage(src, 0, 0);
   if (damaged > 0) {
-    const f = modelShot.face;
-    bleed(ctx, src.width * f.x, src.height * f.y, src.width * f.r, damaged);
+    // **두 겹.** 원판이 밝아서 한 겹으로는 얼굴이 비쳐 보인다 — 「지워져 있다」가 아니라 「덧칠했다」가 된다.
+    // 두 번째는 조금 작게 얹어 가운데만 더 짙게 하고 가장자리의 번짐은 그대로 둔다
+    const x = src.width * PHOTO_FACE.x, y = src.height * PHOTO_FACE.y, r = src.width * PHOTO_FACE.r;
+    bleed(ctx, x, y, r, damaged);
+    bleed(ctx, x, y, r * 0.8, damaged);
   }
   modelFronts.set(damaged, cv);
   return cv;

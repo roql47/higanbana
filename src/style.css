@@ -301,7 +301,10 @@ body.phone-up .dialogue { left: 28%; width: min(500px, 46vw); transition: left 0
    `preserve-3d` 가 무시되고, 뒤집었을 때 뒷면 대신 **앞면이 좌우로 뒤집혀** 나온다(실측).
    그림자는 면(`.pv-face`)의 box-shadow 로 준다. */
 .pv-card {
-  position: relative; width: min(660px, 78vw); aspect-ratio: 768 / 512;
+  /* 비율은 **앞면 사진**(`textures/photo-front.webp`, 1400×1005)을 따른다.
+     예전엔 768/512(3:2) 였는데, 원판이 1.39:1 이라 그대로 두면 인화지가 눌린다.
+     뒷면(연필 글씨 캔버스 768×512)만 8 % 늘어나는데 손글씨라 티가 안 난다. */
+  position: relative; width: min(660px, 78vw); aspect-ratio: 1400 / 1005;
   transform: rotate(-1.6deg); transform-style: preserve-3d;
   transition: transform 0.5s cubic-bezier(0.3, 0.85, 0.35, 1);
 }

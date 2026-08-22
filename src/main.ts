@@ -59,7 +59,7 @@ import { Sayo } from '@/story/sayo';
 import { Pursuers } from '@/story/pursuers';
 import { Lightning } from '@/world/lightning';
 import { Bus } from '@/world/bus';
-import { preparePhoto, photoThumb, photoThumbFromModel, captureModelPhoto } from '@/story/photo';
+import { preparePhoto, photoThumb, photoThumbFromModel, loadPhotoFront } from '@/story/photo';
 import type { Act2 } from '@/story/act2';
 import type { Act1 } from '@/story/act1';
 import { Act3 } from '@/story/act3';
@@ -1012,9 +1012,9 @@ async function main() {
     void photoThumbFromModel(renderer)
       .then((url) => { ITEMS['photo']!.icon = url; if (invUI.isOpen) invUI.render(); })
       .catch((e) => console.warn('[photo] 모델 아이콘 실패 → 캔버스 축소본 유지', e));
-    // 뷰어로 펼쳤을 때의 원판도 같은 모델에서 딴다 — 가방 속 그림과 펼친 그림은 같은 물건이다
-    void captureModelPhoto(renderer)
-      .catch((e) => console.warn('[photo] 모델 원판 실패 → 캔버스 사진 유지', e));
+    // 뷰어로 펼쳤을 때의 원판 — 사용자가 준 사진 한 장(`public/textures/photo-front.webp`)
+    void loadPhotoFront()
+      .catch((e) => console.warn('[photo] 원판 로드 실패 → 캔버스 사진 유지', e));
   };
   let hintExpired = false;
   startBtn.addEventListener('click', start);
