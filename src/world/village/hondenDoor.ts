@@ -83,7 +83,10 @@ export class HondenDoor {
     this.group.add(this.hand);
 
     // --- 문 두 짝: 바깥 모서리를 축으로 (실제 여닫이) ---
-    const mDoor = new THREE.MeshStandardMaterial({ color: 0x2a1d14, roughness: 0.82, metalness: 0 });
+    // 색은 신사의 목재(`shrine.ts` 의 `mTimber` 0x3a2a1c)에 맞춘다. 더 어둡게 잡았더니
+    // 밤에 문이 아니라 **벽에 뚫린 구멍**으로 보였다(실측)
+    const mDoor = new THREE.MeshStandardMaterial({ color: 0x33241a, roughness: 0.82, metalness: 0 });
+    const mBatten = new THREE.MeshStandardMaterial({ color: 0x241a12, roughness: 0.88, metalness: 0 });
     const mBrass = new THREE.MeshStandardMaterial({ color: 0x6a5a34, roughness: 0.55, metalness: 0.5 });
     for (const side of [-1, 1] as const) {
       const pivot = side < 0 ? this.pivotL : this.pivotR;
@@ -92,9 +95,17 @@ export class HondenDoor {
       panel.position.x = -side * (W / 4);      // 축에서 안쪽으로 반 짝
       panel.castShadow = true; panel.receiveShadow = true;
       pivot.add(panel);
-      // 문고리 — 안쪽 모서리 가까이. 이게 있어야 「밀어본다」의 대상이 눈에 잡힌다
+      // 널문(板戸)의 가로 띠 셋 — 평평한 판 한 장이면 문이 아니라 판때기다.
+      // 이게 있어야 두 짝이 각각 **문짝**으로 읽히고, 사이의 세로선도 눈에 잡힌다
+      for (const oy of [-0.62, 0, 0.62]) {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(W / 2 - 0.02, 0.055, THICK + 0.012), mBatten);
+        b.position.set(-side * (W / 4), oy, 0);
+        pivot.add(b);
+      }
+      // 문고리 — **안쪽 모서리** 가까이. 축(=바깥 모서리) 기준이라 안쪽은 `-side * (W/2 - 여유)` 다.
+      // 0.12 로 뒀더니 바깥쪽 끝에 붙어 「밀어본다」의 대상이 문틀처럼 보였다(실측)
       const ring = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.012, 6, 14), mBrass);
-      ring.position.set(-side * 0.12, -0.05, THICK / 2 + 0.01);
+      ring.position.set(-side * (W / 2 - 0.16), -0.05, THICK / 2 + 0.012);
       pivot.add(ring);
       this.group.add(pivot);
     }
@@ -109,8 +120,9 @@ export class HondenDoor {
     const mShide = new THREE.MeshStandardMaterial({ color: 0xe8e2d2, roughness: 0.9, side: THREE.DoubleSide });
     for (let i = 0; i < 4; i++) {
       const sx = o.cx - 0.6 + i * 0.4;
-      const s = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.34), mShide);
-      s.position.set(sx, rope.position.y - 0.2, rope.position.z + 0.01);
+      // 시데는 작아야 한다 — 0.13×0.34 로 뒀더니 어두운 문 위에서 **뚫린 창 넷**으로 보였다
+      const s = new THREE.Mesh(new THREE.PlaneGeometry(0.09, 0.26), mShide);
+      s.position.set(sx, rope.position.y - 0.16, rope.position.z + 0.01);
       this.shide.push(s);
       this.group.add(s);
     }
