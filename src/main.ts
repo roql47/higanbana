@@ -1018,6 +1018,9 @@ async function main() {
   window.addEventListener('keydown', (e) => { if (e.code === 'Enter' || e.code === 'Space') start(); }, { once: false });
 
   if (import.meta.env.DEV) {
+    // 사진 아이콘 재단용 — 크롭/얼룩 위치를 큰 해상도로 확인할 때 쓴다
+    (window as unknown as Record<string, unknown>)['__photoThumb'] = (size = 1024, damaged = 1) =>
+      photoThumbFromModel(renderer, '/models/props/photo-hands.glb', size, damaged);
     (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, crows, chochin, faceFill, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri, scares, rules, ambience, get actions() { return actions; }, get hiding() { return hiding; }, get crouching() { return crouching; }, setCrouch(v: boolean) { crouching = v; }, story: { quests, dialogue, sequencer, flags: storyFlags, save: storySave, phone, photoViewer, fp: firstPerson, pursuers, lightning, bus, get sayo() { return sayo; }, get act1() { return act1; }, get act2() { return act2; }, get act3() { return act3; }, get act4() { return act4; }, get lifesigns() { return lifesigns; }, get speakers() { return village?.speakers; } }, get navgrid() { return navgridRef; }, get timeOfDay() { return timeOfDay; }, get audioSpace() { return sfx.space; }, get audioZone() { return audioZone; } };
   }
 

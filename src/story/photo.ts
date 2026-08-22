@@ -141,11 +141,12 @@ export async function photoThumbFromModel(
   const dir = new THREE.Vector3(thin === 'x' ? 1 : 0, thin === 'y' ? 1 : 0, thin === 'z' ? 1 : 0);
   const planeSize = thin === 'x' ? Math.max(s3.y, s3.z) : thin === 'y' ? Math.max(s3.x, s3.z) : Math.max(s3.x, s3.y);
   /**
-   * 정사각 크롭. 모델 전체를 담으면 아래 4 분의 1 이 **손이 잘린 빈자리**로 남는다(실측) —
-   * 사진이 슬롯을 채우도록 조이고(0.55), 사진 중심이 모델 중심보다 위에 있으므로 살짝 들어 올린다.
+   * 정사각 크롭. 모델 전체를 담으면 아래가 **손이 잘린 빈자리**가 되고, 왼쪽 가장자리에
+   * **손가락이 들어온다**(사용자 리포트). 사진 안쪽만 남도록 조이고(0.46) 들어 올린다(0.08) —
+   * 아이콘에 필요한 건 「쥐고 있는 모양」이 아니라 **사진에 찍힌 둘**이다.
    */
-  const half = planeSize * 0.5 * 0.55;
-  const target = c.clone().add(new THREE.Vector3(0, planeSize * 0.06, 0));
+  const half = planeSize * 0.5 * CROP.zoom;
+  const target = c.clone().add(new THREE.Vector3(0, planeSize * CROP.lift, 0));
   const cam = new THREE.OrthographicCamera(-half, half, half, -half, 0.01, planeSize * 8);
   cam.position.copy(target).addScaledVector(dir, planeSize * 3);
   cam.up.set(0, 1, 0);
@@ -178,7 +179,14 @@ export async function photoThumbFromModel(
    * 그 얼굴에 걸려 있으므로, 아이콘에서 지운 채로 내보낸다.
    * 좌표는 렌더가 고정이라 비율로 박아 둔다(언니 = 왼쪽 큰 쪽, 화면 38 % · 21 %).
    */
-  if (damaged > 0) bleed(cctx, size * FACE.x, size * FACE.y, size * 0.085, damaged);
+  if (damaged > 0) {
+    // 얼굴 좌표는 **모델 기준**(planeSize 배)이라 크롭을 바꿔도 따라온다 — 화면 비율로 박아 두면
+    // 조일 때마다 얼룩이 얼굴에서 벗어난다(그래서 한 번 어긋났다)
+    const span = 2 * half / planeSize;                       // 화면 한 변이 담는 모델 폭(비율)
+    const fx = 0.5 + FACE.right / span;
+    const fy = 0.5 - (FACE.up - CROP.lift) / span;
+    bleed(cctx, size * fx, size * fy, size * (FACE.r / span), damaged);
+  }
 
   // 정리 — 아이콘 한 장 때문에 1 MB 짜리 메시가 메모리에 남으면 안 된다
   rt.dispose();
@@ -195,8 +203,15 @@ export async function photoThumbFromModel(
   return cv.toDataURL('image/png');
 }
 
-/** 모델 아이콘 안에서 **언니의 얼굴**이 있는 자리 (렌더가 고정이라 비율 상수로 둔다) */
-const FACE = { x: 0.385, y: 0.215 };
+/** 아이콘 크롭 — 모델의 사진 폭(`planeSize`) 대비 배율과 들어 올림 */
+const CROP = { zoom: 0.46, lift: 0.08 };
+/**
+ * 모델 사진 속 **언니의 얼굴** 위치와 크기. 모델 중심 기준 `planeSize` 배다.
+ * 머리카락 픽셀로 재려다 배경(처마·나무)까지 물어 10 % 어긋났다 — **얼굴을 4 배로 확대해
+ * 눈으로 찍었다**: 0.46 배 크롭에서 화면 44 % · 22 %, 얼굴 반지름 화면의 4 %.
+ * 얼룩은 얼굴보다 조금 크게(7 %) 잡아 머리까지 먹는다.
+ */
+const FACE = { right: -0.026, up: 0.202, r: 0.040 };
 
 /** 훼손도별 축소본 캐시 */
 const thumbs = new Map<number, string>();
