@@ -271,6 +271,24 @@ export const settings = {
     collisionPullSpeed: 40, // 벽 만나면 빠르게 당기고
     collisionReleaseSpeed: 6, // 풀릴 땐 천천히
   },
+  /**
+   * HUD 편의 기능 — 전부 **끌 수 있다.** 공포 게임의 화면을 조용하게 두고 싶은 사람과,
+   * 길을 못 찾아 헤매는 사람 둘 다 있다 (사용자 지시 2026-08-22).
+   * 값은 `H` 패널에서 바꾸고 localStorage 에 남는다.
+   */
+  hud: {
+    /** 목표 지시자 — 지금 목표가 화면 어느 쪽인지 (`ui/waypoint.ts`) */
+    waypoint: true,
+    /** 팻말 가까이 가면 그 문구를 화면에 띄운다 */
+    signRead: true,
+    /**
+     * 창 비율 고정(선택). 켜면 렌더 영역을 `aspect` 로 묶고 남는 자리를 검게 둔다 —
+     * 세로로 긴 창에서 화면이 늘어나는 게 싫다는 요청(2026-08-22, 「창크기 고정 → 선택사항」).
+     * 기본은 꺼짐: 창을 채우는 쪽이 몰입에 낫다.
+     */
+    lockAspect: false,
+    aspect: 16 / 9,
+  },
   render: {
     exposure: 0.95, // 밤: 초칭 하나가 유일한 광원이라 노출을 올린다
     sunElevation: 40, // deg
@@ -300,6 +318,24 @@ export const settings = {
 };
 
 export type Settings = typeof settings;
+
+/**
+ * HUD 편의 설정은 **다음 판에도 남아야 한다.** 「목표 지시자를 껐다」는 취향이지 한 판짜리 선택이 아니다.
+ * 알 수 없는 키는 무시하고 아는 키만 덮어쓴다 (예전 저장값이 새 필드를 지우지 않게).
+ */
+const HUD_KEY = '3dm.hud';
+export function loadHudPrefs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HUD_KEY) ?? '{}') as Record<string, unknown>;
+    for (const k of Object.keys(settings.hud) as (keyof typeof settings.hud)[]) {
+      const v = saved[k];
+      if (typeof v === typeof settings.hud[k]) (settings.hud[k] as unknown) = v;
+    }
+  } catch { /* 저장값이 깨졌으면 기본값 */ }
+}
+export function saveHudPrefs() {
+  try { localStorage.setItem(HUD_KEY, JSON.stringify(settings.hud)); } catch { /* 사파리 프라이빗 등 */ }
+}
 
 /** `?scene=sandbox` (초원 섬, v0.8) 로 돌아갈 때 되돌리는 낮 세팅 */
 export const DAY_PRESET = {

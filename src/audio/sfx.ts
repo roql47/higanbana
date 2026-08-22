@@ -1,6 +1,15 @@
 import { settings } from '@/core/settings';
 import { SampleBank } from './bank';
 import { AudioSpace, SpatialSource } from './space';
+/**
+ * `AudioParam.exponentialRampToValueAtTime(0)` 은 **RangeError 를 던진다** — 지수 램프는 0 에 닿을 수 없다.
+ * 실제로 콘솔에 찍혔다(사용자 리포트 2026-08-22): `land(0)` — 충격 0 짜리 착지가 gain 0 을 만들었다.
+ * 오디오 슬라이더를 0 으로 내려도 같은 일이 난다. 두 겹으로 막는다:
+ *   ① 생성기(`tap`·`thump`·`noiseBurst`)는 들리지 않을 세기면 **아예 만들지 않는다**
+ *   ② 계산으로 0 이 될 수 있는 램프 목표는 `audible()` 로 바닥을 깐다
+ */
+const INAUDIBLE = 0.0002;
+const audible = (v: number) => (v > 1e-4 ? v : 1e-4);
 
 /** 발밑 표면 — 발소리 합성에 쓴다 */
 export type Surface = 'grass' | 'sand' | 'water' | 'dirt' | 'gravel' | 'wood';
@@ -178,7 +187,7 @@ export class Sfx {
     o.frequency.linearRampToValueAtTime(base * 0.74, t0 + dur);
     const out = ctx.createGain();
     out.gain.setValueAtTime(0.0001, t0);
-    out.gain.exponentialRampToValueAtTime(gain * (near ? 0.5 : 0.24), t0 + 0.05);
+    out.gain.exponentialRampToValueAtTime(audible(gain * (near ? 0.5 : 0.24)), t0 + 0.05);
     out.gain.setValueAtTime(gain * (near ? 0.5 : 0.24), t0 + dur * 0.55);
     out.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     // 포먼트 둘
@@ -221,7 +230,7 @@ export class Sfx {
       o.frequency.linearRampToValueAtTime(p * 0.9, t + dur);
       const out = ctx.createGain();
       out.gain.setValueAtTime(0.0001, t);
-      out.gain.exponentialRampToValueAtTime(gain * 0.3, t + 0.025);
+      out.gain.exponentialRampToValueAtTime(audible(gain * 0.3), t + 0.025);
       out.gain.setValueAtTime(gain * 0.3, t + dur * 0.6);
       out.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       for (const [f, q, g] of [[f1, 8, 1.0], [f2, 10, 0.5]] as [number, number, number][]) {
@@ -292,7 +301,7 @@ export class Sfx {
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1600; bp.Q.value = 6;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(v * 0.28, t0 + 0.25);
+    g.gain.exponentialRampToValueAtTime(audible(v * 0.28), t0 + 0.25);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.2);
     o.connect(bp).connect(g).connect(this.out!);
     o.start(t0); o.stop(t0 + 1.3);
@@ -332,7 +341,7 @@ export class Sfx {
       const gg = ctx.createGain();
       gg.gain.setValueAtTime(0.0001, t0);
       // 멀면 어택도 늦다 — 소리가 도착하는 데 걸리는 시간이 파형에도 남는다
-      gg.gain.exponentialRampToValueAtTime(gain * g * 0.25, t0 + 0.02 + far * 0.12);
+      gg.gain.exponentialRampToValueAtTime(audible(gain * g * 0.25), t0 + 0.02 + far * 0.12);
       gg.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
       o.connect(gg).connect(dst);
       o.start(t0); o.stop(t0 + dur + 0.1);
@@ -694,7 +703,8 @@ export class Sfx {
   private ready() { return this.ctx && this.master && this.noise && this.ctx.state === 'running'; }
 
   private noiseBurst(opts: { dur: number; gain: number; type: BiquadFilterType; freq: number; q?: number; freqEnd?: number; attack?: number }) {
-    if (!this.ready()) return;
+    // 들리지 않을 세기면 만들지 않는다 — 지수 램프가 0 을 받으면 RangeError 다 (INAUDIBLE 주석)
+    if (!this.ready() || !(opts.gain > INAUDIBLE)) return;
     const ctx = this.ctx!, t0 = ctx.currentTime;
     const src = ctx.createBufferSource();
     src.buffer = this.noise!;
@@ -713,7 +723,8 @@ export class Sfx {
   }
 
   private thump(freq: number, dur: number, gain: number) {
-    if (!this.ready()) return;
+    // `land(0)` 처럼 충격이 0 인 호출이 실제로 온다 → 지수 램프가 0 을 받아 RangeError 를 던졌다
+    if (!this.ready() || !(gain > INAUDIBLE)) return;
     const ctx = this.ctx!, t0 = ctx.currentTime;
     const o = ctx.createOscillator();
     o.type = 'sine';

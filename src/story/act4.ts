@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import { L } from '@/core/i18n';
+
+const MIO = L('미오', 'ミオ');
+const BROADCAST = L('방송', '放送');
 import type { Dialogue } from './dialogue';
 import type { Sfx } from '@/audio/sfx';
 import type { Speakers } from '@/world/higasato/speaker';
@@ -58,7 +62,7 @@ export class Act4 {
       { at: 3.3, run: (d, s) => {
         const h = at(s);
         d.sfx.paVoice(h.x, h.y, h.z, 10);
-        void d.dialogue.say({ who: '방송', text: '주민 여러분께 알려드립니다.', dur: 3.0 });
+        void d.dialogue.say({ who: BROADCAST, text: L('주민 여러분께 알려드립니다.', '住民の皆様にお知らせします。'), dur: 3.0 });
       } },
       // 「심한 잡음.」 — 자막으로 적지 않는다. 잡음은 들리면 그만이고, 자막은 그 자리를 비워 둬야
       // 다음 문장이 무겁게 떨어진다
@@ -66,20 +70,20 @@ export class Act4 {
       { at: 8.2, run: (d, s) => {
         const h = at(s);
         d.sfx.paVoice(h.x, h.y, h.z, 13);
-        void d.dialogue.say({ who: '방송', text: '금일 피안제는 예정대로 진행됩니다.', dur: 3.4 });
+        void d.dialogue.say({ who: BROADCAST, text: L('금일 피안제는 예정대로 진행됩니다.', '本日の彼岸祭は予定どおり執り行われます。'), dur: 3.4 });
       } },
       // 방송은 페이드로 끝나지 않는다 — 뚝 끊긴다
       { at: 12.2, run: (d) => d.sfx.paOff() },
-      { at: 13.6, run: (d) => { d.sfx.voice(0.4, 'girl'); void d.dialogue.say({ who: '미오', text: '피안제……?', dur: 2.6 }); } },
+      { at: 13.6, run: (d) => { d.sfx.voice(0.4, 'girl'); void d.dialogue.say({ who: MIO, text: L('피안제……?', '彼岸祭……?'), dur: 2.6 }); } },
       // 「멀리 신사에서 종소리가 한 번 울린다」 — 마을 북쪽 끝, 아직 가보지 않은 곳에서
-      { at: 17.0, run: (d) => { d.sfx.bell(0.55, 1); void d.dialogue.say({ text: '멀리 신사에서 종소리가 한 번 울렸다.', dur: 3.2 }); } },
+      { at: 17.0, run: (d) => { d.sfx.bell(0.55, 1); void d.dialogue.say({ text: L('멀리 신사에서 종소리가 한 번 울렸다.', '遠くの社で、鐘が一度鳴った。'), dur: 3.2 }); } },
       // --- 폰 ③ (각색 6 C안 / P1-1) — 「전기가 죽는다」의 결론 ---
       // 버스에서 본 것과 **같은 숫자**다. 그런데 그때는 오후였고 지금은 해가 넘어갔다.
       // 숫자를 자막으로 다시 읽어 주지 않는다 — 화면에 떠 있는 걸 또 읽으면 연출이 설명이 된다.
       // 하늘이 증인이고, 미오의 한 줄이 그걸 가리킨다.
       { at: 20.6, run: (d) => d.phone.show('lock') },
-      { at: 22.4, run: (d) => { d.sfx.voice(0.4, 'girl'); void d.dialogue.say({ who: '미오', text: '……아직 세 시 사 분?', dur: 2.4 }); } },
-      { at: 25.2, run: (d) => void d.dialogue.say({ text: '해는 벌써 넘어갔다.', dur: 2.4 }) },
+      { at: 22.4, run: (d) => { d.sfx.voice(0.4, 'girl'); void d.dialogue.say({ who: MIO, text: L('……아직 세 시 사 분?', '……まだ三時四分?'), dur: 2.4 }); } },
+      { at: 25.2, run: (d) => void d.dialogue.say({ text: L('해는 벌써 넘어갔다.', '陽はとうに落ちている。'), dur: 2.4 }) },
       { at: 28.0, run: (d) => d.phone.hide() },
       { at: 29.4, run: (_d, s) => s.finish() },
     ];

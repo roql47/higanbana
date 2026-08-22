@@ -3,6 +3,17 @@
   --teal: #2f5c5a;
   --leather: #5a3e2b;
   --ink: #12110f;
+  /*
+   * 언어별 서체 (core/i18n.ts). 명조 = 히간누시의 목소리, 손글씨 = 사요의 목소리 (PLAN-STORY §4.1).
+   * 한국어 명조에는 가나가, 일본어 명조에는 한글이 온전히 없어서 **한 스택으로는 안 된다** —
+   * 섞어 쓰면 글자마다 서체가 튀고, 그게 곧 이중표기처럼 보인다.
+   */
+  --serif: "Noto Serif KR", "Apple SD Gothic Neo", serif;
+  --hand: "Nanum Pen Script", "Apple SD Gothic Neo", cursive;
+}
+html[lang="ja"] {
+  --serif: "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif;
+  --hand: "Yomogi", "Hiragino Maru Gothic ProN", cursive;
 }
 
 * { box-sizing: border-box; }
@@ -124,7 +135,7 @@ body.touch .stats { display: none; }
 /* --- 인벤토리 --- */
 .inv { position: fixed; inset: 0; z-index: 15; display: flex; align-items: center; justify-content: center; background: rgba(18,17,15,0.45); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); transition: opacity 0.2s ease; }
 .inv.hidden { opacity: 0; pointer-events: none; }
-.inv-panel { position: relative; width: min(560px, 92vw); padding: 18px 20px 22px; border-radius: 14px; background: rgba(28,26,22,0.92); border: 1px solid rgba(232,223,201,0.14); color: var(--cream); box-shadow: 0 30px 80px rgba(0,0,0,0.5); }
+.inv-panel { position: relative; width: min(560px, 92vw); max-height: 92vh; overflow-y: auto; padding: 18px 20px 22px; border-radius: 14px; background: rgba(28,26,22,0.92); border: 1px solid rgba(232,223,201,0.14); color: var(--cream); box-shadow: 0 30px 80px rgba(0,0,0,0.5); }
 .inv-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
 .inv-title { font-size: 17px; letter-spacing: 0.08em; }
 .inv-hint { font-size: 11px; opacity: 0.6; }
@@ -142,6 +153,14 @@ body.touch .stats { display: none; }
 .inv-img { width: 82%; height: 82%; object-fit: cover; border-radius: 3px; box-shadow: 0 2px 6px rgba(0,0,0,0.6); }
 .inv-slot-equip .inv-img { width: 78%; height: 78%; }
 .inv-count { position: absolute; right: 5px; bottom: 3px; font: 11px ui-monospace, Menlo, monospace; opacity: 0.85; }
+/* 조작 목록 — 인벤토리 아래 절반. 시작 화면 힌트를 놓쳐도 여기서 다시 본다 */
+.inv-keys { margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(232,223,201,0.12); }
+.inv-keys-title { font-size: 10px; letter-spacing: 0.28em; text-indent: 0.28em; opacity: 0.5; margin-bottom: 8px; }
+.inv-keys dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 11.5px; }
+.inv-keys dt { text-align: right; white-space: nowrap; }
+.inv-keys dd { margin: 0; opacity: 0.78; line-height: 1.5; }
+.inv-keys dd b { color: #ffc876; font-weight: 600; }
+
 .inv-tooltip { position: absolute; z-index: 2; max-width: 240px; padding: 8px 10px; border-radius: 8px; background: rgba(18,17,15,0.95); border: 1px solid rgba(232,223,201,0.2); font-size: 12px; line-height: 1.45; pointer-events: none; }
 .inv-tooltip.hidden { display: none; }
 .inv-tooltip i { opacity: 0.7; font-style: normal; }
@@ -190,7 +209,14 @@ body.touch .stats { display: none; }
 
 /* --- 우상단 미션 패널 --- */
 .mission { position: fixed; top: 16px; right: 18px; min-width: 220px; max-width: 300px; padding: 10px 14px 10px; background: rgba(6, 8, 14, 0.55); border: 1px solid rgba(243, 234, 214, 0.14); border-radius: 4px; color: #f3ead6; pointer-events: none; z-index: 22; backdrop-filter: blur(2px); font-size: 12px; letter-spacing: 0.03em; text-shadow: 0 1px 2px #000; }
-.mission-title { font-size: 10px; letter-spacing: 0.28em; text-indent: 0.28em; color: rgba(243,234,214,0.5); margin-bottom: 4px; }
+/* 제목줄만 클릭을 받는다 — 패널 본체는 여전히 클릭이 통과해야 한다(조준·상호작용) */
+.mission-head { pointer-events: auto; display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 10px; padding: 0 0 4px; margin: 0; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; text-shadow: inherit; }
+.mission-head:hover .mission-title, .mission-head:hover .mission-caret { color: rgba(255, 200, 118, 0.95); }
+.mission-caret { font-size: 10px; color: rgba(243,234,214,0.45); transition: color 0.15s ease; }
+.mission-title { font-size: 10px; letter-spacing: 0.28em; text-indent: 0.28em; color: rgba(243,234,214,0.5); transition: color 0.15s ease; }
+/* 접힘: 체크리스트만 사라지고 목표 한 줄은 남는다 */
+.mission.folded .mission-list { display: none; }
+.mission.folded .mission-goal { margin-bottom: 0; }
 .mission-goal { font-size: 14px; line-height: 1.35; margin-bottom: 8px; }
 .mission-goal b { color: #ffc876; font-weight: 700; }
 .mission-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; border-top: 1px solid rgba(243,234,214,0.1); padding-top: 7px; }
@@ -232,8 +258,8 @@ body.touch .stats { display: none; }
 
 /* --- 스토리 시스템 (PLAN-STORY S0): 퀘스트 보이스 · 자막 · 시퀀서 --- */
 /* 목표 문구의 세 목소리 — 서체가 화자다 (§4.1) */
-.mission-goal.voice-gm { font-family: "Noto Serif KR", "Apple SD Gothic Neo", serif; letter-spacing: 0.06em; }
-.mission-goal.voice-sayo { font-family: "Nanum Pen Script", "Apple SD Gothic Neo", cursive; font-size: 18px; color: #ffe2b8; transform: rotate(-0.6deg); }
+.mission-goal.voice-gm { font-family: var(--serif); letter-spacing: 0.06em; }
+.mission-goal.voice-sayo { font-family: var(--hand); font-size: 18px; color: #ffe2b8; transform: rotate(-0.6deg); }
 .mission-goal.voice-none { font-family: inherit; color: rgba(243, 234, 214, 0.8); }
 .mission-goal.glitching {
   color: #f0dcc8;
@@ -251,7 +277,7 @@ body.touch .stats { display: none; }
    자막을 위로 올리는 방법도 있지만 폰이 세로로 길어(화면의 45 %) 결국 겹친다. */
 body.phone-up .dialogue { left: 28%; width: min(500px, 46vw); transition: left 0.34s ease, width 0.34s ease; }
 .dialogue .who { font-size: 12px; letter-spacing: 0.3em; text-indent: 0.3em; color: var(--who, rgba(243, 234, 214, 0.6)); margin-bottom: 6px; text-shadow: 0 1px 3px #000; }
-.dialogue .line { font-size: 17px; line-height: 1.65; color: #f3ead6; font-family: "Noto Serif KR", "Apple SD Gothic Neo", serif; text-shadow: 0 1px 3px #000, 0 0 18px rgba(0, 0, 0, 0.8); }
+.dialogue .line { font-size: 17px; line-height: 1.65; color: #f3ead6; font-family: var(--serif); text-shadow: 0 1px 3px #000, 0 0 18px rgba(0, 0, 0, 0.8); }
 
 /* 미오의 휴대폰 (story/phone.ts) — 씬에 넣지 않고 DOM 한 장으로 낸다.
    손에 든 물건이므로 화면 정중앙이 아니라 **아래·약간 오른쪽**에서 올라오고 살짝 기울어 있다.
@@ -360,13 +386,93 @@ body.phone-up .dialogue { left: 28%; width: min(500px, 46vw); transition: left 0
 /* 타이틀 카드 《彼岸花》 — 프롤로그 끝. 붉은 한 글자만 살아 있는 화면 */
 .title-card { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: #000; opacity: 0; pointer-events: none; z-index: 44; transition: opacity 1.6s ease; }
 .title-card.show { opacity: 1; }
-.tc-kanji { font-family: "Noto Serif KR", serif; font-size: clamp(3.4rem, 12vw, 7rem); font-weight: 600; letter-spacing: 0.22em; text-indent: 0.22em; color: #f0e6d2; text-shadow: 0 0 42px rgba(190, 40, 32, 0.55); }
+.tc-kanji { font-family: var(--serif); font-size: clamp(3.4rem, 12vw, 7rem); font-weight: 600; letter-spacing: 0.22em; text-indent: 0.22em; color: #f0e6d2; text-shadow: 0 0 42px rgba(190, 40, 32, 0.55); }
 .tc-kanji::first-letter { color: #c8362a; }
-.tc-ko { font-family: "Noto Serif KR", serif; font-size: clamp(0.9rem, 2.4vw, 1.15rem); letter-spacing: 0.9em; text-indent: 0.9em; color: rgba(240, 230, 210, 0.55); }
+.tc-ko { font-family: var(--serif); font-size: clamp(0.9rem, 2.4vw, 1.15rem); letter-spacing: 0.9em; text-indent: 0.9em; color: rgba(240, 230, 210, 0.55); }
 .title-card.show .tc-kanji { animation: tc-in 2.4s cubic-bezier(0.2, 0, 0.1, 1) both; }
 @keyframes tc-in { from { letter-spacing: 0.6em; opacity: 0; } to { letter-spacing: 0.22em; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .title-card.show .tc-kanji { animation: none; } }
 
 /* 시퀀스 중 HUD 숨김 (stats 는 디버그라 남긴다) */
 #hud.cine .hint, #hud.cine .stamina, #hud.cine .salt-count, #hud.cine .hidden-badge,
-#hud.cine .mission, #hud.cine .game-hud, #hud.cine .prompt { opacity: 0 !important; transition: opacity 0.4s; }
+#hud.cine .mission, #hud.cine .game-hud, #hud.cine .prompt,
+#hud.cine .wp, #hud.cine .signread, #hud.cine .esc-hint { opacity: 0 !important; transition: opacity 0.4s; }
+
+/* --- 목표 지시자 (ui/waypoint.ts) --- */
+/* 위치는 JS 가 transform 으로 준다 — 원점이 표식 한가운데가 되게 translate(-50%,-50%) 를 내부에서 건다 */
+.wp { position: fixed; left: 0; top: 0; z-index: 21; pointer-events: none; opacity: 0; transition: opacity 0.35s ease; }
+.wp.show { opacity: 1; }
+.wp-ring, .wp-arrow { position: absolute; left: 0; top: 0; }
+.wp-ring {
+  width: 15px; height: 15px; margin: -7.5px 0 0 -7.5px; border-radius: 50%;
+  border: 1.5px solid rgba(255, 200, 118, 0.75); box-shadow: 0 0 8px rgba(255, 200, 118, 0.35);
+  animation: wp-pulse 2.4s ease-in-out infinite;
+}
+@keyframes wp-pulse { 50% { transform: scale(0.72); border-color: rgba(255, 200, 118, 0.45); } }
+.wp-arrow {
+  width: 0; height: 0; margin: -11px 0 0 -8px;
+  border-left: 8px solid transparent; border-right: 8px solid transparent;
+  border-bottom: 13px solid rgba(255, 200, 118, 0.8);
+  filter: drop-shadow(0 0 5px rgba(255, 200, 118, 0.4));
+  display: none;
+}
+.wp-label {
+  position: absolute; left: 0; top: 12px; transform: translateX(-50%);
+  max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; letter-spacing: 0.08em;
+  color: rgba(255, 214, 156, 0.8); text-shadow: 0 1px 3px #000;
+}
+/* 화면 밖: 고리 대신 화살표 */
+.wp.off .wp-ring { display: none; }
+.wp.off .wp-arrow { display: block; }
+.wp.off .wp-label { top: 14px; }
+@media (prefers-reduced-motion: reduce) { .wp-ring { animation: none; } }
+
+/* --- 팻말 읽어 주기 · Esc 커서 안내 --- */
+/* 팻말 가까이 가면 화면 아래에 그 문구가 뜬다 — 판자에 코를 박지 않아도 되게 */
+.signread {
+  position: fixed; left: 50%; bottom: 30vh; transform: translate(-50%, 6px);
+  padding: 6px 14px; border-radius: 3px;
+  background: rgba(6, 8, 14, 0.55); border: 1px solid rgba(243, 234, 214, 0.14);
+  color: #f3ead6; font-size: 13px; letter-spacing: 0.04em; text-shadow: 0 1px 3px #000;
+  opacity: 0; transition: opacity 0.3s ease, transform 0.3s ease; pointer-events: none; z-index: 21;
+}
+.signread.show { opacity: 1; transform: translate(-50%, 0); }
+.signread b { color: #ffc876; font-weight: 600; }
+/* 포인터락이 걸린 직후에만 잠깐 — 커서를 어떻게 되찾는지 아무 데도 안 적혀 있었다 */
+.esc-hint {
+  /* 화면 아래 **가운데** — 오른쪽 아래는 프롬프트 줄, 왼쪽 아래는 소금 개수가 이미 쓰고 있다 */
+  position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 21; pointer-events: none;
+  font-size: 11px; letter-spacing: 0.06em; color: rgba(243, 234, 214, 0.5);
+  background: rgba(0, 0, 0, 0.35); padding: 4px 9px; border-radius: 3px;
+  opacity: 0; transition: opacity 0.5s ease;
+}
+.esc-hint.show { opacity: 1; }
+.esc-hint kbd { font-size: 10px; }
+
+/* 창 비율 고정(선택) — 캔버스를 화면 가운데 레터박스로 앉힌다 (core/settings.ts hud.lockAspect) */
+body.locked-aspect canvas#app {
+  inset: auto; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: var(--view-w, 100%); height: var(--view-h, 100%);
+}
+body.locked-aspect { background: #000; }
+
+/* --- 첫 화면: 언어 선택 (src/boot.ts) --- */
+.lang-gate {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(120% 120% at 50% 40%, #243b33 0%, #12110f 70%);
+  color: var(--cream);
+}
+.lang-gate[hidden] { display: none; }
+.lang-inner { text-align: center; }
+.lang-mark { font-family: "Noto Serif JP", "Noto Serif KR", serif; font-size: 44px; letter-spacing: 0.2em; text-indent: 0.2em; font-weight: 600; color: #f0e6d2; text-shadow: 0 0 42px rgba(190, 40, 32, 0.5); }
+.lang-mark::first-letter { color: #c8362a; }
+.lang-ask { margin-top: 14px; font-size: 12px; letter-spacing: 0.34em; text-indent: 0.34em; opacity: 0.55; }
+.lang-buttons { display: flex; gap: 14px; justify-content: center; margin-top: 30px; }
+.lang-buttons button {
+  min-width: 130px; padding: 13px 26px; border-radius: 999px;
+  border: 1px solid rgba(232,223,201,0.4); background: rgba(232,223,201,0.06); color: var(--cream);
+  font-family: inherit; font-size: 15px; letter-spacing: 0.06em; cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+.lang-buttons button:hover { background: rgba(232,223,201,0.18); border-color: rgba(255,200,118,0.7); transform: translateY(-1px); }

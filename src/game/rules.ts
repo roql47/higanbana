@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { L } from '@/core/i18n';
 import { Props } from '@/world/props';
 import { normalize } from '@/world/village/landmarks';
 
@@ -216,7 +217,7 @@ export class Rules {
       if (g.position.distanceTo(playerPos) < 1.9) {
         this.nearPickup = id;
         const def = this.offerings.find((o) => o.id === id)!;
-        prompt = `[E] ${def.name} — 줍는다`;
+        prompt = L(`[E] ${def.name} — 줍는다`, `[E] ${def.name} — 拾う`);
         break;
       }
     }
@@ -224,9 +225,9 @@ export class Rules {
       const first = this.carried.find((id) => id !== 'fuda');
       if (first) {
         const def = this.offerings.find((o) => o.id === first)!;
-        prompt = `[E] ${def.name} — 받침대에 놓는다`;
+        prompt = L(`[E] ${def.name} — 받침대에 놓는다`, `[E] ${def.name} — 台座に置く`);
       } else if (!this.fudaRefused) {
-        prompt = '[E] 봉인패 — 받침대에 놓는다';
+        prompt = L('[E] 봉인패 — 받침대에 놓는다', '[E] 封印札 — 台座に置く');
       }
     }
     if (prompt !== this.lastPrompt) { this.lastPrompt = prompt; this.events.onPrompt?.(prompt); }

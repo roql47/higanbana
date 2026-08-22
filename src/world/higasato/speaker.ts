@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { L, serifFamily } from '@/core/i18n';
 import type { Physics } from '@/core/physics';
 import type { HigasatoGround } from './ground';
 import { PartsBuilder, textCanvas } from './kit';
@@ -160,16 +161,16 @@ export class Speakers {
       }
       ctx.fillStyle = '#241d14';
       ctx.textAlign = 'center';
-      ctx.font = '700 25px "Noto Serif KR", serif';
-      ctx.fillText('彼ヶ里 秋季 彼岸祭', W / 2, 40);
+      ctx.font = `700 25px ${serifFamily()}`;
+      ctx.fillText(L('히가사토 추계 피안제', '彼ヶ里 秋季 彼岸祭'), W / 2, 40);
       ctx.strokeStyle = 'rgba(36,29,20,0.6)';
       ctx.beginPath(); ctx.moveTo(28, 52); ctx.lineTo(W - 28, 52); ctx.stroke();
-      ctx.font = '500 16px "Noto Serif KR", serif';
+      ctx.font = `500 16px ${serifFamily()}`;
       ctx.textAlign = 'left';
       const lines = [
-        '一. 저녁 여섯 시, 신사 경내에 모일 것',
-        '二. 각 가구는 공물을 지참할 것',
-        '三. 해가 진 뒤 공물에 손대지 말 것',
+        L('하나. 저녁 여섯 시, 신사 경내에 모일 것', '一. 夕刻六時、社の境内に集まること'),
+        L('둘. 각 가구는 공물을 지참할 것', '二. 各戸は供物を持参すること'),
+        L('셋. 해가 진 뒤 공물에 손대지 말 것', '三. 日が落ちたのち供物に触れぬこと'),
       ];
       let y = 82;
       for (const ln of lines) { ctx.fillText(ln, 30, y); y += 28; }
@@ -182,16 +183,16 @@ export class Speakers {
       ctx.strokeRect(-30, -26, 60, 52);
       ctx.fillStyle = this.read ? 'rgba(150,38,32,0.9)' : 'rgba(150,38,32,0.55)';
       ctx.textAlign = 'center';
-      ctx.font = '700 15px "Noto Serif KR", serif';
-      ctx.fillText('彼ヶ里', 0, -4);
-      ctx.fillText('区長', 0, 15);
+      ctx.font = `700 15px ${serifFamily()}`;
+      ctx.fillText(L('히가사토', '彼ヶ里'), 0, -4);
+      ctx.fillText(L('구장', '区長'), 0, 15);
       ctx.restore();
       ctx.textAlign = 'left';
       ctx.fillStyle = '#241d14';
-      ctx.font = '600 19px "Noto Serif KR", serif';
+      ctx.font = `600 19px ${serifFamily()}`;
       // 읽기 전에는 흐릿하다 — 멀리서 보면 "뭔가 적혀 있다"까지만 보여야 한다
       ctx.globalAlpha = this.read ? 1 : 0.35;
-      ctx.fillText('二〇一五年 九月 二十三日', 30, H - 34);
+      ctx.fillText(L('2015년 9월 23일', '二〇一五年 九月 二十三日'), 30, H - 34);
       ctx.globalAlpha = 1;
     };
     if (!this.noticeTex) this.noticeTex = textCanvas(312, 232, draw);

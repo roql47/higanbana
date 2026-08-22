@@ -1,4 +1,5 @@
 import type * as THREE from 'three';
+import { L } from '@/core/i18n';
 
 /**
  * 조사 지점 레지스트리 (PLAN-STORY §4) — 비석·석판·기록물 같은 "E 로 읽는 것"의 공통 창구.
@@ -65,7 +66,7 @@ export class Inspect {
       if (this.hold !== before) p.onHold?.(this.hold);
       if (this.hold >= 1) { this.hold = 0; this.fire(p); return this.near !== null; }
     }
-    const prompt = p ? (p.hold ? `[E] 꾹 — ${p.prompt}` : `[E] ${p.prompt}`) : null;
+    const prompt = p ? (p.hold ? L(`[E] 꾹 — ${p.prompt}`, `[E] 長押し — ${p.prompt}`) : `[E] ${p.prompt}`) : null;
     if (prompt !== this.lastPrompt) { this.lastPrompt = prompt; this.onPrompt(prompt); }
     return this.near !== null;
   }

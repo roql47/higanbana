@@ -13,6 +13,11 @@ export interface ToriiOptions {
   startS?: number;   // 참배로 시작점에서의 거리(m)
   count?: number;
   spacing?: number;  // 토리이 간격(m)
+  /**
+   * 크기 배율. 1 = 기둥 안쪽 2.6 m · 입목 높이 3.25 m (구 마을의 촘촘한 센본토리이 치수).
+   * 실물 명신형 토리이는 이보다 훨씬 크다 — 히가사토는 1.5 로 세운다 (사용자 지시 2026-08-22).
+   */
+  scale?: number;
 }
 
 const VERMILION = new THREE.Color(0.78, 0.20, 0.13); // 주색(朱)
@@ -22,6 +27,8 @@ const DARK_TOP = new THREE.Color(0.13, 0.11, 0.11);   // 입목/도목 상단
 export class ToriiPath {
   readonly mesh: THREE.InstancedMesh;
   readonly count: number;
+  /** 크기 배율 (`ToriiOptions.scale`) — 근접 컬링 반경이 이걸 따라간다 */
+  readonly scale: number = 1;
   /** 각 토리이의 (x, z, yaw) — H2 에서 길찾기·시야 차폐에 쓴다 */
   readonly placements: { x: number; z: number; y: number; yaw: number }[] = [];
 
@@ -29,6 +36,8 @@ export class ToriiPath {
     const startS = opts.startS ?? 70;
     const count = opts.count ?? 60;
     const spacing = opts.spacing ?? 1.15;
+    const scale = opts.scale ?? 1;
+    this.scale = scale;
 
     const geo = makeToriiGeometry();
     const mat = new THREE.MeshStandardMaterial({
@@ -38,6 +47,7 @@ export class ToriiPath {
     });
 
     const mesh = new THREE.InstancedMesh(geo, mat, count);
+    const tint = new THREE.Color();
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.name = 'torii';
@@ -49,39 +59,51 @@ export class ToriiPath {
     const rng = seeded(778);
     let n = 0;
     for (let i = 0; i < count; i++) {
-      const s = startS + i * spacing;
+      /**
+       * 간격을 **흔든다**. 등간격으로 세우면 몇 걸음마다 같은 그림이 되풀이돼서
+       * 「복사·붙여넣기 한 줄」로 읽힌다(사용자 지적 2026-08-22 「너무 일렬로 중복해서 깔지 말 것」).
+       * 실제 참배로의 토리이도 봉납한 사람이 제각각이라 간격·크기·색이 다 다르다.
+       */
+      const s = startS + i * spacing + (rng() - 0.5) * spacing * 0.34;
       if (s > ground.roadLength - 2) break;
       ground.roadAt(s, rp);
-      const y = ground.heightAt(rp.x, rp.z);
-      // 토리이는 진행 방향에 직각으로 선다
-      const yaw = Math.atan2(rp.dirX, rp.dirZ);
-      dummy.position.set(rp.x, y - 0.05, rp.z);
+      // 길 옆으로 조금씩 비켜 세운다 (진행 방향의 법선 = (dirZ, −dirX))
+      const off = (rng() - 0.5) * 0.34 * scale;
+      const px = rp.x + rp.dirZ * off, pz = rp.z - rp.dirX * off;
+      const y = ground.heightAt(px, pz);
+      // 토리이는 진행 방향에 직각으로 선다 (± 3° 는 세월에 틀어진 것)
+      const yaw = Math.atan2(rp.dirX, rp.dirZ) + (rng() - 0.5) * 0.1;
+      dummy.position.set(px, y - 0.05, pz);
       dummy.rotation.set(0, yaw, 0);
-      const sc = 0.97 + rng() * 0.06;
+      const sc = scale * (0.93 + rng() * 0.15);
       dummy.scale.set(sc, sc, sc);
       // 세월에 조금씩 기운다
-      dummy.rotateZ((rng() - 0.5) * 0.016);
-      dummy.rotateX((rng() - 0.5) * 0.012);
+      dummy.rotateZ((rng() - 0.5) * 0.024);
+      dummy.rotateX((rng() - 0.5) * 0.018);
       dummy.updateMatrix();
       mesh.setMatrixAt(n, dummy.matrix);
-      this.placements.push({ x: rp.x, z: rp.z, y, yaw });
+      // 주색도 조금씩 바랜다 — 인스턴스 색은 정점색에 곱해진다
+      const fade = 0.78 + rng() * 0.3;
+      mesh.setColorAt(n, tint.setRGB(fade, fade * (0.93 + rng() * 0.12), fade * (0.9 + rng() * 0.16)));
+      this.placements.push({ x: px, z: pz, y, yaw });
 
       // 기둥 콜라이더 2개
       const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
       const half = new THREE.Vector3(0.17 * sc, 1.5 * sc, 0.17 * sc);
       for (const sx of [-1, 1]) {
-        const off = new THREE.Vector3(PILLAR_X * sx * sc, 0, 0).applyQuaternion(q);
-        physics.addStaticBox(new THREE.Vector3(rp.x + off.x, y + 1.5 * sc, rp.z + off.z), half, q);
+        const o2 = new THREE.Vector3(PILLAR_X * sx * sc, 0, 0).applyQuaternion(q);
+        physics.addStaticBox(new THREE.Vector3(px + o2.x, y + 1.5 * sc, pz + o2.z), half, q);
       }
       // 입목(笠木) 콜라이더만 둔다 — 카메라가 터널 위로 넘어가는 것을 막는 용도.
       // 관(貫, y≈2.0)에도 콜라이더를 달았더니 3인칭 스프링암이 매 프레임 걸려
       // 카메라가 최소거리(0.65 m)까지 무너졌다 → 통로에서는 콜라이더가 아니라
       // Village.inToriiCorridor + camera.constrainDistance 로 명시적으로 조인다 (2026-08-19)
-      physics.addStaticBox(new THREE.Vector3(rp.x, y + 3.06 * sc, rp.z), new THREE.Vector3(1.95 * sc, 0.28 * sc, 0.20 * sc), q);
+      physics.addStaticBox(new THREE.Vector3(px, y + 3.06 * sc, pz), new THREE.Vector3(1.95 * sc, 0.28 * sc, 0.20 * sc), q);
       n++;
     }
     mesh.count = n;
     mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     this.count = n;
     this.mesh = mesh;
     // 근접 컬링용 원본 행렬 보관
@@ -99,13 +121,13 @@ export class ToriiPath {
    * 카메라 코앞의 토리이를 숨긴다 — 안 그러면 기둥·관이 화면을 가로지른다.
    * 스케일 0 으로 접어 넣는 방식(인스턴스 하나짜리 draw 비용 없음).
    */
-  update(cameraPos: THREE.Vector3, radius = 2.05) {
+  update(cameraPos: THREE.Vector3, radius = 1.35 * this.scale + 0.7) {
     let dirty = false;
     const r2 = radius * radius;
     for (let i = 0; i < this.count; i++) {
       const p = this.placements[i]!;
-      const dx = p.x - cameraPos.x, dz = p.z - cameraPos.z, dy = p.y + 1.6 - cameraPos.y;
-      const hide = dx * dx + dz * dz < r2 && Math.abs(dy) < 2.6 ? 1 : 0;
+      const dx = p.x - cameraPos.x, dz = p.z - cameraPos.z, dy = p.y + 1.6 * this.scale - cameraPos.y;
+      const hide = dx * dx + dz * dz < r2 && Math.abs(dy) < 2.6 * this.scale ? 1 : 0;
       if (hide === this.hidden[i]) continue;
       this.hidden[i] = hide;
       dirty = true;

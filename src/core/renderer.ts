@@ -13,7 +13,10 @@ export function createRenderer(canvas: HTMLCanvasElement) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping; // 톤매핑은 postprocessing ToneMappingEffect가 담당
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // three r185 부터 `PCFSoftShadowMap` 은 폐지 예정이라 첫 그림자 패스에서 경고를 찍고 스스로
+  // `PCFShadowMap` 으로 갈아탄다 — 즉 **이미 PCF 로 돌고 있었다**. 경고만 남던 상태라 명시로 바꾼다.
+  // 부드러움은 `light.shadow.radius`(PCF 커널 반경, 텍셀 단위)가 그대로 만든다.
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   return renderer;
 }
 

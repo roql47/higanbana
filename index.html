@@ -1,45 +1,62 @@
 <!doctype html>
-<html lang="ko">
+<html>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
-    <meta name="description" content="히간바나 — 사람 없는 여름밤 마츠리. 초칭 하나를 들고 신사로." />
+    <meta name="description" content="사람 없는 여름밤 마츠리. 초칭 하나를 들고 신사로. — 誰もいない夏祭りの夜。提灯ひとつで神社へ。" />
     <meta name="theme-color" content="#0a0f1a" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏮</text></svg>" />
-    <title>히간바나 (彼岸花)</title>
-    <!-- 퀘스트 보이스 서체 (PLAN-STORY §4.1): 명조 = 히간누시, 손글씨 = 사요. 오프라인이면 시스템 서체 폴백 -->
+    <title>히간바나 · 彼岸花</title>
+    <!--
+      퀘스트 보이스 서체 (PLAN-STORY §4.1): 명조 = 히간누시, 손글씨 = 사요.
+      한국어판과 일본어판이 서체가 다르다 — 명조·손글씨를 두 언어분 다 받아 두고
+      style.css 가 html[lang] 으로 갈라 쓴다. 오프라인이면 시스템 서체 폴백.
+    -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600&family=Nanum+Pen+Script&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600&family=Nanum+Pen+Script&family=Noto+Serif+JP:wght@400;600&family=Yomogi&display=swap" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <canvas id="app"></canvas>
+
+    <!--
+      첫 화면 = 언어 선택 (사용자 지시 2026-08-22).
+      고르기 전에는 게임 코드를 **읽지도 않는다** — 모듈 최상단에서 만들어지는 문자열이 있어서
+      나중에 바꾸면 그것들만 옛 언어로 남는다 (src/boot.ts 참고).
+      한 번 고르면 저장되고 이 화면은 다시 안 나온다.
+    -->
+    <div id="lang-gate" class="lang-gate" hidden>
+      <div class="lang-inner">
+        <div class="lang-mark">彼岸花</div>
+        <div class="lang-ask">언어 · 言語</div>
+        <div class="lang-buttons">
+          <button type="button" data-lang="ko">한국어</button>
+          <button type="button" data-lang="ja">日本語</button>
+        </div>
+      </div>
+    </div>
+
     <div id="loading">
       <div class="loading-inner">
-        <div class="loading-title">히간바나</div>
-        <div class="loading-sub">여름밤 마을로 들어서는 중…</div>
+        <div class="loading-title" id="loading-title"></div>
+        <div class="loading-sub" id="loading-sub"></div>
         <div class="loading-bar"><div class="loading-fill" id="loading-fill"></div></div>
         <div class="loading-pct" id="loading-pct">0%</div>
-        <button class="start-btn" id="start-btn" hidden>클릭해서 시작</button>
+        <button class="start-btn" id="start-btn" hidden></button>
       </div>
     </div>
     <div id="hud">
       <div id="hint" class="hint">
-        <div class="hint-title">클릭해서 조작 시작</div>
-        <div class="hint-keys">
-          <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동 · <kbd>Shift</kbd> 달리기(스태미나) · <kbd>C</kbd> 웅크림</span>
-          <span><kbd>Q</kbd> 초칭 밝기 · <kbd>E</kbd> 줍기/봉납 · <kbd>Tab</kbd> 인벤토리(기록물은 클릭해서 읽는다) · <kbd>좌클릭</kbd> 돌 던지기(유인) · <kbd>G</kbd> 소금(격퇴)</span>
-          <span><kbd>마우스</kbd> 시점 · <kbd>휠</kbd> 줌 · 웅크려서 노점 아래·벼 사이·벽장에 숨을 수 있다</span>
-          <span><kbd>R</kbd> 리셋 · <kbd>M</kbd> 음소거 · <kbd>F</kbd> 전체화면 · <kbd>H</kbd> 설정</span>
-        </div>
+        <div class="hint-title" id="hint-title"></div>
+        <div class="hint-keys" id="hint-keys"></div>
       </div>
       <div id="stats" class="stats"></div>
     </div>
     <div id="title-card" class="title-card">
-      <div class="tc-kanji">彼岸花</div>
-      <div class="tc-ko">피안화</div>
+      <div class="tc-kanji" id="tc-main"></div>
+      <div class="tc-ko" id="tc-sub"></div>
     </div>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/boot.ts"></script>
   </body>
 </html>

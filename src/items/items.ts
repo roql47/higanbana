@@ -6,6 +6,8 @@
  * (PLAN-STORY §4.3 수집물). 그래서 `misc` 에 섞지 않고 따로 뒀다 —
  * 「쓸 데 없는 물건」과 「이야기를 여는 물건」은 인벤에서 구분돼야 한다.
  */
+import { L } from '@/core/i18n';
+
 export type ItemType = 'weapon' | 'misc' | 'record';
 
 /** 하나의 긴 콤보 클립에서 잘라 쓰는 한 타 */
@@ -54,9 +56,9 @@ export interface ItemDef {
 export const ITEMS: Record<string, ItemDef> = {
   sword: {
     id: 'sword',
-    name: '여행자의 검',
+    name: L('여행자의 검', '旅人の剣'),
     type: 'weapon',
-    desc: '가볍고 균형 잡힌 롱소드. 좌클릭/J 로 벤다.',
+    desc: L('가볍고 균형 잡힌 롱소드. 좌클릭/J 로 벤다.', '軽く均整のとれた長剣。左クリック / J で斬る。'),
     icon: '🗡️',
     model: '/models/items/sword.glb',
     // 초기값 — 툴(H 패널 Weapon 폴더)로 맞춘 뒤 갱신
@@ -78,17 +80,18 @@ export const ITEMS: Record<string, ItemDef> = {
   },
   apple: {
     id: 'apple',
-    name: '들사과',
+    name: L('들사과', '野りんご'),
     type: 'misc',
-    desc: '섬 어딘가에서 주웠다. 아직 쓸 데는 없다.',
+    desc: L('섬 어딘가에서 주웠다. 아직 쓸 데는 없다.', '島のどこかで拾った。まだ使い道はない。'),
     icon: '🍎',
   },
   photo: {
     id: 'photo',
-    name: '가족사진',
+    name: L('가족사진', '家族写真'),
     type: 'record',
     // 「기억하지 못한다」를 설명하지 않는다. 사진을 열면 보인다
-    desc: '어린 미오와 언니. 언니의 얼굴만 물에 번진 것처럼 지워져 있다.',
+    desc: L('어린 미오와 언니. 언니의 얼굴만 물에 번진 것처럼 지워져 있다.',
+      '幼いミオと姉。姉の顔だけが水に滲んだように消えている。'),
     icon: '🖼️',
   },
 };

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { L } from '@/core/i18n';
 import type { Dialogue } from './dialogue';
 import type { Sfx } from '@/audio/sfx';
 import type { StoneTablet } from '@/world/higasato/tablet';
@@ -135,11 +136,11 @@ export class Act3 {
     this.face.copy(d.tablet.facePos);
 
     this.beats = [
-      { at: 0.0, run: (d) => void d.dialogue.say({ text: '이끼를 닦아내자 글자가 드러난다 — 彼ヶ里 三禁.', dur: 2.7 }) },
-      { at: 2.9, run: (d) => void d.dialogue.say({ text: '一. 해가 진 뒤 공물을 옮기지 말 것.', dur: 2.8 }) },
-      { at: 6.0, run: (d) => void d.dialogue.say({ text: '二. 피안화가 핀 길을 따라가지 말 것.', dur: 2.8 }) },
+      { at: 0.0, run: (d) => void d.dialogue.say({ text: L('이끼를 닦아내자 글자가 드러난다 — 히가사토 삼금(三禁).', '苔を拭うと文字が現れる — 彼ヶ里 三禁。'), dur: 2.7 }) },
+      { at: 2.9, run: (d) => void d.dialogue.say({ text: L('하나. 해가 진 뒤 공물을 옮기지 말 것.', '一。日が落ちたのち、供物を動かすべからず。'), dur: 2.8 }) },
+      { at: 6.0, run: (d) => void d.dialogue.say({ text: L('둘. 피안화가 핀 길을 따라가지 말 것.', '二。彼岸花の咲く道を辿るべからず。'), dur: 2.8 }) },
       // 「미오가 마지막 문장을 읽는 순간」 — 목소리는 이 줄이 **화면에 떠 있는 동안** 온다
-      { at: 9.1, run: (d) => void d.dialogue.say({ text: '三. 죽은 자가 이름을 불러도 대답하지 말 것.', dur: 3.4 }) },
+      { at: 9.1, run: (d) => void d.dialogue.say({ text: L('셋. 죽은 자가 이름을 불러도 대답하지 말 것.', '三。死者が名を呼んでも、応えるべからず。'), dur: 3.4 }) },
       { at: 11.2, run: (_d, s) => s.call1() },
     ];
   }
@@ -244,7 +245,7 @@ export class Act3 {
     this.moveTarget = 0;
     const d = this.d;
     d.sfx.callName(this.far.x, this.far.y, this.far.z, { far: 1, gain: 0.95 });
-    void d.dialogue.say({ who: '???', text: '미오야.', dur: 2.2 });
+    void d.dialogue.say({ who: '???', text: L('미오야.', 'ミオ。'), dur: 2.2 });
   }
 
   /** 두 번째 부름 — 더 가까이. 버틴 플레이어만 듣는다 */
@@ -252,7 +253,7 @@ export class Act3 {
     this.call2Done = true;
     const d = this.d;
     d.sfx.callName(this.near.x, this.near.y, this.near.z, { far: 0.45, gain: 1.0 });
-    void d.dialogue.say({ who: '???', text: '미오야.', dur: 2.2 });
+    void d.dialogue.say({ who: '???', text: L('미오야.', 'ミオ。'), dur: 2.2 });
   }
 
   /** 「……언니?」 — 이 한 줄이 세 번째 금기다 */
@@ -260,7 +261,7 @@ export class Act3 {
     this.answered = true;
     const d = this.d;
     d.sfx.voice(0.42, 'girl');
-    void d.dialogue.say({ who: '미오', text: '……언니?', dur: 2.4 });
+    void d.dialogue.say({ who: L('미오', 'ミオ'), text: L('……언니?', '……お姉ちゃん?'), dur: 2.4 });
     d.onViolate();
     this.shakeIn = 1.5;
   }
@@ -285,7 +286,7 @@ export class Act3 {
   private spread() {
     if (this.state !== 'call') return;
     this.stainT = 0;
-    void this.d.dialogue.say({ text: '비석의 세 번째 문장에 검은 얼룩이 번졌다.', dur: 3.2 });
+    void this.d.dialogue.say({ text: L('비석의 세 번째 문장에 검은 얼룩이 번졌다.', '石碑の三つめの一文に、黒い染みが広がった。'), dur: 3.2 });
   }
 
   /**

@@ -39,7 +39,8 @@ export function createPostFX(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
   ao.configuration.halfRes = quality?.aoHalfRes ?? false;
   ao.configuration.gammaCorrection = false; // 톤매핑/색공간 변환은 뒤에서
   ao.setQualityMode(quality && quality.ao !== 'off' ? quality.ao : 'Medium');
-  if (quality?.ao !== 'off') composer.addPass(ao);
+  /** 품질 프리셋이 AO 를 허용하는가 (low·medium 은 'off') */
+  let aoAllowed = quality?.ao !== 'off';
 
   const bloom = new BloomEffect({
     mipmapBlur: true,
@@ -70,10 +71,25 @@ export function createPostFX(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
     composer.setSize(width, height);
   }
 
+  /**
+   * AO 패스를 체인에 넣고 뺀다.
+   *
+   * ⚠️ **`intensity = 0` 으로 끄면 안 된다.** N8AO 는 세기 0 에서도 자기 버퍼로 합성을 계속하는데,
+   * 창 크기가 바뀐 뒤 그 버퍼가 화면과 어긋나 **오른쪽 4 분의 1 이 검게** 남았다(실측 재현).
+   * 끌 때는 패스 자체를 뺀다 — 비용도 그쪽이 정직하다.
+   */
+  function setAO(on: boolean) {
+    const has = composer.passes.includes(ao);
+    if (on === has) return;
+    if (on) { composer.removePass(effectPass); composer.addPass(ao); composer.addPass(effectPass); }
+    else composer.removePass(ao);
+  }
+
   /** Tweakpane 등에서 값이 바뀌었을 때 호출 */
   function applySettings() {
     ao.configuration.aoRadius = settings.render.aoRadius;
     ao.configuration.intensity = settings.render.aoIntensity;
+    setAO(aoAllowed && settings.render.aoIntensity > 0);
     bloom.intensity = settings.render.bloomIntensity;
     bloom.luminanceMaterial.threshold = settings.render.bloomThreshold;
     vignette.darkness = settings.render.vignetteDarkness;
@@ -87,11 +103,10 @@ export function createPostFX(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
 
   /** 런타임 품질 변경 (AO on/off·해상도) */
   function applyQuality(q: QualityProfile) {
-    const wantAO = q.ao !== 'off';
-    const hasAO = composer.passes.includes(ao);
-    if (wantAO && !hasAO) { composer.removePass(effectPass); composer.addPass(ao); composer.addPass(effectPass); }
-    if (!wantAO && hasAO) composer.removePass(ao);
-    if (wantAO) { ao.configuration.halfRes = q.aoHalfRes; ao.setQualityMode(q.ao as 'Low' | 'Medium' | 'High'); }
+    aoAllowed = q.ao !== 'off';
+    const wantAO = aoAllowed && settings.render.aoIntensity > 0;
+    if (aoAllowed) { ao.configuration.halfRes = q.aoHalfRes; ao.setQualityMode(q.ao as 'Low' | 'Medium' | 'High'); }
+    setAO(wantAO);
   }
 
   return { composer, resize, applySettings, applyQuality, ao, bloom, vignette, toneMapping };

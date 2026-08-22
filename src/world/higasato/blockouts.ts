@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { L, serifFamily } from '@/core/i18n';
 import type { Physics } from '@/core/physics';
 import { Props } from '@/world/props';
 import { SITES, type HigasatoGround, type Site } from './ground';
@@ -95,7 +96,7 @@ export class Shell {
       const tex = textCanvas(256, 64, (ctx) => {
         ctx.fillStyle = 'rgba(28, 22, 14, 0.92)'; ctx.fillRect(0, 0, 256, 64);
         ctx.fillStyle = 'rgba(214, 202, 176, 0.85)';
-        ctx.font = '600 34px "Noto Serif KR", serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = `600 34px ${serifFamily()}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(def.name, 128, 34);
       });
       const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.38), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 }));
@@ -180,8 +181,8 @@ export class BusStop {
       ctx.fillStyle = '#2a2e33'; ctx.beginPath(); ctx.arc(96, 96, 92, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = 'rgba(210,200,180,0.7)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(96, 96, 84, 0, Math.PI * 2); ctx.stroke();
       ctx.fillStyle = 'rgba(220,210,190,0.9)'; ctx.textAlign = 'center';
-      ctx.font = '700 30px "Noto Serif KR", serif'; ctx.fillText('彼ヶ里', 96, 84);
-      ctx.font = '500 22px "Noto Serif KR", serif'; ctx.fillText('종 점', 96, 124);
+      ctx.font = `700 30px ${serifFamily()}`; ctx.fillText(L('히가사토', '彼ヶ里'), 96, 84);
+      ctx.font = `500 22px ${serifFamily()}`; ctx.fillText(L('종 점', '終 点'), 96, 124);
     });
     const disc = new THREE.Mesh(new THREE.CircleGeometry(0.42, 24), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8, side: THREE.DoubleSide }));
     disc.position.set(cx, gy + 2.35, cz);

@@ -43,7 +43,8 @@ export function setupTouch(input: Input, canvas: HTMLCanvasElement) {
     } else if (lookId === null) {
       lookId = e.pointerId; lastX = e.clientX; lastY = e.clientY;
     }
-    canvas.setPointerCapture(e.pointerId);
+    // 캡처는 편의 기능이다 — 이미 놓인 pointerId 면 InvalidStateError 를 던진다 (core/input.ts 주석 참고)
+    try { canvas.setPointerCapture(e.pointerId); } catch { /* 무시 */ }
   }, { passive: false });
 
   canvas.addEventListener('pointermove', (e) => {

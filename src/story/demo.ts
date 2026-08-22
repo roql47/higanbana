@@ -1,4 +1,5 @@
 import type { Higasato } from '@/world/higasato';
+import { L } from '@/core/i18n';
 import type { Sequence } from './sequencer';
 import type { Quests } from './quests';
 
@@ -28,11 +29,11 @@ export function buildDemoSeq(village: Higasato, quests: Quests): Sequence {
     ],
     events: [
       { t: 0, fade: 'out', dur: 1.4 },
-      { t: 1.2, sub: { who: '???', text: '미오야.' } },
-      { t: 3.6, sub: { who: '미오', text: '……언니?' } },
-      { t: 6.2, sub: { who: '방송', text: '주민 여러분께 알려드립니다. 금일 피안제는 예정대로 진행됩니다.' } },
-      { t: 9.8, fn: () => void quests.glitchTo('나를 꺼내줘', 'gm', 1.4) },
-      { t: 12.2, fn: () => void quests.glitchTo('공물을 돌려놓자', 'sayo', 1.0) },
+      { t: 1.2, sub: { who: '???', text: L('미오야.', 'ミオ。') } },
+      { t: 3.6, sub: { who: L('미오', 'ミオ'), text: L('……언니?', '……お姉ちゃん?') } },
+      { t: 6.2, sub: { who: L('방송', '放送'), text: L('주민 여러분께 알려드립니다. 금일 피안제는 예정대로 진행됩니다.', '住民の皆様にお知らせします。本日の彼岸祭は予定どおり執り行われます。') } },
+      { t: 9.8, fn: () => void quests.glitchTo(L('나를 꺼내줘', 'わたしを出して'), 'gm', 1.4) },
+      { t: 12.2, fn: () => void quests.glitchTo(L('공물을 돌려놓자', '供物を戻そう'), 'sayo', 1.0) },
       { t: 13.2, fade: 'in', dur: 1.2 },
       // 데모는 자기 완결로 끝낸다 — 본편에서는 다음 챕터가 검은 화면을 이어받는다
       { t: 14.6, fade: 'out', dur: 0.8 },

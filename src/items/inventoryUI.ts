@@ -1,4 +1,31 @@
 import type { Inventory } from './inventory';
+import { L } from '@/core/i18n';
+
+/**
+ * 인벤토리 창의 조작 목록.
+ *
+ * 시작 화면의 힌트는 몇 초 뒤 사라지고 다시 볼 방법이 없었다 — 그래서 **언제든 열 수 있는 창**인
+ * 인벤토리에 붙인다(사용자 요청 2026-08-22). **Esc** 줄이 핵심이다: 포인터락이 걸린 뒤
+ * 마우스 커서를 어떻게 되찾는지 아무 데도 안 적혀 있었다.
+ */
+const KEYS: [string, string][] = [
+  ['<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>', L('이동', '移動')],
+  ['<kbd>Shift</kbd>', L('달리기 (스태미나)', '走る（スタミナ）')],
+  [L('<kbd>C</kbd>', '<kbd>C</kbd>'), L('웅크림 — 노점 아래·벼 사이·벽장에 숨는다', 'しゃがむ — 屋台の下・稲の間・押入れに隠れる')],
+  [L('<kbd>마우스</kbd>', '<kbd>マウス</kbd>'), L('시점', '視点')],
+  [L('<kbd>휠</kbd>', '<kbd>ホイール</kbd>'), L('줌', 'ズーム')],
+  ['<kbd>E</kbd>', L('줍기 · 봉납 · 조사 (꾹 누르는 것도 있다)', '拾う · 供える · 調べる（長押しのものもある）')],
+  ['<kbd>Q</kbd>', L('초칭 밝기 — 끔 / 약 / 강', '提灯の明るさ — 消す / 弱 / 強')],
+  [L('<kbd>좌클릭</kbd>', '<kbd>左クリック</kbd>'), L('돌 던지기 (소리로 유인)', '石を投げる（音で誘う）')],
+  ['<kbd>G</kbd>', L('소금 (격퇴)', '塩（追い払う）')],
+  ['<kbd>Tab</kbd>', L('인벤토리 — 기록물은 클릭해서 읽는다', '持ち物 — 記録はクリックして読む')],
+  ['<kbd>O</kbd>', L('목표 패널 접기 / 펼치기', '目標パネルを畳む / 開く')],
+  ['<kbd>Esc</kbd>', L('<b>마우스 커서 꺼내기</b> (다시 클릭하면 조작으로 돌아온다)', '<b>マウスカーソルを出す</b>（もう一度クリックで操作に戻る）')],
+  ['<kbd>R</kbd>', L('리셋', 'リセット')],
+  ['<kbd>M</kbd>', L('음소거', '消音')],
+  ['<kbd>F</kbd>', L('전체화면', '全画面')],
+  ['<kbd>H</kbd>', L('설정 패널', '設定パネル')],
+];
 
 /**
  * Tab 으로 여닫는 인벤토리 오버레이. 열리면 포인터락 해제·게임 입력 차단(main 이 `isOpen` 확인).
@@ -21,14 +48,18 @@ export class InventoryUI {
     this.el.className = 'inv hidden';
     this.el.innerHTML = `
       <div class="inv-panel">
-        <div class="inv-head"><span class="inv-title">인벤토리</span><span class="inv-hint"><kbd>Tab</kbd> 닫기 · 클릭 장착/열기 · 드래그 이동</span></div>
+        <div class="inv-head"><span class="inv-title">${L('인벤토리', '持ち物')}</span><span class="inv-hint">${L('<kbd>Tab</kbd> 닫기 · 클릭 장착/열기 · 드래그 이동', '<kbd>Tab</kbd> 閉じる · クリックで装備/開く · ドラッグで移動')}</span></div>
         <div class="inv-body">
           <div class="inv-equip">
-            <div class="inv-label">주무기</div>
+            <div class="inv-label">${L('주무기', '主武器')}</div>
             <div class="inv-slot inv-slot-equip" data-equip="1"></div>
             <div class="inv-equipname"></div>
           </div>
           <div class="inv-grid"></div>
+        </div>
+        <div class="inv-keys">
+          <div class="inv-keys-title">${L('조작', '操作')}</div>
+          <dl>${KEYS.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
         </div>
         <div class="inv-tooltip hidden"></div>
       </div>`;
@@ -65,7 +96,8 @@ export class InventoryUI {
       const item = inv.item(id);
       if (!item) { this.tooltip.classList.add('hidden'); return; }
       this.tooltip.classList.remove('hidden');
-      this.tooltip.innerHTML = `<b>${item.name}</b><br><span>${item.desc}</span>` + (item.weapon ? `<br><i>피해 ${item.weapon.damage} · 사거리 ${item.weapon.reach} m</i>` : '');
+      this.tooltip.innerHTML = `<b>${item.name}</b><br><span>${item.desc}</span>`
+        + (item.weapon ? `<br><i>${L(`피해 ${item.weapon.damage} · 사거리 ${item.weapon.reach} m`, `威力 ${item.weapon.damage} · 間合い ${item.weapon.reach} m`)}</i>` : '');
       const r = this.el.getBoundingClientRect();
       this.tooltip.style.left = `${e.clientX - r.left + 14}px`; this.tooltip.style.top = `${e.clientY - r.top + 14}px`;
     });
@@ -98,7 +130,7 @@ export class InventoryUI {
     const eq = this.inv.equipped;
     this.equipSlot.classList.toggle('filled', !!eq);
     this.equipSlot.innerHTML = eq ? iconHTML(eq.icon) : '';
-    this.el.querySelector('.inv-equipname')!.textContent = eq ? eq.name : '비어 있음';
+    this.el.querySelector('.inv-equipname')!.textContent = eq ? eq.name : L('비어 있음', '空');
   }
 }
 

@@ -4,7 +4,8 @@ import { createPostFX } from '@/core/postfx';
 import { Physics } from '@/core/physics';
 import { Input } from '@/core/input';
 import { createTweaks } from '@/core/tweaks';
-import { settings, applyDayPreset } from '@/core/settings';
+import { settings, applyDayPreset, loadHudPrefs, saveHudPrefs } from '@/core/settings';
+import { L, lang } from '@/core/i18n';
 import { createSky } from '@/world/sky';
 import { createNightSky } from '@/world/nightSky';
 import { Crows } from '@/world/village/crows';
@@ -33,6 +34,7 @@ import { Equipment } from '@/character/equipment';
 import { Combat } from '@/character/combat';
 import { Dummies } from '@/world/dummies';
 import { Popups } from '@/ui/popups';
+import { Waypoint } from '@/ui/waypoint';
 import { Props } from '@/world/props';
 import { NavGrid } from '@/ai/navgrid';
 import { Senses } from '@/ai/senses';
@@ -68,6 +70,26 @@ import { LifeSigns } from '@/world/higasato/lifesigns';
 import { Rain } from '@/world/rain';
 import { TimeOfDayController } from '@/world/timeOfDay';
 
+/**
+ * 어느 쪽인가를 화살표 한 글자로. **화면 기준**이다 — 팻말이 「→」라고 해도 플레이어가
+ * 반대로 서 있으면 그건 왼쪽이다(그게 팻말의 한계라 HUD 가 보완한다).
+ *
+ * 카메라 전방은 (−sin yaw, −cos yaw) 이고(`camera/thirdPerson.ts`), yaw 가 커지면 왼쪽으로 돈다.
+ * 그래서 화면각 = −(목표 yaw − 카메라 yaw) 다.
+ */
+const BEARINGS = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'];
+function bearingGlyph(dx: number, dz: number, camYaw: number): string {
+  let rel = Math.atan2(-dx, -dz) - camYaw;
+  while (rel > Math.PI) rel -= Math.PI * 2;
+  while (rel < -Math.PI) rel += Math.PI * 2;
+  const i = ((Math.round(-rel / (Math.PI / 4)) % 8) + 8) % 8;
+  return BEARINGS[i]!;
+}
+
+/** 화자 이름 — 자막에 반복해서 나오는 것만 상수로 (`story/*` 도 같은 이름을 쓴다) */
+const MIO_NAME = L('미오', 'ミオ');
+const BROADCAST = L('방송', '放送');
+
 interface CharacterVisual {
   update(dt: number, ctrl: CharacterController): void;
   setVisibility(v: number): void;
@@ -82,6 +104,7 @@ async function main() {
   const loadingPct = document.getElementById('loading-pct')!;
   const startBtn = document.getElementById('start-btn') as HTMLButtonElement;
   const debug = import.meta.env.DEV || new URLSearchParams(location.search).has('debug');
+  loadHudPrefs(); // 목표 지시자·팻말 읽기·창 비율 고정 — 저장된 취향을 먼저 되살린다
 
   // --- 배포 하위 경로 보정: 코드 곳곳의 '/models/…' 류 절대 경로를 BASE_URL 로 리라이트 ---
   // (GitHub Pages 는 /higanbana/ 하위라 루트 절대 경로가 404 난다. 개발 서버는 BASE_URL='/' 라 무변화)
@@ -95,9 +118,24 @@ async function main() {
   // **로드 전에** 정해져야 한다 — 건너뛸 프롤로그의 에셋(사요)까지 읽을 이유가 없다
   const skipIntro = new URLSearchParams(location.search).get('skip') === 'intro';
 
-  // --- 로딩 진행률 (three 의 기본 LoadingManager 를 모든 로더가 공유) ---
+  /**
+   * 로딩 진행률 (three 의 기본 LoadingManager 를 모든 로더가 공유).
+   *
+   * 퍼센트만 보여 주면 **바가 뒤로 간다**. 로더가 도중에 새 파일을 발견할 때마다 분모(total)가
+   * 커지기 때문인데, 화면에 분모가 없으니 그냥 고장으로 보인다(사용자 지적 2026-08-22).
+   * 그래서 두 가지를 바꾼다:
+   *   ① 숫자를 **56 / 147** 로 보여 준다 — 분모가 늘어난 게 눈에 보이면 되돌아간 게 아니라 "더 찾았다"로 읽힌다
+   *   ② 막대는 **뒤로 가지 않는다** — 분모가 커지면 잠시 멈췄다가 다시 찬다
+   */
   let loadedItems = 0, totalItems = 0;
-  const setProgress = (p: number) => { loadingFill.style.width = `${Math.round(p * 100)}%`; loadingPct.textContent = `${Math.round(p * 100)}%`; };
+  let progressShown = 0;
+  const setProgress = (p: number) => {
+    progressShown = Math.max(progressShown, Math.min(1, p));
+    loadingFill.style.width = `${Math.round(progressShown * 100)}%`;
+    loadingPct.textContent = totalItems
+      ? `${loadedItems} / ${totalItems}${loadedItems < totalItems ? '' : L('  ·  마무리', '  ·  仕上げ')}`
+      : `${Math.round(progressShown * 100)}%`;
+  };
   THREE.DefaultLoadingManager.onProgress = (_url, loaded, total) => { loadedItems = loaded; totalItems = total; setProgress(0.1 + 0.85 * (total ? loaded / total : 0)); };
   THREE.DefaultLoadingManager.onError = (url) => console.warn('[load] 실패:', url);
   setProgress(0.03);
@@ -113,6 +151,17 @@ async function main() {
   // --- 스토리 상태 + 체크포인트 저장 (PLAN-STORY S0). 재개 흐름은 스토리 챕터와 함께 연결한다 ---
   const storyFlags = defaultFlags();
   const storySave = new StorySave();
+
+  /**
+   * 웹폰트가 붙기를 기다린다. 팻말·비석·공고문의 글자는 **캔버스에 한 번 구워지는** 텍스처라,
+   * 서체가 아직 안 왔으면 폴백으로 구워지고 나중에 서체가 와도 다시 그려지지 않는다.
+   * (실측: 명조로 재단한 글자 폭이 시스템 고딕으로 구워져 판자 밖으로 넘쳤다)
+   * 3 초를 넘기면 그냥 진행한다 — 오프라인에서 로딩이 멈추는 쪽이 더 나쁘다.
+   */
+  await Promise.race([
+    document.fonts?.ready ?? Promise.resolve(),
+    new Promise((r) => setTimeout(r, 3000)),
+  ]).catch(() => { /* 서체가 없어도 게임은 돌아간다 */ });
 
   const physics = await Physics.create();
 
@@ -439,14 +488,59 @@ async function main() {
   const staminaFill = staminaEl.querySelector('.stamina-fill') as HTMLElement;
   const saltEl = document.createElement('div'); saltEl.className = 'salt-count';
   document.getElementById('hud')!.appendChild(saltEl);
-  const hiddenEl = document.createElement('div'); hiddenEl.className = 'hidden-badge'; hiddenEl.textContent = '숨었다';
+  const hiddenEl = document.createElement('div'); hiddenEl.className = 'hidden-badge'; hiddenEl.textContent = L('숨었다', '隠れた');
   document.getElementById('hud')!.appendChild(hiddenEl);
-  // 우상단 미션 패널: 현재 목표 한 줄 + 공물 체크리스트 (단계 변화 시 renderHud 가 갱신)
+  /**
+   * 우상단 미션 패널: 현재 목표 한 줄 + 공물 체크리스트 (단계 변화 시 renderHud 가 갱신).
+   *
+   * 체크리스트 7 행은 화면 오른쪽 위를 꽤 크게 먹는다 — 길을 다 외운 뒤에는 방해다.
+   * 그래서 **접을 수 있다**(사용자 요청 2026-08-22): 제목줄을 누르거나 `O`.
+   * 접어도 **목표 한 줄은 남는다** — 그게 이 패널의 본체이고, 접었다는 사실이 보여야 한다.
+   * 선택은 localStorage 에 남는다 (다음 판에도 접혀 있다).
+   */
   const missionEl = document.createElement('div'); missionEl.className = 'mission';
-  missionEl.innerHTML = '<div class="mission-title">목표</div><div class="mission-goal"></div><ul class="mission-list"></ul>';
+  missionEl.innerHTML =
+    `<button class="mission-head" type="button" title="${L('O — 접기/펼치기', 'O — 畳む/開く')}">`
+    + `<span class="mission-title">${L('목표', '目標')}</span><span class="mission-caret">▾</span></button>`
+    + '<div class="mission-goal"></div><ul class="mission-list"></ul>';
   document.getElementById('hud')!.appendChild(missionEl);
   const missionGoal = missionEl.querySelector('.mission-goal') as HTMLElement;
   const missionList = missionEl.querySelector('.mission-list') as HTMLElement;
+  const missionHead = missionEl.querySelector('.mission-head') as HTMLButtonElement;
+  const MISSION_FOLD_KEY = '3dm.mission.folded';
+  let missionFolded = localStorage.getItem(MISSION_FOLD_KEY) === '1';
+  const applyMissionFold = () => {
+    missionEl.classList.toggle('folded', missionFolded);
+    (missionEl.querySelector('.mission-caret') as HTMLElement).textContent = missionFolded ? '▸' : '▾';
+  };
+  const toggleMissionFold = () => {
+    missionFolded = !missionFolded;
+    localStorage.setItem(MISSION_FOLD_KEY, missionFolded ? '1' : '0');
+    applyMissionFold();
+  };
+  missionHead.addEventListener('click', toggleMissionFold);
+  applyMissionFold();
+  /**
+   * --- 길안내 (사용자 지시 2026-08-22 「표지판 알림이나 퀘스트 위치같은건 접근성 올려줘야할듯」) ---
+   *
+   * 두 겹이다. 미니맵은 놓지 않는다 — 어두운 데를 눈으로 훑는 게 이 게임의 재미다.
+   *   ① **목표 지시자**(`ui/waypoint.ts`) — 지금 목표가 화면 어느 쪽인지 + 몇 m
+   *   ② **팻말 읽어 주기** — 팻말 6 m 안에 들어가면 그 문구가 화면 아래에 뜬다.
+   *      판자는 밤에 읽기 어렵고, 읽으려면 정면으로 서야 했다
+   */
+  const waypoint = new Waypoint(document.getElementById('hud')!);
+  const signReadEl = document.createElement('div'); signReadEl.className = 'signread';
+  document.getElementById('hud')!.appendChild(signReadEl);
+  /** 포인터락 직후 잠깐 뜨는 Esc 안내 — 커서를 되찾는 법이 어디에도 없었다 */
+  const escHintEl = document.createElement('div'); escHintEl.className = 'esc-hint';
+  escHintEl.innerHTML = L('<kbd>Esc</kbd> 마우스 커서', '<kbd>Esc</kbd> マウスカーソル');
+  document.getElementById('hud')!.appendChild(escHintEl);
+  let escHintT = 0;
+  document.addEventListener('pointerlockchange', () => {
+    if (document.pointerLockElement === canvas) { escHintT = 4.5; escHintEl.classList.add('show'); }
+    else escHintEl.classList.remove('show');
+  });
+
   // 하단: 프롬프트 라인만 (공물 칩은 미션 패널로 이동)
   const hudEl = document.createElement('div'); hudEl.className = 'game-hud';
   hudEl.innerHTML = '<div class="prompt-line"><span class="prompt-text"></span><i class="prompt-bar"></i></div>';
@@ -487,28 +581,42 @@ async function main() {
     if (rules.fudaRefused) {
       // ACT 17 — 글리치 시퀀스가 목표를 잡고 있다. 여기서 덮지 않는다
     } else if (!rules.started) {
-      quests.set(tabletRead ? '마을 한가운데의 제단으로 가라' : '참배로를 따라 마을로 들어가라', 'gm');
+      quests.set(tabletRead
+        ? L('마을 한가운데의 제단으로 가라', '村の真ん中の祭壇へ行け')
+        : L('참배로를 따라 마을로 들어가라', '参道を辿って村へ入れ'), 'gm');
     } else if (rules.carrying) {
       const def = rules.offerings.find((o) => o.id === rules!.carried[0])!;
-      quests.set(`${def.name}${eul(def.name)} 제단으로 가져와라`, 'gm');
+      quests.set(L(`${def.name}${eul(def.name)} 제단으로 가져와라`, `${def.name}を祭壇へ運べ`), 'gm');
     } else {
       const avail = rules.available();
       const GOALS: Record<string, string> = {
-        suzu: '오래된 사당을 조사하라', kushi: '폐교를 조사하라', coins: '공동우물을 조사하라',
-        geta: '공동묘지를 조사하라', kagami: '폐여관을 조사하라', fuda: '촌장의 저택을 조사하라',
+        suzu: L('오래된 사당을 조사하라', '古い祠を調べよ'), kushi: L('폐교를 조사하라', '廃校を調べよ'),
+        coins: L('공동우물을 조사하라', '共同井戸を調べよ'), geta: L('공동묘지를 조사하라', '無縁墓地を調べよ'),
+        kagami: L('폐여관을 조사하라', '廃旅館を調べよ'), fuda: L('촌장의 저택을 조사하라', '村長の屋敷を調べよ'),
       };
-      if (avail.length >= 2) quests.set('공동묘지와 폐여관을 조사하라', 'gm');
-      else if (avail.length === 1) quests.set(GOALS[avail[0]!] ?? '공물을 찾아라', 'gm');
-      else quests.set(`7개의 공물을 찾아라  <b>${rules.offered}</b> / 7`, 'gm');
+      if (avail.length >= 2) quests.set(L('공동묘지와 폐여관을 조사하라', '無縁墓地と廃旅館を調べよ'), 'gm');
+      else if (avail.length === 1) quests.set(GOALS[avail[0]!] ?? L('공물을 찾아라', '供物を探せ'), 'gm');
+      else quests.set(L(`7개의 공물을 찾아라  <b>${rules.offered}</b> / 7`, `七つの供物を探せ  <b>${rules.offered}</b> / 7`), 'gm');
     }
     // 체크리스트 7행 — 일곱 번째(사요)는 끝까지 '？？？'
     missionList.innerHTML = rules.offerings.map((o) => {
       const st = rules!.stateOf(o.id);
-      const label = st === 'offered' ? '봉납' : st === 'carried' ? '운반 중' : st === 'open' ? o.where : '─';
+      const label = st === 'offered' ? L('봉납', '奉納') : st === 'carried' ? L('운반 중', '運搬中') : st === 'open' ? o.where : '─';
       const cls = st === 'offered' ? 'got' : st === 'carried' ? 'carry' : st === 'locked' ? 'lock' : '';
       return `<li class="${cls}" style="--c:#${o.color.toString(16).padStart(6, '0')}"><span class="dot"></span><span class="nm">${o.name}</span><span class="where">${label}</span></li>`;
     }).join('');
     missionEl.classList.toggle('done', rules.fudaRefused);
+    // 목표 지시자는 **목표 문구와 같은 판단**에서 나온다 — 따로 적어 두면 반드시 어긋난다
+    if (village) {
+      const vv2 = village;
+      if (rules.fudaRefused) waypoint.set(null);
+      else if (!rules.started) waypoint.set(tabletRead ? vv2.pedestals.slabPos : vv2.tablet.pos, tabletRead ? L('제단', '祭壇') : L('돌비석', '石碑'));
+      else if (rules.carrying) waypoint.set(vv2.pedestals.slabPos, L('제단', '祭壇'));
+      else {
+        const def = rules.available().map((id) => rules!.offerings.find((o) => o.id === id)).find((o) => o?.pos);
+        waypoint.set(def?.pos ?? vv2.pedestals.slabPos, def ? def.where : L('제단', '祭壇'));
+      }
+    }
   };
   if (village) {
     const g = village.ground;
@@ -518,12 +626,12 @@ async function main() {
     // `model`·`size` 는 실물 소품(Tripo). 없으면 발광 구슬 자리표시자가 남는다.
     // `size` = **가장 긴 변**(m). 실물 치수에 맞춘다 — 아이 게다 18 cm · 얼레빗 12 cm · 손거울 20 cm
     const offerings: OfferingDef[] = [
-      { id: 'suzu', name: '붉은 방울', where: '오래된 사당', color: 0xff4a3c, pos: vv.hokora.suzuPos.clone(), model: '/models/props/offer-suzu.glb', size: 0.12 },
-      { id: 'kushi', name: '붉은 머리빗', where: '폐교', color: 0xe06a8a, pos: vv.school.inner.clone(), model: '/models/props/offer-kushi.glb', size: 0.12 },
-      { id: 'coins', name: '동전 세 닢', where: '공동우물', color: 0xd8c25e, pos: onGround(vv.well.pos.clone().add(new THREE.Vector3(1.3, 0, -0.9))), model: '/models/props/offer-coins.glb', size: 0.09 },
-      { id: 'geta', name: '아이의 게다', where: '공동묘지', color: 0xd08a4a, pos: onGround(new THREE.Vector3(-37, 0, 10.5)), model: '/models/props/offer-geta.glb', size: 0.18 },
-      { id: 'kagami', name: '깨진 거울', where: '폐여관', color: 0x9ac8e0, pos: vv.inn.inner.clone(), model: '/models/props/offer-kagami.glb', size: 0.20 },
-      { id: 'fuda', name: '제문과 봉인패', where: '촌장의 저택', color: 0xc05a2a, pos: vv.manor.inner.clone(), model: '/models/props/offer-fuda.glb', size: 0.28 },
+      { id: 'suzu', name: L('붉은 방울', '赤い鈴'), where: L('오래된 사당', '古い祠'), color: 0xff4a3c, pos: vv.hokora.suzuPos.clone(), model: '/models/props/offer-suzu.glb', size: 0.12 },
+      { id: 'kushi', name: L('붉은 머리빗', '赤い櫛'), where: L('폐교', '廃校'), color: 0xe06a8a, pos: vv.school.inner.clone(), model: '/models/props/offer-kushi.glb', size: 0.12 },
+      { id: 'coins', name: L('동전 세 닢', '三枚の銭'), where: L('공동우물', '共同井戸'), color: 0xd8c25e, pos: onGround(vv.well.pos.clone().add(new THREE.Vector3(1.3, 0, -0.9))), model: '/models/props/offer-coins.glb', size: 0.09 },
+      { id: 'geta', name: L('아이의 게다', '子どもの下駄'), where: L('공동묘지', '無縁墓地'), color: 0xd08a4a, pos: onGround(new THREE.Vector3(-37, 0, 10.5)), model: '/models/props/offer-geta.glb', size: 0.18 },
+      { id: 'kagami', name: L('깨진 거울', '割れた鏡'), where: L('폐여관', '廃旅館'), color: 0x9ac8e0, pos: vv.inn.inner.clone(), model: '/models/props/offer-kagami.glb', size: 0.20 },
+      { id: 'fuda', name: L('제문과 봉인패', '祭文と封印札'), where: L('촌장의 저택', '村長の屋敷'), color: 0xc05a2a, pos: vv.manor.inner.clone(), model: '/models/props/offer-fuda.glb', size: 0.28 },
       { id: 'sayo', name: '？？？', where: '', color: 0x8a8a9a, pos: null },
     ];
     // 봉납 판정 = 받침대 반원의 석판
@@ -531,15 +639,15 @@ async function main() {
       onPrompt: (t) => { rulesPrompt = t; renderPrompt(); },
       onPickup: (o, _carried) => {
         renderHud(); sfx.pickup();
-        toastEl.textContent = `${o.name}${eul(o.name)} 손에 넣었다`;
+        toastEl.textContent = L(`${o.name}${eul(o.name)} 손에 넣었다`, `${o.name}を手に入れた`);
         toastEl.classList.add('show'); toastT = 3.0;
         // 공물이 운다 — 줍는 순간 큰 소음 이벤트 = 운반 구간의 시작 (§3.2)
         senses?.emitNoise(controller.position, 26);
         if (o.id === 'suzu') {
           void dialogue.say(
-        { text: '어린아이의 손이 같은 방울을 집는다 — 기억이 스친다.' },
-        { who: '미오', text: '방금…… 뭐였지?' },
-        { text: '사당 밖에서, 무언가가 이쪽으로 고개를 돌렸다.' },
+        { text: L('어린아이의 손이 같은 방울을 집는다 — 기억이 스친다.', '幼い手が同じ鈴を掴む — 記憶がよぎる。') },
+        { who: MIO_NAME, text: L('방금…… 뭐였지?', 'いまの……なに?') },
+        { text: L('사당 밖에서, 무언가가 이쪽으로 고개를 돌렸다.', '祠の外で、何かがこちらへ首を向けた。') },
           );
         }
       },
@@ -547,14 +655,14 @@ async function main() {
         sfx.offer(); matsuri?.onOffered(); renderHud();
         vv.pedestals.place(slot, o.color, rules!.cloneModel(o.id));
         // 신사 아래에서 여자 목소리가 숫자를 센다 (ACT 7~)
-        const count = ['하나', '둘', '셋', '넷', '다섯'][n - 1];
-        if (count) void dialogue.say({ who: '땅 밑', text: `……${count}.` });
+        const count = (lang() === 'ja' ? ['ひとつ', 'ふたつ', 'みっつ', 'よっつ', 'いつつ'] : ['하나', '둘', '셋', '넷', '다섯'])[n - 1];
+        if (count) void dialogue.say({ who: L('땅 밑', '地の底'), text: `……${count}.` });
         // 봉인 해제 단계별 월드 반응 (PLAN-STORY §1.2) — S1 은 텍스트·AI 반응까지, 비주얼은 후속
         const stage: Record<number, string> = {
-          1: '땅이 울렸다. 마을 어딘가에서 오래 잠긴 문이 열리는 소리가 났다.',
-          2: '본전 문 안쪽에서 손톱으로 긁는 소리가 난다.',
-          4: '본전 문에 작은 틈이 생겼다.',
-          5: '마을의 공기가 달라졌다 — 어디에도 안전한 길이 없다.',
+          1: L('땅이 울렸다. 마을 어딘가에서 오래 잠긴 문이 열리는 소리가 났다.', '地が鳴った。村のどこかで、長く閉ざされた戸が開く音がした。'),
+          2: L('본전 문 안쪽에서 손톱으로 긁는 소리가 난다.', '本殿の戸の内側で、爪が引っ掻く音がする。'),
+          4: L('본전 문에 작은 틈이 생겼다.', '本殿の戸に小さな隙間ができた。'),
+          5: L('마을의 공기가 달라졌다 — 어디에도 안전한 길이 없다.', '村の空気が変わった — どこにも安全な道はない。'),
         };
         if (stage[n]) { toastEl.textContent = stage[n]!; toastEl.classList.add('show'); toastT = 4.2; }
         // **본전 문이 계기판이다** (PLAN-STORY P3-1). 위 자막이 말한 것을 문이 실제로 한다 —
@@ -564,9 +672,9 @@ async function main() {
         if (n === 3) {
           // ACT 11 — 방송 두 목소리 충돌. 플레이어가 처음 의심하는 지점
           void dialogue.say(
-            { who: '방송', text: '주민 여러분께 알려드립니다. 공물이 세 개 사라졌습니다.' },
-            { who: '방송', text: '발견 즉시 원래 장소로 돌려놓으십시오. 공물을 제단으로 옮기지 마십시오.' },
-            { who: '방송', text: '……제단으로 가져오십시오.' },
+            { who: BROADCAST, text: L('주민 여러분께 알려드립니다. 공물이 세 개 사라졌습니다.', '住民の皆様にお知らせします。供物が三つ失われました。') },
+            { who: BROADCAST, text: L('발견 즉시 원래 장소로 돌려놓으십시오. 공물을 제단으로 옮기지 마십시오.', '発見次第、元の場所へお戻しください。供物を祭壇へ運ばないでください。') },
+            { who: BROADCAST, text: L('……제단으로 가져오십시오.', '……祭壇へお持ちください。') },
           );
         }
         if (n === 4 && hunters[1]) {
@@ -575,7 +683,7 @@ async function main() {
           for (const z of [60, 35, 10, -12, -35]) { const rp = g.roadAt(g.sAtZ(z)); a.push(new THREE.Vector3(rp.x, 0, rp.z)); }
           a.push(new THREE.Vector3(31, 0, 30));
           hunters[1].setAnchors(a);
-          toastEl.textContent += '  …토리이 쪽에서 방울 소리가 난다';
+          toastEl.textContent += L('  …토리이 쪽에서 방울 소리가 난다', '  …鳥居のほうで鈴の音がする');
         }
         // 봉납 = 자동 체크포인트 (§6.2). 재개 흐름은 스토리 챕터에서 연결한다
         storyFlags.offered = n;
@@ -586,16 +694,18 @@ async function main() {
         renderHud();
         void (async () => {
           await dialogue.say(
-            { text: '받침대가 봉인패를 받지 않는다.' },
-            { who: '미오', text: '……왜 안 놓이지?' },
+            { text: L('받침대가 봉인패를 받지 않는다.', '台座が封印札を受け取らない。') },
+            { who: MIO_NAME, text: L('……왜 안 놓이지?', '……どうして置けないの?') },
           );
-          await quests.glitchTo('마지막 공물을 찾아라', 'gm', 1.0);
+          await quests.glitchTo(L('마지막 공물을 찾아라', '最後の供物を探せ'), 'gm', 1.0);
           await new Promise((r) => setTimeout(r, 700));
-          await quests.glitchTo('마지막 봉인을 없애라', 'gm', 1.2);
+          await quests.glitchTo(L('마지막 봉인을 없애라', '最後の封を解け'), 'gm', 1.2);
           await new Promise((r) => setTimeout(r, 700));
-          await quests.glitchTo('나를 꺼내줘', 'gm', 1.6);
-          await dialogue.say({ who: '???', text: '미오.' }, { who: '???', text: '여기까지 잘 왔구나.' });
-          endEl.innerHTML = '<div class="ending-title">彼岸</div><div class="ending-sub">1부 수직 슬라이스는 여기까지 — 신사 지하는 다음 빌드에서.</div><div class="ending-hint">R — 처음부터</div>';
+          await quests.glitchTo(L('나를 꺼내줘', 'わたしを出して'), 'gm', 1.6);
+          await dialogue.say({ who: '???', text: L('미오.', 'ミオ。') }, { who: '???', text: L('여기까지 잘 왔구나.', 'よくここまで来たね。') });
+          endEl.innerHTML = L(
+            '<div class="ending-title">피안</div><div class="ending-sub">1부 수직 슬라이스는 여기까지 — 신사 지하는 다음 빌드에서.</div><div class="ending-hint">R — 처음부터</div>',
+            '<div class="ending-title">彼岸</div><div class="ending-sub">第一部の縦切りはここまで — 社殿の地下は次のビルドで。</div><div class="ending-hint">R — 最初から</div>');
           endEl.classList.add('show');
         })();
       },
@@ -604,7 +714,7 @@ async function main() {
     renderHud();
     actions = new Actions(scene, asGround(g), senses!, sfx);
     hiding = new Hiding(asVillage(village));
-    saltEl.textContent = '소금 × ' + actions.salt;
+    saltEl.textContent = L('소금 × ', '塩 × ') + actions.salt;
 
     // --- ACT 3 「세 가지 금기」 · ACT 4 「끝나지 않은 축제」 (story/act3.ts, act4.ts) ---
     act3 = new Act3({
@@ -637,26 +747,26 @@ async function main() {
     inspect.add({
       // 「플레이어가 표면을 닦으면 글자가 나타난다」 — 한 번의 E 가 아니라 **꾹**. 2.4 초 동안
       // 이끼가 위에서부터 벗겨지고, 마지막에 드러나는 문장이 세 번째 금기다
-      id: 'tablet', pos: vv.tablet.pos, radius: 2.4, prompt: '비석을 닦는다', once: true,
+      id: 'tablet', pos: vv.tablet.pos, radius: 2.4, prompt: L('비석을 닦는다', '石碑を拭く'), once: true,
       hold: 2.4,
       onHold: (p) => act3!.wipe(p),
       onUse: () => { act3!.begin(); },
     });
     inspect.add({
       // 「방송 장치에 적힌 날짜는 10년 전 피안제 당일이다」
-      id: 'notice', pos: vv.speakers.noticePos, radius: 2.2, prompt: '공고문을 읽는다', once: true,
+      id: 'notice', pos: vv.speakers.noticePos, radius: 2.2, prompt: L('공고문을 읽는다', '掲示を読む'), once: true,
       enabled: () => tabletRead,
       onUse: () => {
         vv.speakers.reveal();
         void (async () => {
           await dialogue.say(
-            { text: '종이는 새것처럼 빳빳하다. 풀이 아직 마르지 않았다.' },
-            { text: '「彼ヶ里 秋季 彼岸祭 — 二〇一五年 九月 二十三日」' },
-            { who: '미오', text: '……10년 전 날짜잖아.' },
-            { who: '미오', text: '방금 금일이라고 했어. 오늘이라고.' },
+            { text: L('종이는 새것처럼 빳빳하다. 풀이 아직 마르지 않았다.', '紙は新品のように張っている。糊がまだ乾いていない。') },
+            { text: L('「히가사토 추계 피안제 — 2015년 9월 23일」', '「彼ヶ里 秋季 彼岸祭 — 二〇一五年 九月 二十三日」') },
+            { who: MIO_NAME, text: L('……10년 전 날짜잖아.', '……十年前の日付じゃない。') },
+            { who: MIO_NAME, text: L('방금 금일이라고 했어. 오늘이라고.', 'さっき本日って言った。今日だって。') },
             // 폰을 본 사람만 받는 줄. 「방송이 틀렸다」가 「오늘이 정말 그날이다」로 바뀐다.
             // 안 본 사람에게는 설명이 되므로 붙이지 않는다
-            ...(phone.seen ? [{ who: '미오', text: '……내 폰도 9월 23일이었어.' }] : []),
+            ...(phone.seen ? [{ who: MIO_NAME, text: L('……내 폰도 9월 23일이었어.', '……わたしの携帯も九月二十三日だった。') }] : []),
           );
         })();
       },
@@ -664,7 +774,7 @@ async function main() {
     inspect.add({
       // 미오는 **빈손으로 내렸다**(각색 6 C안). 이 게임의 빛은 여기서 손에 들어온다 —
       // 폐허의 처마에 아직 켜져 있는 남의 집 등불이다
-      id: 'eave-chochin', pos: vv.eaveChochin.pos, radius: 2.0, prompt: '초칭을 든다', once: true,
+      id: 'eave-chochin', pos: vv.eaveChochin.pos, radius: 2.0, prompt: L('초칭을 든다', '提灯を取る'), once: true,
       enabled: () => vv.eaveChochin.available,
       onUse: () => {
         vv.eaveChochin.take();
@@ -675,12 +785,12 @@ async function main() {
         storySave.checkpoint(storyFlags);
         void (async () => {
           await dialogue.say(
-            { who: '미오', text: '……빌릴게요.' },
-            { text: '돌려줄 사람이 없다는 건, 알고 있다.' },
+            { who: MIO_NAME, text: L('……빌릴게요.', '……お借りします。') },
+            { text: L('돌려줄 사람이 없다는 건, 알고 있다.', '返す相手がいないことは、わかっている。') },
           );
           // 빛 3단은 이 게임의 난이도 다이얼이다. 가르칠 자리가 지금까지 없었다 —
           // 처음부터 들고 시작했으니까
-          toast('Q — 초칭 밝기(끔 / 약 / 강). 밝을수록 멀리서도 보인다');
+          toast(L('Q — 초칭 밝기(끔 / 약 / 강). 밝을수록 멀리서도 보인다', 'Q — 提灯の明るさ（消す / 弱 / 強）。明るいほど遠くからも見つかる'));
         })();
       },
     });
@@ -691,7 +801,7 @@ async function main() {
        * `once: false` 다 — **몇 번을 밀어도 안 열린다**는 게 이 물건의 내용이라,
        * 한 번 쓰고 사라지면 안 된다. 봉납이 쌓여 틈이 벌어진 뒤에도 같은 자리에서 계속 민다
        */
-      id: 'honden', pos: vv.shrine.honden.pos, radius: 2.1, prompt: '본전 문을 밀어본다', once: false,
+      id: 'honden', pos: vv.shrine.honden.pos, radius: 2.1, prompt: L('본전 문을 밀어본다', '本殿の戸を押してみる'), once: false,
       hold: 1.2,
       onHold: (p) => vv.shrine.honden.push(p),
       onUse: () => {
@@ -700,8 +810,8 @@ async function main() {
         const d = h.stage;
         void dialogue.say(
           d >= 2
-            ? { who: '미오', text: '……틈은 있는데, 더는 안 열려.' }
-            : { text: '안에서 잠겨 있다. 밖에는 걸쇠가 없다.' },
+            ? { who: MIO_NAME, text: L('……틈은 있는데, 더는 안 열려.', '……隙間はあるのに、これ以上は開かない。') }
+            : { text: L('안에서 잠겨 있다. 밖에는 걸쇠가 없다.', '内側から閉ざされている。外に掛け金はない。') },
         );
       },
     });
@@ -711,14 +821,14 @@ async function main() {
       sfx.doorPush(hp.x, hp.y + 1.1, hp.z, p);
     };
     inspect.add({
-      id: 'slab', pos: vv.pedestals.slabPos, radius: 2.2, prompt: '석판을 읽는다', once: true,
+      id: 'slab', pos: vv.pedestals.slabPos, radius: 2.2, prompt: L('석판을 읽는다', '石板を読む'), once: true,
       onUse: () => {
         void (async () => {
           await dialogue.say(
-            { text: '「피안의 문을 열고자 하는 자여.」' },
-            { text: '「일곱 공물을 모아 이곳에 바쳐라.」' },
-            { text: '「그러면 돌아갈 길이 열리리라.」' },
-            { who: '미오', text: '일곱 개를 모으면…… 여기서 나갈 수 있어.' },
+            { text: L('「피안의 문을 열고자 하는 자여.」', '「彼岸の門を開かんとする者よ。」') },
+            { text: L('「일곱 공물을 모아 이곳에 바쳐라.」', '「七つの供物を集め、ここに捧げよ。」') },
+            { text: L('「그러면 돌아갈 길이 열리리라.」', '「さすれば帰る道が開かれよう。」') },
+            { who: MIO_NAME, text: L('일곱 개를 모으면…… 여기서 나갈 수 있어.', '七つ集めれば……ここから出られる。') },
           );
           rules!.begin();
           storyFlags.chapter = 'act06';
@@ -729,7 +839,7 @@ async function main() {
           const uf = vv.shrine.underfloor;
           sfx.underfloorLaugh(uf.x, uf.y, uf.z, 0.5);
           await new Promise((r) => setTimeout(r, 700));
-          await dialogue.say({ text: '신사 바닥 아래에서 아주 희미한 웃음소리가 들린 것 같다.' });
+          await dialogue.say({ text: L('신사 바닥 아래에서 아주 희미한 웃음소리가 들린 것 같다.', '社の床下から、ごく微かな笑い声が聞こえた気がした。') });
         })();
       },
     });
@@ -750,7 +860,8 @@ async function main() {
     if (!inventory.add(id)) return;
     const def = ITEMS[id];
     if (!def) return;
-    toastEl.textContent = `${def.name}${eul(def.name)} 가방에 넣었다  ·  Tab 으로 열어 볼 수 있다`;
+    toastEl.textContent = L(`${def.name}${eul(def.name)} 가방에 넣었다  ·  Tab 으로 열어 볼 수 있다`,
+      `${def.name}を鞄に入れた  ·  Tab で開いて見られる`);
     toastEl.classList.add('show'); toastT = 4.6;
   };
   const popups = new Popups(camera);
@@ -800,7 +911,7 @@ async function main() {
   }
   const promptEl = document.createElement('div');
   promptEl.className = 'prompt hidden';
-  promptEl.innerHTML = '<kbd>E</kbd> 검 줍기';
+  promptEl.innerHTML = L('<kbd>E</kbd> 검 줍기', '<kbd>E</kbd> 剣を拾う');
   document.getElementById('hud')!.appendChild(promptEl);
 
   const postfx = createPostFX(renderer, scene, camera, quality);
@@ -826,6 +937,7 @@ async function main() {
     onCharacterGrade: () => { model?.gradeAlbedo(); model?.applyAnisotropy(renderer); },
     weapon: { item: ITEMS['sword']!, onChange: () => equipment?.applyOffsets() },
     quality: { current: quality.level, levels: QUALITY_LEVELS, onChange: (lv: QualityLevel) => { saveQuality(lv); applyQualityLive(profileFor(lv)); } },
+    onHudChange: () => { saveHudPrefs(); onResize(); },
   }, debug);
 
   // --- 단축키: R 리셋, M 음소거, F 전체화면 ---
@@ -846,14 +958,15 @@ async function main() {
     if (e.code === 'Space' && crouching && !cine) crouching = false; // 웅크림 중 스페이스 = 일어서기
     if (e.code === 'KeyG' && actions && deathT <= 0 && !cine) {
       const r = actions.throwSalt(controller.position, controller.yaw, hunters);
-      if (r === -1) { toastEl.textContent = '소금이 없다'; toastEl.classList.add('show'); toastT = 1.6; }
-      saltEl.textContent = '소금 × ' + actions.salt;
+      if (r === -1) { toastEl.textContent = L('소금이 없다', '塩がない'); toastEl.classList.add('show'); toastT = 1.6; }
+      saltEl.textContent = L('소금 × ', '塩 × ') + actions.salt;
     }
-    if (e.code === 'KeyR' && !cine) { controller.teleport(spawn); for (const h of hunters) h.reset(); dorotabo?.reset(); rules?.reset(); village?.pedestals.clear(); actions?.reset(); if (actions) saltEl.textContent = '소금 × ' + actions.salt; stamina = settings.stamina.max; exhausted = false; crouching = false; renderHud(); endEl.classList.remove('show'); }
+    if (e.code === 'KeyR' && !cine) { controller.teleport(spawn); for (const h of hunters) h.reset(); dorotabo?.reset(); rules?.reset(); village?.pedestals.clear(); actions?.reset(); if (actions) saltEl.textContent = L('소금 × ', '塩 × ') + actions.salt; stamina = settings.stamina.max; exhausted = false; crouching = false; renderHud(); endEl.classList.remove('show'); }
     // T (debug): 시퀀서 데모 — S0 스택 검증용 (PLAN-STORY §8)
     if (e.code === 'KeyT' && debug && !cine && village && rules && deathT <= 0) {
       void sequencer.play(buildDemoSeq(village, quests)).then(() => renderHud());
     }
+    if (e.code === 'KeyO' && !invUI.isOpen) toggleMissionFold();
     if (e.code === 'KeyM') { muted = !muted; sfx.setMaster(muted ? 0 : settings.audio.master); }
     if (e.code === 'KeyF') { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.(); }
   });
@@ -891,7 +1004,8 @@ async function main() {
         if (next) {
           applyQualityLive(profileFor(next));
           saveQuality(next);
-          toast(`프레임이 낮아 품질을 ${next} 로 낮췄습니다 (H 패널에서 변경 가능)`);
+          toast(L(`프레임이 낮아 품질을 ${next} 로 낮췄습니다 (H 패널에서 변경 가능)`,
+            `フレームが低いため画質を ${next} に下げました（H パネルで変更できます）`));
           adaptT = 0; // 변경 직후(셰이더 재컴파일 등) 2 s 는 다시 무시
         }
       } else adaptChecks = 3; // 충분히 빠르면 종료
@@ -904,7 +1018,7 @@ async function main() {
   // 화면에 보인 재질만 컴파일되는 렌더 프리워밍으로는 부족해서(다른 곳에서 첫 끔 = 400 ms+ 히치),
   // compileAsync 로 **씬 전체 재질 × 3상태**를 로딩 화면 중에 끝내둔다.
   if (chochin) {
-    loadingPct.textContent = '그림자를 준비하는 중…';
+    loadingPct.textContent = L('그림자를 준비하는 중…', '影を用意しています…');
     // compileAsync 는 **그 카메라에 보이는 것만** 컴파일한다. 스폰 시야 밖의 재질
     // (요괴·먼 소품)이 빠져서 나중에 히치가 났다 → 컴파일 동안 대상들을 카메라 앞에 세워 둔다.
     const stash: { obj: THREE.Object3D; pos: THREE.Vector3 }[] = [];
@@ -923,7 +1037,7 @@ async function main() {
     for (const s2 of stash) s2.obj.position.copy(s2.pos);
     chochin.setLevel(2);
   }
-  loadingPct.textContent = totalItems ? `${loadedItems}/${totalItems} 로드 완료` : '준비 완료';
+  loadingPct.textContent = totalItems ? `${loadedItems} / ${totalItems}  ·  ${L('로드 완료', '読み込み完了')}` : L('준비 완료', '準備完了');
   startBtn.hidden = false;
   let started = false;
   // 셰이더 프리워밍: 초칭 끔/약/강은 각각 다른 셰이더 변형이라 첫 전환 때 한 번 컴파일된다
@@ -938,9 +1052,11 @@ async function main() {
   // 자동완성해 주기 때문에, 처음부터 하려던 사람이 영문도 모르고 프롤로그를 건너뛴다(그랬다).
   if (skipIntro) {
     const btn = document.getElementById('start-btn');
-    if (btn) btn.textContent = '프롤로그 건너뛰고 시작';
+    if (btn) btn.textContent = L('프롤로그 건너뛰고 시작', 'プロローグを飛ばして開始');
     const sub = document.querySelector('.loading-sub');
-    if (sub) sub.innerHTML = '<b>?skip=intro</b> — 프롤로그를 건너뜁니다 · <a href="./" style="color:#ffc876">처음부터 하기</a>';
+    if (sub) sub.innerHTML = L(
+      '<b>?skip=intro</b> — 프롤로그를 건너뜁니다 · <a href="./" style="color:#ffc876">처음부터 하기</a>',
+      '<b>?skip=intro</b> — プロローグを飛ばします · <a href="./" style="color:#ffc876">最初から</a>');
   }
   const titleCard = document.getElementById('title-card')!;
   const start = () => {
@@ -1033,17 +1149,46 @@ async function main() {
   }
 
   // --- 리사이즈 ---
+  /**
+   * 마지막으로 렌더러에 **적용한** 화면 상태. `resize` 이벤트만 믿으면 안 된다 —
+   * 전체화면 전환·모니터 이동·브라우저 확대는 `devicePixelRatio` 만 바꾸고 이벤트를 안 주는 경우가 있고,
+   * 그러면 컴포저 버퍼와 캔버스 크기가 어긋나 **화면 한쪽이 검게** 남는다(실측 재현).
+   * 그래서 프레임마다 값을 대조해 달라졌을 때만 다시 맞춘다 (같으면 아무 일도 안 한다).
+   */
+  let lastW = -1, lastH = -1, lastDpr = -1, lastLock = false;
+  /** 캔버스가 화면에서 차지하는 사각형 — 목표 지시자가 투영 좌표를 여기에 맞춘다 */
+  const viewRect = { x: 0, y: 0, w: 1, h: 1 };
   function onResize() {
-    const w = window.innerWidth, h = window.innerHeight;
+    const winW = window.innerWidth, winH = window.innerHeight, dpr = window.devicePixelRatio;
+    const lock = settings.hud.lockAspect;
+    lastW = winW; lastH = winH; lastDpr = dpr; lastLock = lock;
+    // 비율 고정(선택): 렌더 영역을 aspect 로 묶고 남는 자리는 검게 둔다 (`core/settings.ts` hud.lockAspect)
+    let w = winW, h = winH;
+    if (lock) {
+      const a = settings.hud.aspect;
+      if (winW / winH > a) w = Math.round(winH * a); else h = Math.round(winW / a);
+      document.body.style.setProperty('--view-w', `${w}px`);
+      document.body.style.setProperty('--view-h', `${h}px`);
+    }
+    document.body.classList.toggle('locked-aspect', lock);
+    viewRect.x = (winW - w) / 2; viewRect.y = (winH - h) / 2; viewRect.w = w; viewRect.h = h;
     // 픽셀비는 창 크기마다 다시 계산한다 — 전체화면으로 키우면 예산에 맞춰 자동으로 내려간다
-    const pr = effectivePixelRatio(quality, w, h);
+    const pr = effectivePixelRatio(quality, w, h, dpr);
     if (Math.abs(renderer.getPixelRatio() - pr) > 0.001) renderer.setPixelRatio(pr);
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    // ⚠️ 반드시 픽셀비·캔버스 크기를 정한 **뒤에** — 컴포저는 렌더러의 드로잉 버퍼 크기를 읽어 간다
     postfx.resize(w, h);
   }
+  /** 프레임마다 부르는 값싼 대조. 달라진 게 없으면 즉시 돌아간다 */
+  function syncViewport() {
+    if (window.innerWidth === lastW && window.innerHeight === lastH
+      && window.devicePixelRatio === lastDpr && settings.hud.lockAspect === lastLock) return;
+    onResize();
+  }
   window.addEventListener('resize', onResize);
+  document.addEventListener('fullscreenchange', onResize);
   onResize();
 
   // --- 루프 ---
@@ -1062,6 +1207,7 @@ async function main() {
     if (dt > 1 / 20) dt = 1 / 20; // 탭 전환 등 큰 dt 방지
     if (dt <= 0) return;
     if (import.meta.env.DEV && (window as unknown as { __dbg?: { paused?: boolean } }).__dbg?.paused) return; // 테스트용 일시정지
+    syncViewport();
     adaptiveQuality(dt);
     step(dt, true);
   }
@@ -1197,7 +1343,7 @@ async function main() {
           dorotabo?.reset();
           // 사망 = 들고 있던 공물만 원위치(강탈 규칙, §3.2·§6.1). 봉납 진행은 유지 (§6.2)
           rules?.dropCarried(); renderHud();
-          actions?.reset(); if (actions) saltEl.textContent = '소금 × ' + actions.salt;
+          actions?.reset(); if (actions) saltEl.textContent = L('소금 × ', '塩 × ') + actions.salt;
           stamina = settings.stamina.max; exhausted = false; crouching = false;
           deathEl.classList.remove('show');
         }
@@ -1264,7 +1410,8 @@ async function main() {
     if (village) {
       const inTunnel = village.inToriiCorridor(controller.position);
       const indoors = village.isIndoors(controller.position);
-      tpCam.constrainDistance = indoors ? 2.0 : inTunnel ? 1.95 : null; // 실내 확장(15×11)에 맞춰 1.55 → 2.0
+      // 토리이가 1.5 배로 커지며 통로도 넓어졌다(기둥 안쪽 3.9 m) → 카메라를 예전만큼 조일 이유가 없다
+      tpCam.constrainDistance = indoors ? 2.0 : inTunnel ? 2.6 : null; // 실내 확장(15×11)에 맞춰 1.55 → 2.0
       tpCam.constrainPitch = indoors ? 0.42 : inTunnel ? 0.20 : null;
     }
     const mouse = input.consumeMouseDelta();
@@ -1287,6 +1434,28 @@ async function main() {
     updateAudioSpace(dt);                    // 리스너가 확정된 뒤 존·오클루전 갱신
     watchLights(dt);
     popups.update();
+
+    // --- 길안내 HUD (목표 지시자 · 팻말 읽어 주기 · Esc 안내) ---
+    const guideOn = !cine && !fpOn && !uiOpen && deathT <= 0;
+    waypoint.update(camera, controller.position, guideOn && settings.hud.waypoint, viewRect);
+    if (village && guideOn && settings.hud.signRead) {
+      // 가장 가까운 **기둥**을 고르고 그 기둥의 판자를 전부 읽어 준다 (한 기둥에 두 장인 곳이 있다)
+      let bestD = Infinity, bx = 0, bz = 0;
+      for (const b of village.signposts.boards) {
+        const d = b.pos.distanceTo(controller.position);
+        if (d < bestD) { bestD = d; bx = b.pos.x; bz = b.pos.z; }
+      }
+      const near = bestD < 7;
+      if (near) {
+        const html = village.signposts.boards
+          .filter((b) => b.pos.x === bx && b.pos.z === bz)
+          .map((b) => `${bearingGlyph(b.toward.x - controller.position.x, b.toward.y - controller.position.z, tpCam.headingYaw)}  ${b.text}`)
+          .join('<br>');
+        if (signReadEl.innerHTML !== html) signReadEl.innerHTML = html;
+      }
+      signReadEl.classList.toggle('show', near);
+    } else signReadEl.classList.remove('show');
+    if (escHintT > 0) { escHintT -= dt; if (escHintT <= 0) escHintEl.classList.remove('show'); }
 
     // 시각
     animator?.update(dt, controller);
@@ -1337,7 +1506,7 @@ async function main() {
       `${fpsShown.toFixed(0)} fps\n` +
       `speed ${controller.horizontalSpeed.toFixed(2)} m/s  ${controller.grounded ? 'ground' : 'air'}\n` +
       `pos ${controller.position.x.toFixed(1)}, ${controller.position.y.toFixed(1)}, ${controller.position.z.toFixed(1)}\n` +
-      `H: 튜닝 패널`;
+      L('H: 튜닝 패널', 'H: 設定パネル');
   }
   requestAnimationFrame(frame);
   if (import.meta.env.DEV) {
@@ -1350,5 +1519,5 @@ main().catch((err) => {
   console.error(err);
   (window as unknown as Record<string, unknown>)['__err'] = String(err?.stack ?? err);
   const el = document.getElementById('hint');
-  if (el) el.textContent = `초기화 실패: ${err?.message ?? err}`;
+  if (el) el.textContent = `${L('초기화 실패', '初期化に失敗')}: ${err?.message ?? err}`;
 });

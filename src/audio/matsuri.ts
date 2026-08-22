@@ -203,6 +203,7 @@ export class Matsuri {
 
   // --- 악기: 샘플 우선, 없으면 합성 ---
   private drum(ctx: AudioContext, vel: number, freq: number) {
+    if (!(vel > 0.001)) return; // 지수 램프 목표가 0 이면 RangeError (audio/sfx.ts 의 INAUDIBLE 주석)
     if (this.sfx.bank.play('matsuri/taiko', { gain: vel, rate: (freq > 100 ? 1.25 : 0.92) * (0.97 + Math.random() * 0.06), dest: this.layers!.drum })) return;
     const t = ctx.currentTime;
     const o = ctx.createOscillator(); o.type = 'sine';

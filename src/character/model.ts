@@ -328,13 +328,24 @@ export class CharacterModel {
   get currentClip() { return this.current?.getClip().name ?? null; }
   setTimeScale(name: string, scale: number) { const a = this.actions.get(name); if (a) a.timeScale = scale; }
 
+  /**
+   * 카메라가 가까워지면 몸을 투명하게 (3인칭 근접 페이드).
+   *
+   * ⚠️ **`depthWrite` 를 끄면 안 된다.** 반투명 관례대로 껐더니 미오가 **조각조각 깨져** 보였다
+   * (사용자 리포트 2026-08-22, 「그래픽 깨짐」). 이 모델은 메시 **한 장**(119 k 삼각형)이라
+   * 깊이 기록이 없으면 자기 삼각형끼리 그리는 순서가 곧 앞뒤가 된다 — 뒤통수 머리카락이
+   * 뺨 위로, 세일러 칼라가 어깨 위로 덮인다. 실측으로 재현·확인했다.
+   *
+   * 깊이를 쓰면 반투명 오브젝트끼리의 순서가 어긋날 수 있지만, 이 씬에서 캐릭터 뒤에 겹치는
+   * 반투명은 사실상 없다. 뜯겨 보이는 것보다 훨씬 낫다.
+   */
   setVisibility(v: number) {
     const vis = THREE.MathUtils.clamp(v, 0, 1);
     this.root.visible = vis > 0.02;
     for (const mat of this.materials) {
       mat.transparent = vis < 0.999 || (mat as THREE.MeshStandardMaterial).alphaTest > 0;
       mat.opacity = vis;
-      mat.depthWrite = vis >= 0.999;
+      mat.depthWrite = true;
     }
   }
 

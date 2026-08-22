@@ -1,4 +1,5 @@
 import { Pane } from 'tweakpane';
+import { L } from '@/core/i18n';
 import { settings } from './settings';
 
 export interface TweakHooks {
@@ -13,6 +14,8 @@ export interface TweakHooks {
   onCharacterGrade?: () => void;
   weapon?: { item: { grip?: { pos: [number, number, number]; rot: [number, number, number]; scale: number }; sheath?: { pos: [number, number, number]; rot: [number, number, number] } }; onChange: () => void };
   quality?: { current: string; levels: readonly string[]; onChange: (level: never) => void };
+  /** HUD 편의 설정이 바뀌었을 때 — 저장 + 필요하면 뷰포트 재계산 */
+  onHudChange?: () => void;
 }
 
 /** 개발용 튜닝 패널. `H` 키로 토글. */
@@ -33,6 +36,20 @@ export function createTweaks(hooks: TweakHooks, visible = true) {
     const q = { level: hooks.quality.current };
     const opts = Object.fromEntries(hooks.quality.levels.map((l) => [l, l]));
     pane.addBinding(q, 'level', { label: 'quality', options: opts }).on('change', (ev) => (hooks.quality!.onChange as (l: string) => void)(ev.value));
+  }
+
+  /**
+   * HUD · 접근성 — 개발용 값이 아니라 **플레이어가 고르는 것**이라 맨 위에 둔다.
+   * (사용자 지시 2026-08-22: 길안내는 필요하고, 창 비율 고정은 「선택사항」)
+   */
+  {
+    const hd = pane.addFolder({ title: L('HUD · 접근성', 'HUD · アクセシビリティ'), expanded: true });
+    const H = settings.hud;
+    const onHud = hooks.onHudChange ?? (() => {});
+    hd.addBinding(H, 'waypoint', { label: L('목표 지시자', '目標マーカー') }).on('change', onHud);
+    hd.addBinding(H, 'signRead', { label: L('팻말 읽어 주기', '道標を読み上げ') }).on('change', onHud);
+    hd.addBinding(H, 'lockAspect', { label: L('창 비율 고정', '画面比を固定') }).on('change', onHud);
+    hd.addBinding(H, 'aspect', { label: L('고정 비율', '固定する比'), options: { '16:9': 16 / 9, '16:10': 1.6, '21:9': 21 / 9, '4:3': 4 / 3 } }).on('change', onHud);
   }
 
   const mv = pane.addFolder({ title: 'Movement', expanded: false });
@@ -117,20 +134,20 @@ export function createTweaks(hooks: TweakHooks, visible = true) {
   }
 
   // 밤 씬 조명 — 초칭(유일한 그림자 광원) + 캐릭터 채움광
-  const lt = pane.addFolder({ title: 'Light (초칭 · 채움광)', expanded: false });
+  const lt = pane.addFolder({ title: L('Light (초칭 · 채움광)', 'Light (提灯 · 補助光)'), expanded: false });
   const F = settings.fill, K = settings.chochin;
-  lt.addBinding(F, 'intensity', { min: 0, max: 3, step: 0.05, label: 'fill 세기' });
-  lt.addBinding(F, 'distance', { min: 0.5, max: 4, step: 0.05, label: 'fill 사거리(m)' });
-  lt.addBinding(F, 'height', { min: 0.5, max: 2.2, step: 0.05, label: 'fill 높이(m)' });
-  lt.addBinding(F, 'offset', { min: 0, max: 1.5, step: 0.05, label: 'fill 카메라쪽(m)' });
-  lt.addBinding(K, 'intensityHigh', { min: 0.5, max: 10, step: 0.1, label: '초칭 강' });
-  lt.addBinding(K, 'intensityLow', { min: 0.1, max: 4, step: 0.05, label: '초칭 약' });
+  lt.addBinding(F, 'intensity', { min: 0, max: 3, step: 0.05, label: L('fill 세기', 'fill 強さ') });
+  lt.addBinding(F, 'distance', { min: 0.5, max: 4, step: 0.05, label: L('fill 사거리(m)', 'fill 距離(m)') });
+  lt.addBinding(F, 'height', { min: 0.5, max: 2.2, step: 0.05, label: L('fill 높이(m)', 'fill 高さ(m)') });
+  lt.addBinding(F, 'offset', { min: 0, max: 1.5, step: 0.05, label: L('fill 카메라쪽(m)', 'fill カメラ側(m)') });
+  lt.addBinding(K, 'intensityHigh', { min: 0.5, max: 10, step: 0.1, label: L('초칭 강', '提灯 強') });
+  lt.addBinding(K, 'intensityLow', { min: 0.1, max: 4, step: 0.05, label: L('초칭 약', '提灯 弱') });
   // gripPos 는 튜플이라 프록시로 묶고 배열에 되쓴다 (follow() 가 매 프레임 배열을 읽는다)
   const gp = { x: K.gripPos[0], y: K.gripPos[1], z: K.gripPos[2] };
   const gpSync = () => { K.gripPos[0] = gp.x; K.gripPos[1] = gp.y; K.gripPos[2] = gp.z; };
-  lt.addBinding(gp, 'x', { min: 0, max: 0.5, step: 0.01, label: '등불 바깥쪽' }).on('change', gpSync);
-  lt.addBinding(gp, 'y', { min: -0.4, max: 0.3, step: 0.01, label: '등불 높이' }).on('change', gpSync);
-  lt.addBinding(gp, 'z', { min: -0.3, max: 0.3, step: 0.01, label: '등불 앞뒤' }).on('change', gpSync);
+  lt.addBinding(gp, 'x', { min: 0, max: 0.5, step: 0.01, label: L('등불 바깥쪽', '提灯 外側') }).on('change', gpSync);
+  lt.addBinding(gp, 'y', { min: -0.4, max: 0.3, step: 0.01, label: L('등불 높이', '提灯 高さ') }).on('change', gpSync);
+  lt.addBinding(gp, 'z', { min: -0.3, max: 0.3, step: 0.01, label: L('등불 앞뒤', '提灯 前後') }).on('change', gpSync);
 
   const at = pane.addFolder({ title: 'Attack (3-hit combo)', expanded: false });
   const T = settings.attack;
@@ -148,17 +165,17 @@ export function createTweaks(hooks: TweakHooks, visible = true) {
   au.addBinding(S, 'ambient', { min: 0, max: 0.5, step: 0.01 }).on('change', hooks.onAmbientChange ?? (() => {}));
   au.addBinding(S, 'combat', { min: 0, max: 1, step: 0.05 });
   // 공간 오디오 (audio/space.ts) — 0 으로 내리면 이 기능을 넣기 전 동작으로 돌아간다. A/B 비교용
-  au.addBinding(S, 'reverb', { label: '잔향', min: 0, max: 2, step: 0.05 }).on('change', hooks.onSpaceChange ?? (() => {}));
-  au.addBinding(S, 'occlusion', { label: '벽 차폐', min: 0, max: 1.5, step: 0.05 });
+  au.addBinding(S, 'reverb', { label: L('잔향', '残響'), min: 0, max: 2, step: 0.05 }).on('change', hooks.onSpaceChange ?? (() => {}));
+  au.addBinding(S, 'occlusion', { label: L('벽 차폐', '壁の遮蔽'), min: 0, max: 1.5, step: 0.05 });
 
   // 밤 씬 — 달빛 그림자 A/B (품질 프리셋이 high·ultra 일 때만 실제로 켜진다)
   const nt = pane.addFolder({ title: 'Night', expanded: false });
-  nt.addBinding(settings.night, 'moonShadow', { label: '달빛 그림자' }).on('change', hooks.onMoonShadowChange ?? (() => {}));
+  nt.addBinding(settings.night, 'moonShadow', { label: L('달빛 그림자', '月明かりの影') }).on('change', hooks.onMoonShadowChange ?? (() => {}));
 
   const rd = pane.addFolder({ title: 'Render', expanded: false });
   const r = settings.render;
   // 프레임 상한 — 낮출수록 GPU 가 쉬어서 발열·배터리에 유리하다 (0 = 무제한)
-  rd.addBinding(r, 'maxFps', { label: 'max fps', options: { '30': 30, '60': 60, '120': 120, '무제한': 0 } });
+  rd.addBinding(r, 'maxFps', { label: 'max fps', options: { '30': 30, '60': 60, '120': 120, [L('무제한', '無制限')]: 0 } });
   rd.addBinding(r, 'exposure', { min: 0.2, max: 2.5, step: 0.05 }).on('change', hooks.onRenderChange);
   rd.addBinding(r, 'sunElevation', { min: 2, max: 89, step: 1 }).on('change', hooks.onSunChange);
   rd.addBinding(r, 'sunAzimuth', { min: 0, max: 360, step: 1 }).on('change', hooks.onSunChange);

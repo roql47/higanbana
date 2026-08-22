@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import { L } from '@/core/i18n';
+
+const MIO = L('미오', 'ミオ');
+const DRIVER = L('기사', '運転手');
 import type { Dialogue } from './dialogue';
 import type { FirstPerson } from './firstPerson';
 import type { Bus } from '@/world/bus';
@@ -85,17 +89,17 @@ export class Act2 {
 
     this.beats = [
       // 사진부터 보여준다. 대사가 아니라 **이미지가 먼저** 와야 한다
-      { at: 1.2, run: (d) => void d.dialogue.say({ text: '오래된 가족사진. 어린 미오와, 언니.', dur: 3.2 }) },
-      { at: 5.0, run: (d) => void d.dialogue.say({ text: '언니의 얼굴만 물에 번진 것처럼 지워져 있다.', dur: 3.6 }) },
+      { at: 1.2, run: (d) => void d.dialogue.say({ text: L('오래된 가족사진. 어린 미오와, 언니.', '古い家族写真。幼いミオと、姉。'), dur: 3.2 }) },
+      { at: 5.0, run: (d) => void d.dialogue.say({ text: L('언니의 얼굴만 물에 번진 것처럼 지워져 있다.', '姉の顔だけが水に滲んだように消えている。'), dur: 3.6 }) },
       // 기사가 부른다 → 여기서부터 고개를 들 수 있다
-      { at: 9.4, run: (d, s) => { d.sfx.voice(0.55, 'low'); void d.dialogue.say({ who: '기사', text: '학생.', dur: 1.6 }); s.lookUpIn = 3.0; } },
-      { at: 12.6, run: (d) => { d.sfx.voice(0.5, 'low'); void d.dialogue.say({ who: '기사', text: '히가사토 가는 거 맞지?', dur: 2.2 }); } },
-      { at: 15.4, run: (d) => { d.sfx.voice(0.42, 'girl'); void d.dialogue.say({ who: '미오', text: '네.', dur: 1.4 }); } },
-      { at: 17.4, run: (d) => { d.sfx.voice(0.5, 'low'); void d.dialogue.say({ who: '기사', text: '거긴 이제 아무것도 없는데.', dur: 2.4 }); } },
-      { at: 20.6, run: (d) => { d.sfx.voice(0.44, 'girl'); void d.dialogue.say({ who: '미오', text: '사람을 찾으러 가요.', dur: 2.2 }); } },
+      { at: 9.4, run: (d, s) => { d.sfx.voice(0.55, 'low'); void d.dialogue.say({ who: DRIVER, text: L('학생.', 'お嬢さん。'), dur: 1.6 }); s.lookUpIn = 3.0; } },
+      { at: 12.6, run: (d) => { d.sfx.voice(0.5, 'low'); void d.dialogue.say({ who: DRIVER, text: L('히가사토 가는 거 맞지?', '彼ヶ里まででいいんだね?'), dur: 2.2 }); } },
+      { at: 15.4, run: (d) => { d.sfx.voice(0.42, 'girl'); void d.dialogue.say({ who: MIO, text: L('네.', 'はい。'), dur: 1.4 }); } },
+      { at: 17.4, run: (d) => { d.sfx.voice(0.5, 'low'); void d.dialogue.say({ who: DRIVER, text: L('거긴 이제 아무것도 없는데.', 'あそこにはもう何もないよ。'), dur: 2.4 }); } },
+      { at: 20.6, run: (d) => { d.sfx.voice(0.44, 'girl'); void d.dialogue.say({ who: MIO, text: L('사람을 찾으러 가요.', '人を探しに行くんです。'), dur: 2.2 }); } },
       // 「기사는 백미러로 미오를 오래 바라보다 더 묻지 않는다」
       // — 눈이 **깜빡이지 않는다**. 이 ACT 에서 처음으로 뭔가 어긋나는 순간이다
-      { at: 23.4, run: (d) => { d.bus.setEyes(1, true); void d.dialogue.say({ text: '기사는 백미러로 미오를 오래 바라보다, 더 묻지 않는다.', dur: 4.0 }); } },
+      { at: 23.4, run: (d) => { d.bus.setEyes(1, true); void d.dialogue.say({ text: L('기사는 백미러로 미오를 오래 바라보다, 더 묻지 않는다.', '運転手はバックミラー越しに長く見つめ、それ以上は訊かない。'), dur: 4.0 }); } },
       // --- 폰 (각색 6 C안 / P1-1) ---
       // 자리가 여기인 이유: 방금 「사람을 찾으러 가요」라고 말했다. 그 사람에게 걸어 보는 게
       // 다음 동작으로 자연스럽고, 실패가 **그 말 바로 뒤에** 붙어야 아프다.
@@ -103,14 +107,14 @@ export class Act2 {
       // 한 손에 두 개를 들고 있는 그림이 안 나오는 건 그 덕이다.
       { at: 27.8, run: (d) => d.phone.show('lock') },
       { at: 29.4, run: (d) => void d.dialogue.say({ text: '15:04. 9月23日.', dur: 2.0 }) },
-      { at: 31.6, run: (d) => { d.phone.set('calling'); void d.dialogue.say({ text: '「姉」— 미오는 통화 버튼을 누른다.', dur: 2.4 }); } },
+      { at: 31.6, run: (d) => { d.phone.set('calling'); void d.dialogue.say({ text: L('「언니」— 미오는 통화 버튼을 누른다.', '「姉」— ミオは通話ボタンを押す。'), dur: 2.4 }); } },
       // 발신음이 **울리지 않는다**. 없는 소리가 실패를 말한다 — 안내 멘트를 깔면 그냥 정보다
-      { at: 34.6, run: (d) => { d.phone.set('failed'); void d.dialogue.say({ text: '발신음이 울리지 않는다.', dur: 2.2 }); } },
-      { at: 37.2, run: (d) => { d.sfx.voice(0.4, 'girl'); void d.dialogue.say({ who: '미오', text: '……산속이니까.', dur: 2.2 }); } },
+      { at: 34.6, run: (d) => { d.phone.set('failed'); void d.dialogue.say({ text: L('발신음이 울리지 않는다.', '発信音が鳴らない。'), dur: 2.2 }); } },
+      { at: 37.2, run: (d) => { d.sfx.voice(0.4, 'girl'); void d.dialogue.say({ who: MIO, text: L('……산속이니까.', '……山の中だから。'), dur: 2.2 }); } },
       { at: 39.8, run: (d) => d.phone.hide() },
       // --- 도착 ---
       { at: 41.4, run: (d) => { d.bus.setEyes(0); d.bus.drive(0); d.sfx.busBrake(); } },
-      { at: 44.6, run: (d) => { d.sfx.voice(0.52, 'low'); void d.dialogue.say({ who: '기사', text: '종점이야.', dur: 2.0 }); } },
+      { at: 44.6, run: (d) => { d.sfx.voice(0.52, 'low'); void d.dialogue.say({ who: DRIVER, text: L('종점이야.', '終点だよ。'), dur: 2.0 }); } },
       { at: 46.4, run: (d) => { d.bus.setDoor(true); d.sfx.busDoor(); } },
       { at: 48.4, run: (d, s) => void s.finish() },
     ];

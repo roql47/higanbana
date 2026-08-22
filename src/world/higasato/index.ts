@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { L } from '@/core/i18n';
 import type { Physics } from '@/core/physics';
 import type { TerrainTextures } from '../terrain';
 import type { Surface } from '@/audio/sfx';
@@ -105,12 +106,20 @@ export class Higasato {
     const trees = opts.treeBudget ?? 700;
 
     this.paddy = new Paddy(scene, g, opts.riceBudget ?? 90000);
-    // 센본토리이: 신사 언덕을 오르는 마지막 구간. 길이(count×spacing)가 남은 참배로보다 길면
-    // 뒤쪽이 잘린다 — z −8 에서 경내(z −48)까지 약 42 m 에 맞춘 30개
-    const TORII_N = 30, TORII_SP = 1.35;
+    /**
+     * 신사 언덕을 오르는 마지막 구간의 토리이.
+     *
+     * 예전엔 30 기를 1.35 m 간격으로 세운 센본토리이였는데, **작고 똑같은 문이 한 줄로 반복**돼서
+     * 복도가 아니라 무늬로 보였다(사용자 지시 2026-08-22 「도리이 크기 더 크게, 너무 일렬로
+     * 중복해서 깔지 말 것」). 크기를 1.5 배로 올리고(기둥 안쪽 3.9 m · 입목 4.9 m — 실물 명신형
+     * 치수) 개수를 절반 이하로 줄여 **하나하나가 문으로 보이게** 한다.
+     * 간격·색·좌우 위치는 `ToriiPath` 가 흔들어 준다.
+     * 길이(count×spacing)는 z −8 에서 경내(z −48)까지 약 42 m 에 맞춘다.
+     */
+    const TORII_N = 12, TORII_SP = 3.5, TORII_SCALE = 1.5;
     this.toriiS0 = this.ground.sAtZ(-8);
     this.toriiS1 = this.toriiS0 + TORII_N * TORII_SP;
-    this.torii = new ToriiPath(scene, physics, g, { startS: this.toriiS0, count: TORII_N, spacing: TORII_SP });
+    this.torii = new ToriiPath(scene, physics, g, { startS: this.toriiS0, count: TORII_N, spacing: TORII_SP, scale: TORII_SCALE });
     const plant = plantingGround(this.ground);
     this.cedars = new Cedars(scene, physics, plant, { target: trees });
     // 대나무 숲: 동쪽 대숲길(⑤)을 감싼다 — 여관과 폐교 사이가 가장 빽빽하다
@@ -149,8 +158,8 @@ export class Higasato {
     // 제단은 신사가 아니라 **마을 정 가운데**(SITES.altar) — 왕복 동선을 절반으로 줄인다
     this.pedestals = new Pedestals(scene, physics, this.ground, new THREE.Vector3(
       SITES.altar!.x, this.ground.heightAt(SITES.altar!.x, SITES.altar!.z), SITES.altar!.z));
-    this.school = new Shell(scene, physics, this.ground, { id: 'school', site: SITES.school!, name: '彼ヶ里小学校', door: 'x-' });
-    this.inn = new Shell(scene, physics, this.ground, { id: 'inn', site: SITES.inn!, name: '旅館 ひがん荘', door: 'x-' });
+    this.school = new Shell(scene, physics, this.ground, { id: 'school', site: SITES.school!, name: L('히가사토 초등학교', '彼ヶ里小学校'), door: 'x-' });
+    this.inn = new Shell(scene, physics, this.ground, { id: 'inn', site: SITES.inn!, name: L('여관 히간장', '旅館 ひがん荘'), door: 'x-' });
     this.manor = new Shell(scene, physics, this.ground, { id: 'manor', site: SITES.manor!, name: '', door: 'x-' });
     this.well = new Well(scene, physics, this.ground);
     this.busStop = new BusStop(scene, physics, this.ground);

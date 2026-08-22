@@ -1,4 +1,5 @@
 import { makePhoto, modelPhotoFront } from './photo';
+import { L } from '@/core/i18n';
 
 /**
  * 가족사진 뷰어 — **이 게임의 열쇠 소품을 다시 여는 창구** (PLAN-STORY P2)
@@ -39,7 +40,7 @@ export class PhotoViewer {
         '<canvas class="pv-face pv-front"></canvas>' +
         '<canvas class="pv-face pv-back"></canvas>' +
       '</div>' +
-      '<div class="pv-hint">클릭 뒤집기 · <kbd>Esc</kbd> 닫기</div>';
+      `<div class="pv-hint">${L('클릭 뒤집기 · <kbd>Esc</kbd> 닫기', 'クリックで裏返す · <kbd>Esc</kbd> 閉じる')}</div>`;
     document.body.appendChild(this.root);
     this.card = this.root.querySelector('.pv-card') as HTMLElement;
     this.frontEl = this.root.querySelector('.pv-front') as HTMLCanvasElement;

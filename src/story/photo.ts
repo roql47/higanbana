@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { L, handFamily } from '@/core/i18n';
 import { Props } from '@/world/props';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
@@ -729,14 +730,14 @@ function drawBack(): THREE.CanvasTexture {
     }
     ctx.fillStyle = 'rgba(64,56,46,0.72)';
     ctx.textAlign = 'left';
-    ctx.font = '400 46px "Nanum Pen Script", "Noto Serif KR", serif';
-    ctx.fillText('彼ヶ里  彼岸祭', 88, 210);
-    ctx.font = '400 38px "Nanum Pen Script", "Noto Serif KR", serif';
-    ctx.fillText('미오 여섯 살', 88, 282);
+    ctx.font = `400 46px ${handFamily()}`;
+    ctx.fillText(L('히가사토  피안제', '彼ヶ里  彼岸祭'), 88, 210);
+    ctx.font = `400 38px ${handFamily()}`;
+    ctx.fillText(L('미오 여섯 살', 'ミオ 六さい'), 88, 282);
     // 두 번째 줄은 물에 번져 읽히지 않는다 — 여기에 사요의 이름이 있었다
     ctx.save();
     ctx.globalAlpha = 0.5;
-    ctx.fillText('사요 열여섯', 88, 344);
+    ctx.fillText(L('사요 열여섯', 'サヨ 十六'), 88, 344);
     ctx.restore();
     bleed(ctx, 205, 326, 82, 0.9);
   });

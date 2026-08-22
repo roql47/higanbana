@@ -4,6 +4,22 @@
  * - 클릭(드래그 없이) → 포인터락 요청. Esc → 해제.
  * 프레임마다 `consumeMouseDelta()` / `consumeWheel()` 로 누적값을 꺼내 쓰고 비운다.
  */
+
+/**
+ * 포인터 캡처는 **던지는 API 다.**
+ *   · `setPointerCapture` — 그 pointerId 가 이미 놓였으면 `InvalidStateError`
+ *   · `releasePointerCapture` — 캡처 중이 아니면 `NotFoundError`
+ * 둘 다 실제로 콘솔에 찍혔다 (사용자 리포트 2026-08-22). 포인터락으로 넘어가는 순간이나
+ * 창 밖에서 버튼을 뗀 뒤 들어오는 이벤트에서 pointerId 가 이미 죽어 있다.
+ * 캡처는 **드래그 오빗의 편의 기능일 뿐**이라 실패해도 조작에 지장이 없다 — 조용히 넘긴다.
+ */
+function capture(el: HTMLElement, id: number) {
+  try { el.setPointerCapture(id); } catch { /* 이미 놓인 포인터 — 드래그는 그대로 동작한다 */ }
+}
+function release(el: HTMLElement, id: number) {
+  try { if (el.hasPointerCapture(id)) el.releasePointerCapture(id); } catch { /* 이미 풀렸다 */ }
+}
+
 export class Input {
   private keys = new Set<string>();
   private pressedThisFrame = new Set<string>();
@@ -29,7 +45,7 @@ export class Input {
       this.dragging = true;
       this.dragMoved = 0;
       this.lastX = e.clientX; this.lastY = e.clientY;
-      canvas.setPointerCapture(e.pointerId);
+      capture(canvas, e.pointerId);
     });
     canvas.addEventListener('pointermove', (e) => {
       if (e.pointerType !== 'mouse') return;
@@ -48,7 +64,7 @@ export class Input {
     canvas.addEventListener('pointerup', (e) => {
       if (e.button === 0) this.keys.delete('Mouse0');
       if (this.locked || e.pointerType !== 'mouse') return;
-      canvas.releasePointerCapture(e.pointerId);
+      release(canvas, e.pointerId);
       const wasDrag = this.dragMoved > 4;
       this.dragging = false;
       if (!wasDrag) {

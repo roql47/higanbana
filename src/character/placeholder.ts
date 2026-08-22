@@ -67,7 +67,7 @@ export class PlaceholderCharacter {
       if (!mat || !mesh.isMesh) return;
       mat.transparent = vis < 0.999;
       mat.opacity = vis;
-      mat.depthWrite = vis >= 0.999;
+      mat.depthWrite = true; // CharacterModel.setVisibility 주석 참고 — 끄면 자기 삼각형끼리 뒤집힌다
     });
   }
 

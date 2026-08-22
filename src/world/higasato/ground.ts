@@ -168,7 +168,10 @@ function hillAt(z: number) { return smoothstep(-20, -56, z) * 11.0; }
 function rimAt(x: number, z: number) {
   const west = smoothstep(62, 88, -x) * 17;
   const east = smoothstep(76, 96, x) * 17;
-  const south = smoothstep(102, 116, z) * 14;
+  // 남쪽만 **경계(z 100) 밖에서** 솟아 있었다 — 그래서 종점 뒤가 허공으로 끊겼다
+  // (사용자 리포트 2026-08-22, 「맵 경계선」). 시작을 경계에 딱 붙여 앞치마(`buildApron`)가
+  // 바로 오르막을 잇게 한다. z ≤ 100 에서는 여전히 0 이라 **플레이 지형은 한 점도 안 변한다**
+  const south = smoothstep(100, 118, z) * 16;
   const north = smoothstep(-64, -92, z) * 18;
   return Math.max(west, east) + Math.max(south, north);
 }
@@ -203,6 +206,8 @@ function hash(a: number, b: number): number {
 
 export class HigasatoGround {
   readonly mesh: THREE.Mesh;
+  /** 지도 밖 원경(산자락). 렌더 전용 — 물리·나브그리드에는 없다 */
+  readonly apron: THREE.Mesh;
   readonly size = SIZE;
   readonly resolution = RES;
   readonly waterLevel = PADDY_WATER;
@@ -315,12 +320,93 @@ export class HigasatoGround {
     this.mesh.name = 'higasato-ground';
     scene.add(this.mesh);
 
+    // 지형 판이 끝나는 자리를 이어받는 원경 — 물리도 나브그리드도 없다 (눈에만 있는 땅)
+    this.apron = this.buildApron(scene, mat, grass, stone);
+
     // --- Rapier 하이트필드 (column-major) ---
     const hf = new Float32Array((N + 1) * (N + 1));
     for (let iz = 0; iz <= N; iz++) for (let ix = 0; ix <= N; ix++) hf[ix * (N + 1) + iz] = this.heights[iz * (N + 1) + ix]!;
     const R = physics.R;
     const body = physics.world.createRigidBody(R.RigidBodyDesc.fixed());
     physics.world.createCollider(R.ColliderDesc.heightfield(N, N, hf, { x: S, y: 1, z: S }).setFriction(1.0), body);
+  }
+
+  /**
+   * **원경 앞치마** — 지형 판(200 m)이 끝나는 자리에서 바깥으로 이어 붙이는 산자락.
+   *
+   * 이 지도는 200 m 짜리 평면 한 장이다. 서·동·북은 산자락(`rimAt`)이 경계 **안에서** 솟아
+   * 시야를 닫아 주는데 **남쪽만 열려 있었다** — 버스 종점 뒤로 땅이 칼로 자른 듯 끊기고 그 너머로
+   * 하늘 돔의 바닥색이 그대로 보였다(사용자 리포트 2026-08-22 「맵 경계선」).
+   * 저녁 안개는 밀도 0.0085 라 100 m 를 다 못 가린다 — 안개를 올리면 마을이 같이 잠긴다.
+   *
+   * 그래서 **지형을 키우지 않고 시야만 닫는다.** 물리 하이트필드·나브그리드·식재·논은 전부
+   * 200 m 그대로 두고, 눈에만 보이는 껍데기를 두른다:
+   *   · 가장 안쪽 고리는 지형 판의 **가장자리 정점과 같은 좌표**로 같은 `heightAt` 을 읽는다 → 이음매가 없다
+   *   · 바깥으로 갈수록 고리 간격이 벌어지고(1.5 → 53 m) 높이에 원산(遠山) 능선이 더해진다
+   *   · 재질은 지형과 **같은 인스턴스**다 — 다른 걸 쓰면 이음매에서 타일이 어긋나고 셰이더도 하나 더 컴파일된다
+   */
+  private buildApron(scene: THREE.Scene, mat: THREE.Material, grass: THREE.Color, stone: THREE.Color): THREE.Mesh {
+    const N = RES, S = SIZE, H = S / 2;
+    // 고리의 체비쇼프 반경(m). **첫 값은 지형 판의 경계와 정확히 같아야 한다**
+    const RINGS = [H, H + 1.5, H + 5, H + 12, H + 26, H + 52, H + 92, H + 145];
+    const PER = N;        // 변마다 세그먼트 수 = 지형 판과 같다 → 이음매 정점이 1:1 로 맞는다
+    const M = PER * 4;    // 닫힌 고리 하나의 정점 수
+    const R = RINGS.length;
+
+    const pos = new Float32Array(R * M * 3);
+    const col = new Float32Array(R * M * 3);
+    const uv = new Float32Array(R * M * 2);
+    const tmp = new THREE.Color();
+    for (let r = 0; r < R; r++) {
+      const h = RINGS[r]!, step = (2 * h) / PER;
+      for (let j = 0; j < M; j++) {
+        const side = (j / PER) | 0, i = j % PER, t = -h + i * step;
+        // 위에서 봤을 때 시계방향(북 +x → 동 +z → 남 −x → 서 −z) — 바깥이 항상 진행 방향 왼쪽이다
+        const x = side === 0 ? t : side === 1 ? h : side === 2 ? -t : -h;
+        const z = side === 0 ? -h : side === 1 ? t : side === 2 ? h : -t;
+        const y = this.heightAt(x, z) + this.farLift(x, z);
+        const k = (r * M + j) * 3;
+        pos[k] = x; pos[k + 1] = y; pos[k + 2] = z;
+        // 높이가 올라갈수록 풀에서 바위로 — 원경은 실루엣과 명도만 있으면 된다
+        tmp.copy(grass).lerp(stone, clamp((y - 10) / 26, 0, 0.8));
+        col[k] = tmp.r; col[k + 1] = tmp.g; col[k + 2] = tmp.b;
+        const u = (r * M + j) * 2;
+        uv[u] = (x + H) / 4; uv[u + 1] = (z + H) / 4;   // 월드 UV — 지형 판과 같은 4 m 타일
+      }
+    }
+    const idx: number[] = [];
+    for (let r = 0; r < R - 1; r++) {
+      for (let j = 0; j < M; j++) {
+        const a = r * M + j, b = r * M + ((j + 1) % M);
+        const c = (r + 1) * M + ((j + 1) % M), d = (r + 1) * M + j;
+        idx.push(a, b, c, a, c, d);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setAttribute('uv1', new THREE.BufferAttribute(uv.slice(), 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, mat);
+    // 그림자 프러스텀은 캐릭터 둘레 20 m 남짓이라 여기까지 오지 않는다 — 둘 다 끄면 draw 가 싸다.
+    // (`receiveShadow` 는 재질을 공유해도 오브젝트 단위라 셰이더가 갈리지 않는다)
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.name = 'higasato-apron';
+    scene.add(mesh);
+    return mesh;
+  }
+
+  /** 지도 밖에서만 더해지는 원산 높이. 경계(체비쇼프 100 m)에서는 정확히 0 이라 이음매가 안 생긴다 */
+  private farLift(x: number, z: number) {
+    const cheb = Math.max(Math.abs(x), Math.abs(z));
+    const t = smoothstep(SIZE / 2 + 3, SIZE / 2 + 130, cheb);
+    if (t <= 0) return 0;
+    // 능선 하나면 충분하다 — 안개가 나머지를 지운다
+    const ridge = 0.6 + 0.4 * this.noise.fbm(x / 150, z / 150, 2);
+    return t * (8 + 30 * ridge);
   }
 
   // ---------- 높이 ----------
