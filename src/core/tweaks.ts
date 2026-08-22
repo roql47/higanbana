@@ -6,6 +6,10 @@ export interface TweakHooks {
   onSunChange: () => void; // 태양/하늘 재계산(PMREM 재베이크 — 무거움)
   onAudioChange?: () => void;
   onAmbientChange?: () => void;
+  /** 리버브 센드 배율이 바뀌었을 때 — 현재 존의 wet 을 다시 건다 */
+  onSpaceChange?: () => void;
+  /** 달빛 그림자 on/off */
+  onMoonShadowChange?: () => void;
   onCharacterGrade?: () => void;
   weapon?: { item: { grip?: { pos: [number, number, number]; rot: [number, number, number]; scale: number }; sheath?: { pos: [number, number, number]; rot: [number, number, number] } }; onChange: () => void };
   quality?: { current: string; levels: readonly string[]; onChange: (level: never) => void };
@@ -112,6 +116,22 @@ export function createTweaks(hooks: TweakHooks, visible = true) {
     }
   }
 
+  // 밤 씬 조명 — 초칭(유일한 그림자 광원) + 캐릭터 채움광
+  const lt = pane.addFolder({ title: 'Light (초칭 · 채움광)', expanded: false });
+  const F = settings.fill, K = settings.chochin;
+  lt.addBinding(F, 'intensity', { min: 0, max: 3, step: 0.05, label: 'fill 세기' });
+  lt.addBinding(F, 'distance', { min: 0.5, max: 4, step: 0.05, label: 'fill 사거리(m)' });
+  lt.addBinding(F, 'height', { min: 0.5, max: 2.2, step: 0.05, label: 'fill 높이(m)' });
+  lt.addBinding(F, 'offset', { min: 0, max: 1.5, step: 0.05, label: 'fill 카메라쪽(m)' });
+  lt.addBinding(K, 'intensityHigh', { min: 0.5, max: 10, step: 0.1, label: '초칭 강' });
+  lt.addBinding(K, 'intensityLow', { min: 0.1, max: 4, step: 0.05, label: '초칭 약' });
+  // gripPos 는 튜플이라 프록시로 묶고 배열에 되쓴다 (follow() 가 매 프레임 배열을 읽는다)
+  const gp = { x: K.gripPos[0], y: K.gripPos[1], z: K.gripPos[2] };
+  const gpSync = () => { K.gripPos[0] = gp.x; K.gripPos[1] = gp.y; K.gripPos[2] = gp.z; };
+  lt.addBinding(gp, 'x', { min: 0, max: 0.5, step: 0.01, label: '등불 바깥쪽' }).on('change', gpSync);
+  lt.addBinding(gp, 'y', { min: -0.4, max: 0.3, step: 0.01, label: '등불 높이' }).on('change', gpSync);
+  lt.addBinding(gp, 'z', { min: -0.3, max: 0.3, step: 0.01, label: '등불 앞뒤' }).on('change', gpSync);
+
   const at = pane.addFolder({ title: 'Attack (3-hit combo)', expanded: false });
   const T = settings.attack;
   at.addBinding(T, 'speed', { min: 0.5, max: 2, step: 0.05 });
@@ -127,6 +147,13 @@ export function createTweaks(hooks: TweakHooks, visible = true) {
   au.addBinding(S, 'land', { min: 0, max: 1, step: 0.05 });
   au.addBinding(S, 'ambient', { min: 0, max: 0.5, step: 0.01 }).on('change', hooks.onAmbientChange ?? (() => {}));
   au.addBinding(S, 'combat', { min: 0, max: 1, step: 0.05 });
+  // 공간 오디오 (audio/space.ts) — 0 으로 내리면 이 기능을 넣기 전 동작으로 돌아간다. A/B 비교용
+  au.addBinding(S, 'reverb', { label: '잔향', min: 0, max: 2, step: 0.05 }).on('change', hooks.onSpaceChange ?? (() => {}));
+  au.addBinding(S, 'occlusion', { label: '벽 차폐', min: 0, max: 1.5, step: 0.05 });
+
+  // 밤 씬 — 달빛 그림자 A/B (품질 프리셋이 high·ultra 일 때만 실제로 켜진다)
+  const nt = pane.addFolder({ title: 'Night', expanded: false });
+  nt.addBinding(settings.night, 'moonShadow', { label: '달빛 그림자' }).on('change', hooks.onMoonShadowChange ?? (() => {}));
 
   const rd = pane.addFolder({ title: 'Render', expanded: false });
   const r = settings.render;

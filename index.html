@@ -7,6 +7,10 @@
     <meta name="theme-color" content="#0a0f1a" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏮</text></svg>" />
     <title>히간바나 (彼岸花)</title>
+    <!-- 퀘스트 보이스 서체 (PLAN-STORY §4.1): 명조 = 히간누시, 손글씨 = 사요. 오프라인이면 시스템 서체 폴백 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600&family=Nanum+Pen+Script&display=swap" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -25,12 +29,16 @@
         <div class="hint-title">클릭해서 조작 시작</div>
         <div class="hint-keys">
           <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동 · <kbd>Shift</kbd> 달리기(스태미나) · <kbd>C</kbd> 웅크림</span>
-          <span><kbd>Q</kbd> 초칭 밝기 · <kbd>E</kbd> 줍기/봉납 · <kbd>좌클릭</kbd> 돌 던지기(유인) · <kbd>G</kbd> 소금(격퇴)</span>
+          <span><kbd>Q</kbd> 초칭 밝기 · <kbd>E</kbd> 줍기/봉납 · <kbd>Tab</kbd> 인벤토리(기록물은 클릭해서 읽는다) · <kbd>좌클릭</kbd> 돌 던지기(유인) · <kbd>G</kbd> 소금(격퇴)</span>
           <span><kbd>마우스</kbd> 시점 · <kbd>휠</kbd> 줌 · 웅크려서 노점 아래·벼 사이·벽장에 숨을 수 있다</span>
           <span><kbd>R</kbd> 리셋 · <kbd>M</kbd> 음소거 · <kbd>F</kbd> 전체화면 · <kbd>H</kbd> 설정</span>
         </div>
       </div>
       <div id="stats" class="stats"></div>
+    </div>
+    <div id="title-card" class="title-card">
+      <div class="tc-kanji">彼岸花</div>
+      <div class="tc-ko">피안화</div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

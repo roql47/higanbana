@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { settings } from '@/core/settings';
 import type { Sfx } from './sfx';
 import type { LoopVoice } from './bank';
+import { SpatialSource } from './space';
 
 /**
  * 마츠리바야시(祭囃子) = 이 게임의 심박. **축제 음악이 요괴 근접도다.**
@@ -18,7 +19,8 @@ import type { LoopVoice } from './bank';
  *    샘플이 있으면 샘플, 없으면 합성
  */
 export class Matsuri {
-  private panner: PannerNode | null = null;
+  /** 요괴 위치의 음원 — 벽에 막히면 먹먹해지고 대신 방의 잔향이 커진다 (audio/space.ts) */
+  private src: SpatialSource | null = null;
   private bus: GainNode | null = null;
   private layers: { drum: GainNode; flute: GainNode; bells: GainNode; geta: GainNode; bed: GainNode } | null = null;
   private bed: LoopVoice | null = null;
@@ -39,18 +41,15 @@ export class Matsuri {
 
   /** AudioContext 언락 후 매 프레임 시도해도 안전 */
   private ensure() {
-    const ctx = this.sfx.context, master = this.sfx.masterGain;
-    if (this.started || !ctx || !master || ctx.state !== 'running') return;
-    this.panner = ctx.createPanner();
-    this.panner.panningModel = 'HRTF';
-    this.panner.distanceModel = 'exponential';
-    this.panner.refDistance = 4;
-    this.panner.rolloffFactor = 1.35;
+    const ctx = this.sfx.context, master = this.sfx.masterGain, space = this.sfx.space;
+    if (this.started || !ctx || !master || !space || ctx.state !== 'running') return;
+    // wet 1.4 — 요괴의 음악은 **어디서 나는지 모르는 소리**여야 한다. 다른 음원보다 잔향을 더 먹인다
+    this.src = new SpatialSource(space, ctx, master, { ref: 4, rolloff: 1.35, wet: 1.4 });
     this.bus = ctx.createGain();
     this.bus.gain.value = settings.audio.matsuri;
-    const mk = () => { const g = ctx.createGain(); g.gain.value = 0; g.connect(this.panner!); return g; };
+    this.bus.connect(this.src.input);
+    const mk = () => { const g = ctx.createGain(); g.gain.value = 0; g.connect(this.bus!); return g; };
     this.layers = { drum: mk(), flute: mk(), bells: mk(), geta: mk(), bed: mk() };
-    this.panner.connect(this.bus).connect(master);
     this.started = true;
   }
 
@@ -93,7 +92,7 @@ export class Matsuri {
   update(dt: number, hunterPos: THREE.Vector3, camera: THREE.Camera, dist: number) {
     this.ensure();
     const ctx = this.sfx.context;
-    if (!ctx || !this.panner || !this.layers) return;
+    if (!ctx || !this.src || !this.layers) return;
 
     // 리스너 = 카메라
     const l = ctx.listener;
@@ -105,9 +104,7 @@ export class Matsuri {
       l.forwardX.value = fwd.x; l.forwardY.value = fwd.y; l.forwardZ.value = fwd.z;
       l.upX.value = up.x; l.upY.value = up.y; l.upZ.value = up.z;
     }
-    this.panner.positionX.value = hunterPos.x;
-    this.panner.positionY.value = hunterPos.y + 1.8;
-    this.panner.positionZ.value = hunterPos.z;
+    this.src.setPosition(hunterPos.x, hunterPos.y + 1.8, hunterPos.z);
     this.bus!.gain.value = settings.audio.matsuri;
 
     // --- 심장소리: 내 몸의 소리라 무지향(패너 미사용). 가까울수록 빠르고 크게. 정적 중에도 뛴다 ---
@@ -186,8 +183,8 @@ export class Matsuri {
   /** 두근(lub-dub): 샘플(`heart/beat`) 또는 저역 사인 2연타. 마스터 직결(무지향) */
   private heartbeat(ctx: AudioContext, vol: number) {
     if (vol < 0.01) return;
-    const master = this.sfx.masterGain!;
-    if (this.sfx.bank.play('heart/beat', { gain: vol * 1.4, rate: 0.97 + Math.random() * 0.06 + (this.chase ? 0.06 : 0) })) return;
+    const master = this.sfx.dryOut!; // 심장은 몸 안의 소리 — 방의 잔향을 타지 않는다
+    if (this.sfx.bank.play('heart/beat', { gain: vol * 1.4, rate: 0.97 + Math.random() * 0.06 + (this.chase ? 0.06 : 0), dest: master })) return;
     const beat = (t: number, freq: number, v: number) => {
       const o = ctx.createOscillator(); o.type = 'sine';
       o.frequency.setValueAtTime(freq, t);

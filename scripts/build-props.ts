@@ -18,6 +18,14 @@ const quality = Number(a['quality'] ?? 82);
 const only = a['only'] ? String(a['only']).split(',') : null;
 /** 0 < ratio < 1 이면 그 비율까지 삼각형을 줄인다 (원거리 소품·다수 인스턴스용) */
 const simplifyRatio = a['simplify'] ? Number(a['simplify']) : 0;
+/** 출력 이름 뒤에 붙일 꼬리표 — 같은 소스에서 LOD 를 여러 벌 뽑을 때 (`--simplify 0.1 --suffix -far`) */
+const suffix = a['suffix'] ? String(a['suffix']) : '';
+/**
+ * 단순화 허용 오차. **이게 실제 감축량을 정한다** — ratio 를 아무리 낮게 줘도 error 가 작으면
+ * 그 전에 멈춘다(실측: 13,471 tris 에 ratio 0.11 · error 0.001 을 걸었더니 13,176 에서 멈췄다).
+ * 나무처럼 실루엣만 맞으면 되는 소품은 0.02~0.09 를 쓴다.
+ */
+const simplifyError = a['error'] ? Number(a['error']) : 0.001;
 
 await MeshoptEncoder.ready;
 await MeshoptSimplifier.ready;
@@ -41,7 +49,7 @@ for (const name of names) {
     unpartition(),
     dedup(),
     weld(),
-    ...(simplifyRatio > 0 ? [simplify({ simplifier: MeshoptSimplifier, ratio: simplifyRatio, error: skinned ? 0.01 : 0.001 })] : []),
+    ...(simplifyRatio > 0 ? [simplify({ simplifier: MeshoptSimplifier, ratio: simplifyRatio, error: skinned ? Math.max(0.01, simplifyError) : simplifyError })] : []),
     textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [texSize, texSize], quality }),
     reorder({ encoder: MeshoptEncoder }),
     meshopt({ encoder: MeshoptEncoder, level: 'medium' }),
@@ -49,7 +57,7 @@ for (const name of names) {
   );
   if (skinned) console.log(`  ${name}: 스킨드 — prune 생략(Skin 보존)`);
   const glb = await io.writeBinary(doc);
-  const out = resolve(outDir, `${name.replace(/^prop-/, '')}.glb`);
+  const out = resolve(outDir, `${name.replace(/^prop-/, '')}${suffix}.glb`);
   writeFileSync(out, glb);
   let tris = 0;
   for (const m of doc.getRoot().listMeshes()) for (const p of m.listPrimitives()) tris += (p.getIndices()?.getCount() ?? 0) / 3;

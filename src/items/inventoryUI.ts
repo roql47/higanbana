@@ -12,6 +12,8 @@ export class InventoryUI {
   private dragFrom: number | null = null;
   isOpen = false;
   onToggle?: (open: boolean) => void;
+  /** 기록물(`type: 'record'`)을 클릭했을 때 — 전용 뷰어를 여는 쪽에서 붙인다 */
+  onUse?: (itemId: string) => void;
 
   constructor(private inv: Inventory) {
     this.el = document.createElement('div');
@@ -19,7 +21,7 @@ export class InventoryUI {
     this.el.className = 'inv hidden';
     this.el.innerHTML = `
       <div class="inv-panel">
-        <div class="inv-head"><span class="inv-title">인벤토리</span><span class="inv-hint"><kbd>Tab</kbd> 닫기 · 클릭 장착/해제 · 드래그 이동</span></div>
+        <div class="inv-head"><span class="inv-title">인벤토리</span><span class="inv-hint"><kbd>Tab</kbd> 닫기 · 클릭 장착/열기 · 드래그 이동</span></div>
         <div class="inv-body">
           <div class="inv-equip">
             <div class="inv-label">주무기</div>
@@ -48,6 +50,8 @@ export class InventoryUI {
       const idx = Number(slot.dataset['index']);
       const item = inv.item(inv.slots[idx]?.itemId ?? null);
       if (item?.type === 'weapon') inv.equip(idx);
+      // 기록물은 장착하는 게 아니라 **여는** 물건이다 (가족사진·명부·일기·문서)
+      else if (item?.type === 'record') this.onUse?.(item.id);
     });
     this.equipSlot.addEventListener('click', () => inv.unequip());
     // 드래그 교환

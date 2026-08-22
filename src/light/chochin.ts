@@ -3,7 +3,7 @@ import { settings } from '@/core/settings';
 import { damp } from '@/core/math';
 
 /**
- * 초칭(提灯) — 왼손에 든 종이등.
+ * 초칭(提灯) — 오른손에 든 종이등.
  *
  * 이 게임의 유일한 그림자 광원이자, 난이도 다이얼이다.
  *   끔(0) → 거의 안 보이지만 안전 / 약(1) → 발밑만 / 강(2) → 잘 보이지만 멀리서도 들킨다
@@ -13,7 +13,7 @@ import { damp } from '@/core/math';
  * 진자(pendulum) 보정을 매 프레임 얹는다 — 걸을수록 앞뒤로 흔들린다.
  */
 export class Chochin {
-  readonly root = new THREE.Group();      // L_Hand 본에 붙는 마운트
+  readonly root = new THREE.Group();      // 손 본(R_Hand)을 따라가는 마운트
   readonly body = new THREE.Group();      // 진자 — 월드 기준 수직 유지
   readonly light: THREE.PointLight;
   private paperMat: THREE.MeshStandardMaterial;
@@ -28,6 +28,8 @@ export class Chochin {
   private swing = 0;
   private swingV = 0;
   private flickerVal = 1;
+  /** 손에 들고 있는가 — 획득 전(ACT 2~4)에는 false (`setHeld`) */
+  private isHeld = true;
   /** 위협 근접도 0..1 — 가까울수록 불꽃이 크게 흔들린다 (main 이 매 프레임 넣어줌) */
   threat = 0;
   private qParent = new THREE.Quaternion();
@@ -38,7 +40,9 @@ export class Chochin {
   constructor(modelRoot: THREE.Object3D, shadowMapSize = 1024) {
     this.modelRoot = modelRoot;
     modelRoot.traverse((o) => {
-      if (/^(L_Hand|mixamorig:LeftHand)$/.test(o.name)) this.handBone = o;
+      // **오른손**이다. 미오의 통학가방은 왼쪽 허리에 걸려 있어서(스트랩이 오른어깨→왼허리)
+      // 왼손에 들면 등불과 가방이 같은 자리에서 겹친다 (사용자 지적, 2026-08-21).
+      if (/^(R_Hand|mixamorig:RightHand)$/.test(o.name)) this.handBone = o;
       if (/^(Hip|Hips|mixamorig:Hips)$/.test(o.name)) this.hipBone = o;
     });
 
@@ -51,15 +55,20 @@ export class Chochin {
     // decay 2(물리값)는 광원이 몸에서 30 cm 라 다리·치마가 순백으로 포화돼 텍스처가 사라진다
     // (사용자 리포트 "정면 뷰에서 질감이 뭉개짐"). 1.5 로 완만하게 — 2 m 지점 밝기는 그대로,
     // 0.3 m 근접 조도만 약 2.6배 낮아져 질감이 살아난다.
+    // 얼굴 쪽은 이 등불로 해결되지 않는다(골반 높이에서 아래·옆으로 비춘다) → light/faceFill.ts 참고.
     this.light.decay = 1.5;
     this.light.castShadow = true;
     this.light.shadow.mapSize.set(shadowMapSize, shadowMapSize);
     // 그림자 여드름 대책 (2026-08-19, "캐릭터가 조각 깨져 보임" 리포트):
     // 광원이 몸에서 10~20 cm 라 큐브 그림자맵 텍셀 밀도가 극단적으로 낮다.
-    // near 0.06 은 깊이 정밀도를 낭비해 소매·치마에 밴딩(acne)이 기어다녔다 → near 0.25 + normalBias 0.12.
+    // near 0.06 은 깊이 정밀도를 낭비해 소매·치마에 밴딩(acne)이 기어다녔다 → near 0.25 + normalBias.
     // (25 cm 안쪽은 그림자를 못 만들지만 — 손 자체 그림자 손실 — acne 보다 낫다)
-    this.light.shadow.bias = -0.002;
-    this.light.shadow.normalBias = 0.12;
+    //
+    // 2026-08-20: normalBias 0.12 는 12 cm 짜리 오프셋이라 턱 밑·소매 안쪽 자기그림자가 통째로
+    // 사라졌다. 캐릭터 메시를 재생성해 이목구비가 실제 지오메트리로 들어오면서 그 손실이 눈에 띄어
+    // 0.06 으로 낮췄다 — 걷기/정지 포즈에서 acne 재발 없음을 확인.
+    this.light.shadow.bias = -0.0015;
+    this.light.shadow.normalBias = 0.06;
     this.light.shadow.camera.near = 0.25;
     // 광원은 **종이 몸통 한가운데**. 아래에 두면 등이 안에서 빛나지 않고 밑으로만 샌다 (2026-08-19 수정)
     this.light.position.set(0, 0, 0);
@@ -75,9 +84,32 @@ export class Chochin {
   }
 
   get level() { return settings.chochin.level; }
-  /** 감지 배율 — 빛이 곧 위험이다 (H2 senses 가 읽는다) */
-  get detectionMul() { return settings.chochin.detectionMul[settings.chochin.level] ?? 1; }
-  get lit() { return settings.chochin.level > 0; }
+  /**
+   * 감지 배율 — 빛이 곧 위험이다 (H2 senses 가 읽는다).
+   * **미소지면 「끔」 값으로 고정**한다. 안 들고 있는 등불이 플레이어를 들키게 하면 안 된다
+   */
+  get detectionMul() {
+    const d = settings.chochin.detectionMul;
+    return this.isHeld ? (d[settings.chochin.level] ?? 1) : (d[0] ?? 1);
+  }
+  get lit() { return this.isHeld && settings.chochin.level > 0; }
+
+  /**
+   * 들고 있는가 (각색 6 C안 / P1-2).
+   *
+   * 미오는 **빈손으로 버스에서 내린다.** 초칭은 마을 초입 처마에서 얻는다
+   * (`world/higasato/eaveChochin.ts`). 그래서 ACT 2~4 동안은 이 값이 false 다.
+   *
+   * 시스템을 끄지 않고 **가시성과 감지 배율만** 막는다 — 초칭 코드(진자·불꽃·그림자·
+   * 셰이더 프리워밍)는 전부 그대로 살아 있고, 획득 순간 `setHeld(true)` 한 줄로 돌아온다.
+   */
+  get held() { return this.isHeld; }
+  setHeld(v: boolean) {
+    if (this.isHeld === v) return;
+    this.isHeld = v;
+    this.root.visible = v;
+    this.light.visible = v && settings.chochin.level > 0;
+  }
 
   /** 루트 스케일을 상쇄해 월드에서 settings.chochin.size 미터가 되게 한다 */
   applyOffsets() {
@@ -121,7 +153,7 @@ export class Chochin {
     const c = settings.chochin;
     c.level = ((n % 3) + 3) % 3;
     this.light.color.set(c.color);
-    this.light.visible = c.level > 0;
+    this.light.visible = this.isHeld && c.level > 0;
     this.light.distance = c.level === 2 ? c.rangeHigh : c.rangeLow;
     this.paperMat.emissiveIntensity = c.level === 0 ? 0.0 : c.level === 1 ? 0.35 : 0.85;
     // opacity 는 건드리지 않는다 — transparent 재질의 불투명도 변화도 렌더 상태를 바꿔
@@ -185,7 +217,11 @@ export class Chochin {
 }
 
 /** 종이등 메시: 배가 부른 원통(Lathe) + 위아래 나무 테 + 손잡이 고리 */
-function makeLantern(size: number) {
+/**
+ * 종이등 한 채. **획득 전 처마에 걸려 있는 것도 같은 함수로 만든다**
+ * (`world/higasato/eaveChochin.ts`) — 떼기 전과 든 뒤가 다른 물건이면 획득이 교환이 된다.
+ */
+export function makeLantern(size: number) {
   const g = new THREE.Group();
   const bodyH = size * 0.72, rMax = size * 0.30;
 

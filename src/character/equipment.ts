@@ -3,6 +3,10 @@ import { toFloatGeometry } from '@/core/geom';
 import type { CharacterModel } from './model';
 import type { ItemDef } from '@/items/items';
 import { Props } from '@/world/props';
+import { settings } from '@/core/settings';
+
+const AXIS_Y = new THREE.Vector3(0, 1, 0);
+const HAND_ROLL_INV = new THREE.Quaternion();
 
 /**
  * 무기 장착: 오른손 본(R_Hand) 아래 마운트에 무기 메시를 붙이고, 안 쓸 때는 등(Spine02) 칼집 마운트로 옮긴다.
@@ -112,6 +116,11 @@ export class Equipment {
     const k = 1 / Math.max(1e-6, ws.x);
     this.handMount.position.set(g.pos[0] * k, g.pos[1] * k, g.pos[2] * k);
     this.handMount.rotation.set(...g.rot);
+    // 손목 롤 보정(`settings.character.handRoll`)은 손 본에 걸리므로 그 자식인 이 마운트도 같이 돈다.
+    // 무기 그립 값은 보정 **전에** 맞춰 둔 것이라, 보이는 모습이 그대로이도록 여기서 되돌린다
+    if (Math.abs(settings.character.handRoll) > 1e-4) {
+      this.handMount.quaternion.premultiply(HAND_ROLL_INV.setFromAxisAngle(AXIS_Y, -settings.character.handRoll));
+    }
     this.handMount.scale.setScalar(g.scale * k);
     const sh = it.sheath ?? { bone: 'Spine02', pos: [0, 0, 0], rot: [0, 0, 0] };
     this.sheathMount.position.set(sh.pos[0] * k, sh.pos[1] * k, sh.pos[2] * k);

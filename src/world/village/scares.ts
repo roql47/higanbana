@@ -5,6 +5,7 @@ import type { MatsuriSquare } from './matsuri';
 import type { House } from './house';
 import type { Chochin } from '@/light/chochin';
 import type { Sfx } from '@/audio/sfx';
+import { SpatialSource } from '@/audio/space';
 import type { Senses } from '@/ai/senses';
 
 /**
@@ -27,7 +28,7 @@ export class Scares {
   private tmp = new THREE.Vector3();
   // 야구라 북
   private drumT = 30;
-  private drumPanner: PannerNode | null = null;
+  private drumSrc: SpatialSource | null = null;
   // 이로리 불씨
   private emberLight: THREE.PointLight | null = null;
   private emberMat: THREE.MeshStandardMaterial | null = null;
@@ -174,16 +175,10 @@ export class Scares {
     this.drumT = 50 + Math.random() * 45;
     const ctx = this.sfx.context, master = this.sfx.masterGain;
     if (ctx && master && ctx.state === 'running') {
-      if (!this.drumPanner) {
-        this.drumPanner = ctx.createPanner();
-        this.drumPanner.panningModel = 'HRTF';
-        this.drumPanner.distanceModel = 'exponential';
-        this.drumPanner.refDistance = 6;
-        this.drumPanner.rolloffFactor = 1.1;
-        this.drumPanner.connect(master);
-      }
-      const p = this.drumPanner;
-      p.positionX.value = this.square.drumPos.x; p.positionY.value = this.square.drumPos.y; p.positionZ.value = this.square.drumPos.z;
+      // 야구라 북은 건물 너머에서 들릴 때가 많다 — 막히면 먹먹해져야 "저쪽 광장에서" 로 들린다
+      if (!this.drumSrc && this.sfx.space) this.drumSrc = new SpatialSource(this.sfx.space, ctx, master, { ref: 6, rolloff: 1.1, wet: 1.2 });
+      const p = this.drumSrc?.input ?? master;
+      this.drumSrc?.setPosition(this.square.drumPos.x, this.square.drumPos.y, this.square.drumPos.z);
       const beats = 2 + Math.floor(Math.random() * 2);
       for (let i = 0; i < beats; i++) {
         const t = ctx.currentTime + i * (0.55 + Math.random() * 0.1);

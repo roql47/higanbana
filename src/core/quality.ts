@@ -15,6 +15,8 @@ export interface QualityProfile {
   ao: 'off' | 'Low' | 'Medium' | 'High';
   aoHalfRes: boolean;
   treeScale: number; // 소품 개수 배율
+  /** 달빛 방향광 그림자(밤 씬). 섀도맵 패스가 하나 더 늘어난다 — low·medium 은 끈다 */
+  moonShadow: boolean;
 }
 
 const PROFILES: Record<QualityLevel, QualityProfile> = {
@@ -26,11 +28,11 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
   // → pixelBudget(총 픽셀 예산)으로 바꿔 큰 화면일수록 픽셀비가 자동으로 내려가게 한다.
   // 예산은 "60 fps 를 치고도 GPU 가 남는 시간에 쉬는" 지점으로 잡았다(프레임 시간 ≈ 6.4 + 8.0 × MP ms).
   // 1.5 MP 는 19.8 ms(50 fps)로 여전히 GPU 가 붙박이라 1.3 MP 로 낮췄다.
-  low: { level: 'low', pixelRatio: 1, pixelBudget: 0.9, shadowMap: 1024, shadowRadius: 20, grassCount: 25000, ao: 'off', aoHalfRes: true, treeScale: 0.6 },
-  medium: { level: 'medium', pixelRatio: 1.25, pixelBudget: 1.1, shadowMap: 2048, shadowRadius: 26, grassCount: 60000, ao: 'off', aoHalfRes: true, treeScale: 0.85 },
-  high: { level: 'high', pixelRatio: 1.5, pixelBudget: 1.3, shadowMap: 3072, shadowRadius: 30, grassCount: 100000, ao: 'Low', aoHalfRes: true, treeScale: 1 },
+  low: { level: 'low', pixelRatio: 1, pixelBudget: 0.9, shadowMap: 1024, shadowRadius: 20, grassCount: 25000, ao: 'off', aoHalfRes: true, treeScale: 0.6, moonShadow: false },
+  medium: { level: 'medium', pixelRatio: 1.25, pixelBudget: 1.1, shadowMap: 2048, shadowRadius: 26, grassCount: 60000, ao: 'off', aoHalfRes: true, treeScale: 0.85, moonShadow: false },
+  high: { level: 'high', pixelRatio: 1.5, pixelBudget: 1.3, shadowMap: 3072, shadowRadius: 30, grassCount: 100000, ao: 'Low', aoHalfRes: true, treeScale: 1, moonShadow: true },
   // ultra 는 "프레임보다 화질" 을 명시적으로 고른 경우 — 예산을 크게 두고 60 fps 를 보장하지 않는다
-  ultra: { level: 'ultra', pixelRatio: 2, pixelBudget: 2.2, shadowMap: 4096, shadowRadius: 32, grassCount: 140000, ao: 'Medium', aoHalfRes: false, treeScale: 1 },
+  ultra: { level: 'ultra', pixelRatio: 2, pixelBudget: 2.2, shadowMap: 4096, shadowRadius: 32, grassCount: 140000, ao: 'Medium', aoHalfRes: false, treeScale: 1, moonShadow: true },
 };
 
 /** 픽셀비 하한 — 이보다 낮추면 화면이 뭉개져서, 여기까지 내려도 느리면 품질 단계를 낮추는 게 맞다 */

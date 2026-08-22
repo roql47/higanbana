@@ -1,5 +1,12 @@
-/** 아이템 정의. 무기는 손 본에 붙는 오프셋과 공격 데이터를 가진다. */
-export type ItemType = 'weapon' | 'misc';
+/**
+ * 아이템 정의. 무기는 손 본에 붙는 오프셋과 공격 데이터를 가진다.
+ *
+ * `record`(기록물) — **읽는 물건**이다. 장착하지 않고 인벤에서 클릭하면 전용 뷰어가 열린다.
+ * 가족사진이 첫 번째고, 뒤에 명부·사요의 일기·저택 문서 3종이 전부 이 종류로 들어온다
+ * (PLAN-STORY §4.3 수집물). 그래서 `misc` 에 섞지 않고 따로 뒀다 —
+ * 「쓸 데 없는 물건」과 「이야기를 여는 물건」은 인벤에서 구분돼야 한다.
+ */
+export type ItemType = 'weapon' | 'misc' | 'record';
 
 /** 하나의 긴 콤보 클립에서 잘라 쓰는 한 타 */
 export interface ComboStep {
@@ -75,5 +82,13 @@ export const ITEMS: Record<string, ItemDef> = {
     type: 'misc',
     desc: '섬 어딘가에서 주웠다. 아직 쓸 데는 없다.',
     icon: '🍎',
+  },
+  photo: {
+    id: 'photo',
+    name: '가족사진',
+    type: 'record',
+    // 「기억하지 못한다」를 설명하지 않는다. 사진을 열면 보인다
+    desc: '어린 미오와 언니. 언니의 얼굴만 물에 번진 것처럼 지워져 있다.',
+    icon: '🖼️',
   },
 };

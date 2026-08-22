@@ -1,0 +1,33 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>photo in hand</title>
+<style>html,body{margin:0;height:100%;background:#101318;overflow:hidden}canvas{display:block}
+#band{position:fixed;left:0;right:0;bottom:0;height:13.5vh;background:#0008;color:#fff;font:14px sans-serif;display:flex;align-items:center;justify-content:center}</style>
+</head><body><div id="band">자막띠 (13.5vh)</div>
+<script type="module">
+// ACT 2a 의 손+사진 프롭만 카메라 앞에 놓고 프레이밍을 본다 (dev 전용)
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+const q = new URLSearchParams(location.search);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NeutralToneMapping; renderer.toneMappingExposure = 0.78;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x2a2b30);
+const cam = new THREE.PerspectiveCamera(58, 1, 0.01, 100); scene.add(cam);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x404050, 1.1));
+const sun = new THREE.DirectionalLight(0xffe6c0, 2.9); sun.position.set(1,2,1.5); scene.add(sun);
+const W = Number(q.get('w') ?? 0.26);
+const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync('/models/props/photo-hands.glb');
+const root = gltf.scene; root.updateMatrixWorld(true);
+const box = new THREE.Box3().setFromObject(root), size = box.getSize(new THREE.Vector3());
+const s = W/size.x, c = box.getCenter(new THREE.Vector3());
+root.scale.setScalar(s); root.position.set(-c.x*s, -c.y*s, -c.z*s);
+root.traverse(o=>{ if(!o.isMesh) return; for(const m of [].concat(o.material)){ m.color?.multiplyScalar(0.62); m.roughness=0.6; m.metalness=0; } });
+const g = new THREE.Group(); g.add(root); cam.add(g);
+g.position.set(0.015, Number(q.get('y') ?? -0.03), Number(q.get('z') ?? -0.30));
+g.rotation.set(Number(q.get('tilt') ?? -0.12), 0, 0.03);
+function resize(){ renderer.setSize(innerWidth, innerHeight); cam.aspect=innerWidth/innerHeight; cam.updateProjectionMatrix(); }
+addEventListener('resize', resize);
+(function loop(){ requestAnimationFrame(loop); resize(); renderer.render(scene, cam); })();
+</script></body></html>

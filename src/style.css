@@ -195,13 +195,21 @@ body.touch .stats { display: none; }
 .mission-list .dot { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--c); background: transparent; }
 .mission-list .where { font-size: 10px; color: rgba(243,234,214,0.35); }
 .mission-list li.got { color: rgba(243,234,214,0.95); }
+.mission-list li.lock { opacity: 0.38; }
+.mission-list li.carry { color: #ffd9a0; }
+.mission-list li.carry .dot { background: var(--c); box-shadow: 0 0 10px var(--c); animation: carry-pulse 1.6s ease-in-out infinite; }
+.mission-list li.carry .where { color: #ffc876; }
+@keyframes carry-pulse { 50% { box-shadow: 0 0 3px var(--c); } }
 .mission-list li.got .dot { background: var(--c); box-shadow: 0 0 8px var(--c); }
 .mission-list li.got .nm { text-decoration: line-through; text-decoration-color: rgba(243,234,214,0.45); }
 .mission-list li.got .where { color: var(--c); }
 .mission.done .mission-list { display: none; }
 .mission.done .mission-goal { color: #ffc876; }
-.prompt-line { font-size: 14px; color: #f3ead6; text-shadow: 0 1px 3px #000; opacity: 0; transition: opacity 0.2s; background: rgba(0,0,0,0.45); padding: 6px 12px; border-radius: 4px; }
+.prompt-line { position: relative; overflow: hidden; font-size: 14px; color: #f3ead6; text-shadow: 0 1px 3px #000; opacity: 0; transition: opacity 0.2s; background: rgba(0,0,0,0.45); padding: 6px 12px; border-radius: 4px; }
 .prompt-line.show { opacity: 1; }
+/* 꾹 누르기 게이지 (ACT 3 비석 닦기) — 프롬프트 줄 자체가 차오른다. 별도 위젯을 띄우면
+   화면에 UI 가 하나 더 생기고, 이 게임의 HUD 는 이미 미션 패널 하나로 충분히 시끄럽다 */
+.prompt-line .prompt-bar { position: absolute; left: 0; bottom: 0; height: 2px; width: 0; background: #ffc876; box-shadow: 0 0 6px rgba(255,200,118,0.7); transition: width 0.05s linear; }
 .pickup-toast { position: fixed; left: 50%; top: 18%; transform: translateX(-50%); color: #f3ead6; font-size: 16px; letter-spacing: 0.08em; text-shadow: 0 1px 4px #000; opacity: 0; transition: opacity 0.5s; pointer-events: none; z-index: 21; background: rgba(0,0,0,0.35); padding: 8px 16px; border-radius: 4px; }
 .pickup-toast.show { opacity: 1; }
 .ending { position: fixed; inset: 0; background: radial-gradient(ellipse at 50% 60%, #3a4f72 0%, #0b1020 70%); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; opacity: 0; pointer-events: none; transition: opacity 2.2s ease; z-index: 45; }
@@ -218,3 +226,137 @@ body.touch .stats { display: none; }
 .salt-count { position: fixed; left: 18px; bottom: 16px; color: rgba(243,234,214,0.75); font-size: 12px; letter-spacing: 0.08em; text-shadow: 0 1px 3px #000; background: rgba(0,0,0,0.35); padding: 5px 10px; border-radius: 4px; pointer-events: none; z-index: 20; }
 .hidden-badge { position: fixed; left: 50%; bottom: 60px; transform: translateX(-50%); color: #9fb8d8; font-size: 12px; letter-spacing: 0.35em; text-indent: 0.35em; opacity: 0; transition: opacity 0.4s; pointer-events: none; z-index: 20; text-shadow: 0 1px 4px #000; }
 .hidden-badge.show { opacity: 0.85; }
+
+/* --- 스토리 시스템 (PLAN-STORY S0): 퀘스트 보이스 · 자막 · 시퀀서 --- */
+/* 목표 문구의 세 목소리 — 서체가 화자다 (§4.1) */
+.mission-goal.voice-gm { font-family: "Noto Serif KR", "Apple SD Gothic Neo", serif; letter-spacing: 0.06em; }
+.mission-goal.voice-sayo { font-family: "Nanum Pen Script", "Apple SD Gothic Neo", cursive; font-size: 18px; color: #ffe2b8; transform: rotate(-0.6deg); }
+.mission-goal.voice-none { font-family: inherit; color: rgba(243, 234, 214, 0.8); }
+.mission-goal.glitching {
+  color: #f0dcc8;
+  text-shadow: 1px 0 rgba(255, 70, 70, 0.8), -1px 0 rgba(90, 200, 255, 0.6), 0 1px 2px #000;
+  animation: q-jitter 0.12s steps(2) infinite;
+}
+@keyframes q-jitter { 50% { transform: translate(1px, -1px); } }
+
+/* 자막 — 레터박스(12vh) 바로 위. 화자 색은 --who 로 주입 */
+/* z-index 42 — seq-fade(40) 위. 암전 화면 위에서 말하는 장면이 프롤로그의 핵심이라 자막이 페이드에 묻히면 안 된다 */
+.dialogue { position: fixed; left: 50%; bottom: 13.5vh; transform: translateX(-50%); width: min(760px, 86vw); text-align: center; z-index: 42; pointer-events: none; opacity: 0; transition: opacity 0.25s; }
+.dialogue.show { opacity: 1; }
+.dialogue .who { font-size: 12px; letter-spacing: 0.3em; text-indent: 0.3em; color: var(--who, rgba(243, 234, 214, 0.6)); margin-bottom: 6px; text-shadow: 0 1px 3px #000; }
+.dialogue .line { font-size: 17px; line-height: 1.65; color: #f3ead6; font-family: "Noto Serif KR", "Apple SD Gothic Neo", serif; text-shadow: 0 1px 3px #000, 0 0 18px rgba(0, 0, 0, 0.8); }
+
+/* 미오의 휴대폰 (story/phone.ts) — 씬에 넣지 않고 DOM 한 장으로 낸다.
+   손에 든 물건이므로 화면 정중앙이 아니라 **아래·약간 오른쪽**에서 올라오고 살짝 기울어 있다.
+   어두운 버스 안에서 유일하게 켜진 물건이라 테두리 바깥으로 약한 빛이 번진다 —
+   그 번짐이 "화면이 켜졌다"를 말한다(씬 광원은 하나도 안 쓴다). */
+.phone {
+  position: fixed; left: 57%; bottom: 5vh; z-index: 43; pointer-events: none;
+  /* 25vw 는 화면 높이를 거의 다 먹었다(실측) — 손에 든 물건이지 패널이 아니다 */
+  width: min(186px, 21vw); aspect-ratio: 9 / 18.5;
+  opacity: 0; transform: translateY(22px) rotate(-4deg) scale(0.97);
+  transition: opacity 0.34s ease, transform 0.34s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.phone.show { opacity: 1; transform: translateY(0) rotate(-4deg) scale(1); }
+.phone .scr {
+  position: absolute; inset: 0; border-radius: 16px;
+  background: linear-gradient(168deg, #161c24 0%, #0d1117 58%, #0a0d12 100%);
+  border: 1px solid rgba(180, 200, 220, 0.16);
+  box-shadow: 0 0 0 3px rgba(8, 10, 14, 0.9), 0 10px 30px rgba(0, 0, 0, 0.7),
+              0 0 34px rgba(120, 160, 210, 0.20), 0 0 90px rgba(90, 130, 180, 0.10);
+  display: flex; flex-direction: column; align-items: center;
+  padding: 10px 8px 14px; overflow: hidden;
+  font-family: "Noto Sans JP", "Hiragino Sans", "Apple SD Gothic Neo", sans-serif;
+  color: #dce6f0;
+}
+.phone .bar {
+  width: 100%; display: flex; justify-content: space-between;
+  font-size: 10px; letter-spacing: 0.06em; color: rgba(200, 214, 228, 0.62);
+}
+/* 圏外 는 처음부터 圏外 다 — 산에 들어선 순간부터. ② 에서 이걸 근거로 넘어가고 ③ 에서 배신당한다 */
+.phone .sig { color: rgba(226, 176, 176, 0.78); }
+.phone .mid { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; }
+.phone .big { font-size: 40px; font-weight: 200; letter-spacing: 0.01em; line-height: 1; color: #eef4fa; }
+.phone .sub { font-size: 11px; letter-spacing: 0.08em; color: rgba(200, 214, 228, 0.66); }
+.phone .note { font-size: 11.5px; letter-spacing: 0.06em; color: rgba(232, 138, 138, 0.9); min-height: 14px; }
+.phone.failed .big { color: rgba(238, 244, 250, 0.55); }
+
+/* 가족사진 뷰어 (story/photoViewer.ts) — 손에 든 인화지 한 장.
+   화면 정중앙에 반듯하게 놓으면 도판이 된다. 살짝 기울이고 그림자를 깔아야 **물건**이 된다. */
+.photoview {
+  position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 50%, rgba(6, 8, 11, 0.72) 0%, rgba(4, 5, 8, 0.92) 100%);
+  opacity: 0; transition: opacity 0.22s ease; cursor: pointer;
+}
+.photoview.show { opacity: 1; }
+.photoview.hidden { display: none; }
+/* ⚠️ `filter` 를 여기 걸면 안 된다. 필터는 3D 렌더링 컨텍스트를 **평탄화**해서
+   `preserve-3d` 가 무시되고, 뒤집었을 때 뒷면 대신 **앞면이 좌우로 뒤집혀** 나온다(실측).
+   그림자는 면(`.pv-face`)의 box-shadow 로 준다. */
+.pv-card {
+  position: relative; width: min(660px, 78vw); aspect-ratio: 768 / 512;
+  transform: rotate(-1.6deg); transform-style: preserve-3d;
+  transition: transform 0.5s cubic-bezier(0.3, 0.85, 0.35, 1);
+}
+.pv-card.flipped { transform: rotate(-1.6deg) rotateY(180deg); }
+.pv-face {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  backface-visibility: hidden; border-radius: 2px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.75);
+  image-rendering: auto;
+}
+.pv-back { transform: rotateY(180deg); }
+.pv-hint {
+  position: absolute; left: 50%; bottom: 7vh; transform: translateX(-50%);
+  font-size: 12px; letter-spacing: 0.08em; color: rgba(243, 234, 214, 0.5);
+}
+.pv-hint kbd {
+  font: inherit; padding: 1px 5px; border: 1px solid rgba(243, 234, 214, 0.28);
+  border-radius: 3px; color: rgba(243, 234, 214, 0.7);
+}
+
+/* 잠식(추격 근접·뒤돌아봄) — 화면 가장자리가 붉게 조여든다. 나중에 피안화 덩굴이 여기로 들어온다 */
+.dread { position: fixed; inset: 0; pointer-events: none; z-index: 23; opacity: 0; transition: opacity 0.5s ease; }
+.dread::after {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 55%, transparent 34%, rgba(96, 8, 10, 0.30) 72%, rgba(52, 2, 6, 0.72) 100%);
+}
+
+/*
+ * 번개 — 씬 조명 스파이크(`world/lightning.ts`)에 얹는 화면 번쩍임.
+ * 잠식(23) 위, 레터박스(24) 아래. `transition` 을 걸면 안 된다 — 번개는 1/100 초 단위로
+ * 값이 바뀌므로 CSS 보간이 끼면 뭉개진 흰 화면이 된다. JS 가 매 프레임 opacity 를 직접 쓴다.
+ */
+.flash { position: fixed; inset: 0; pointer-events: none; z-index: 23; opacity: 0; background: #cfe0ff; mix-blend-mode: screen; }
+@media (prefers-reduced-motion: reduce) { .flash { display: none; } }
+
+/* 시퀀서: 레터박스 · 페이드 · 스킵 홀드 */
+.letterbox { position: fixed; left: 0; right: 0; height: 12vh; background: #000; z-index: 24; transform: scaleY(0); transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1); pointer-events: none; }
+.letterbox.top { top: 0; transform-origin: top; }
+.letterbox.bottom { bottom: 0; transform-origin: bottom; }
+.letterbox.show { transform: scaleY(1); }
+.seq-fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 40; transition-property: opacity; transition-timing-function: ease; }
+.seq-skip { position: fixed; right: 24px; bottom: 24px; z-index: 41; color: rgba(243, 234, 214, 0.7); font-size: 11px; letter-spacing: 0.12em; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+.seq-skip.show { opacity: 1; }
+.seq-skip .bar { height: 2px; background: rgba(243, 234, 214, 0.22); margin-top: 5px; }
+.seq-skip .bar i { display: block; height: 100%; width: 0; background: #ffc876; }
+
+/* 개발용 스크러버 (DEV 전용) */
+.seq-scrub { position: fixed; left: 16px; bottom: 16px; z-index: 60; display: flex; gap: 8px; align-items: center; background: rgba(6, 8, 14, 0.78); border: 1px solid rgba(243, 234, 214, 0.18); border-radius: 4px; padding: 6px 10px; color: #f3ead6; font-size: 11px; }
+.seq-scrub input[type="range"] { width: 220px; accent-color: #ffc876; }
+.seq-scrub button { background: none; border: 1px solid rgba(243, 234, 214, 0.3); color: inherit; border-radius: 3px; padding: 2px 8px; cursor: pointer; font-family: inherit; font-size: 11px; }
+.seq-scrub .tm { min-width: 92px; font-variant-numeric: tabular-nums; }
+
+/* 타이틀 카드 《彼岸花》 — 프롤로그 끝. 붉은 한 글자만 살아 있는 화면 */
+.title-card { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: #000; opacity: 0; pointer-events: none; z-index: 44; transition: opacity 1.6s ease; }
+.title-card.show { opacity: 1; }
+.tc-kanji { font-family: "Noto Serif KR", serif; font-size: clamp(3.4rem, 12vw, 7rem); font-weight: 600; letter-spacing: 0.22em; text-indent: 0.22em; color: #f0e6d2; text-shadow: 0 0 42px rgba(190, 40, 32, 0.55); }
+.tc-kanji::first-letter { color: #c8362a; }
+.tc-ko { font-family: "Noto Serif KR", serif; font-size: clamp(0.9rem, 2.4vw, 1.15rem); letter-spacing: 0.9em; text-indent: 0.9em; color: rgba(240, 230, 210, 0.55); }
+.title-card.show .tc-kanji { animation: tc-in 2.4s cubic-bezier(0.2, 0, 0.1, 1) both; }
+@keyframes tc-in { from { letter-spacing: 0.6em; opacity: 0; } to { letter-spacing: 0.22em; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .title-card.show .tc-kanji { animation: none; } }
+
+/* 시퀀스 중 HUD 숨김 (stats 는 디버그라 남긴다) */
+#hud.cine .hint, #hud.cine .stamina, #hud.cine .salt-count, #hud.cine .hidden-badge,
+#hud.cine .mission, #hud.cine .game-hud, #hud.cine .prompt { opacity: 0 !important; transition: opacity 0.4s; }

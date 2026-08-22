@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Physics } from '@/core/physics';
+import { Props } from '@/world/props';
 import type { VillageGround } from './ground';
 
 /**
@@ -12,8 +13,10 @@ import type { VillageGround } from './ground';
  * 동시에 **시야를 무릎 높이에서 끊는다** — 대숲이 서서 막는다면 묘석은 웅크렸을 때 막는다.
  * 웅크려 이동하면 묘석 사이로 몸이 가려지지만, 그만큼 느리다.
  *
- * 지오메트리는 전부 절차적이다. 밤에 30 m 밖에서 보는 돌덩이에 생성 모델을 쓸 이유가 없다
- * (지장보살은 참배로 옆 1.5 m 에서 보므로 Tripo 를 썼다 — 기준은 거리다).
+ * 기준은 거리다. 그런데 이 묘지는 **지나가는 풍경이 아니라 지나가는 길**이다 — 웅크려 묘석
+ * 사이로 숨는 곳이라 플레이어가 돌을 코앞에서 본다. 그래서 묘석 두 종(판형·자연석)은 Tripo
+ * 모델로 바꿨다. 배치·기울기·콜라이더는 그대로고, `InstancedMesh` 의 지오메트리만 갈아 끼운다 —
+ * 로드가 늦거나 실패해도 절차적 돌이 이미 서 있으므로 묘지는 어느 쪽이든 성립한다.
  */
 export class Graveyard {
   readonly group = new THREE.Group();
@@ -59,10 +62,12 @@ export class Graveyard {
       if (sc > 1.0) physics.addStaticBox(new THREE.Vector3(x, h + 0.45 * sc, z), new THREE.Vector3(0.22 * sc, 0.45 * sc, 0.18 * sc));
       n++;
     }
+    const instanced: (THREE.InstancedMesh | null)[] = [null, null, null];
     kinds.forEach((geo, i) => {
       const list = picks[i]!;
       if (!list.length) return;
       const im = new THREE.InstancedMesh(geo, stoneMat, list.length);
+      instanced[i] = im;
       list.forEach((m, j) => im.setMatrixAt(j, m));
       im.instanceMatrix.needsUpdate = true;
       im.castShadow = false;       // 삼나무·대나무와 같은 이유 (초칭 큐브 그림자 6면)
@@ -96,6 +101,23 @@ export class Graveyard {
     this.group.add(tower);
     physics.addStaticBox(new THREE.Vector3(this.center.x, ch + 0.9, this.center.z), new THREE.Vector3(0.6, 0.9, 0.55));
     this.center.y = ch;
+
+    // --- 절차적 돌 → Tripo 묘석. 도착하면 조용히 바뀐다 ---
+    // 높이는 절차적 원본과 맞춘다(1.05 / 0.62 / 0.50). 안 맞추면 배치 행렬이 그대로라 돌만 커진다
+    void Promise.all([
+      Props.loadNormalized('/models/props/grave-slab.glb', 1.05, 0.42),
+      Props.loadNormalized('/models/props/grave-slab.glb', 0.62, 0.42),
+      Props.loadNormalized('/models/props/grave-natural.glb', 0.50, 0.42),
+    ]).then((models) => {
+      models.forEach((g, i) => {
+        const src = g.children[0] as THREE.Mesh | undefined;
+        const im = instanced[i];
+        if (!src || !im) return;
+        im.geometry.dispose();
+        im.geometry = src.geometry;
+        im.material = src.material as THREE.Material;
+      });
+    }).catch((e) => console.warn('[graveyard] 묘석 모델 로드 실패 — 절차적 돌 유지:', e));
 
     this.count = n;
     scene.add(this.group);

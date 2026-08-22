@@ -1,0 +1,98 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>model inspect</title>
+<style>html,body{margin:0;height:100%;background:#20242c;overflow:hidden}canvas{display:block}
+#hud{position:fixed;left:8px;top:8px;color:#fff;font:12px/1.5 monospace;background:#000a;padding:6px 9px;white-space:pre;border-radius:4px}</style>
+</head><body><div id="hud">loading…</div>
+<script type="module">
+/**
+ * 리깅에 크레딧 쓰기 전에 메시를 눈으로 확인하는 개발용 뷰어 (dev 서버 전용).
+ *   /higanbana/dev/model-inspect.html?m=<key|경로>&mode=geo&part=head
+ *   mode : geo(무텍스처 형상) | pbr | albedo(무조명 텍스처) | wire
+ *   part : head | body,  그 외 --  yaw / dist / fov / ty / anim / t
+ * m 에 경로를 직접 줄 수도 있다: ?m=assets/tripo/final-v3/model_url.glb
+ */
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+
+const q = new URLSearchParams(location.search);
+const mode = q.get('mode') ?? 'geo';
+const KNOWN = {
+  character: 'public/models/character.glb',
+  hasshaku: 'public/models/yokai-hasshaku.glb',
+  kitsune: 'public/models/yokai-kitsune.glb',
+  noppera: 'public/models/yokai-noppera.glb',
+  dorotabo: 'public/models/yokai-dorotabo.glb',
+};
+const key = q.get('m') ?? 'character';
+// 프로젝트 루트 기준 경로 → vite 의 @fs 로 그대로 연다 (public/ 밖도 열 수 있게)
+const path = KNOWN[key] ?? key;
+const ROOT_FS = q.get('root') ?? '/Users/jay/Claude/3D_motion';
+const src = path.startsWith('/') ? path : `${import.meta.env.BASE_URL}@fs${ROOT_FS}/${path}`;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NeutralToneMapping;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x20242c);
+const cam = new THREE.PerspectiveCamera(Number(q.get('fov') ?? 30), 1, 0.01, 100);
+const key1 = new THREE.DirectionalLight(0xffffff, 2.4); key1.position.set(1.2, 1.6, 2.2); scene.add(key1);
+const key2 = new THREE.DirectionalLight(0xbfd4ff, 0.9); key2.position.set(-2, 0.6, 1.2); scene.add(key2);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x404050, 0.7));
+
+const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+const gltf = await loader.loadAsync(src);
+const root = gltf.scene; scene.add(root);
+
+let tris = 0; const info = [];
+root.traverse((o) => {
+  if (!o.isMesh) return;
+  const g = o.geometry, m = o.material;
+  tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+  info.push(`${o.name.slice(0, 30)}  map=${m.map ? m.map.image.width : '-'}`);
+  // GLTFLoader 가 다른 three 인스턴스를 물 수 있어, 재질은 로컬 THREE 로 다시 만든다
+  if (mode === 'pbr') o.material = new THREE.MeshStandardMaterial({ map: m.map, normalMap: m.normalMap, roughnessMap: m.roughnessMap, metalnessMap: m.metalnessMap, roughness: 1, metalness: 1 });
+  if (mode === 'geo') o.material = new THREE.MeshStandardMaterial({ color: 0xd8d8d8, roughness: 0.75, metalness: 0 });
+  if (mode === 'albedo') o.material = new THREE.MeshBasicMaterial({ map: m.map });
+  if (mode === 'wire') o.material = new THREE.MeshBasicMaterial({ color: 0x88ddff, wireframe: true });
+  o.frustumCulled = false;
+});
+
+if (q.get('anim') && gltf.animations.length) {
+  const mixer = new THREE.AnimationMixer(root);
+  const clip = gltf.animations.find((c) => c.name === q.get('anim')) ?? gltf.animations[0];
+  mixer.clipAction(clip).play(); mixer.update(Number(q.get('t') ?? 0));
+}
+root.rotation.y = Number(q.get('yaw') ?? -Math.PI / 2);
+root.updateMatrixWorld(true);
+
+const box = new THREE.Box3().setFromObject(root);
+const size = box.getSize(new THREE.Vector3());
+const s = 1.7 / size.y;                       // 게임과 같은 신장 정규화
+const c0 = box.getCenter(new THREE.Vector3());
+root.scale.setScalar(s);
+root.position.set(-c0.x * s, -box.min.y * s, -c0.z * s);
+root.updateMatrixWorld(true);
+const b2 = new THREE.Box3().setFromObject(root);
+
+const head = q.get('part') === 'head';
+const ty = Number(q.get('ty') ?? (head ? b2.max.y - 0.14 : 0.85));
+const dist = Number(q.get('dist') ?? (head ? 0.6 : 3.4));
+cam.position.set(0, ty, dist);
+cam.lookAt(0, ty, 0);
+
+document.getElementById('hud').textContent =
+  `${path}\n${mode}   tris ${Math.round(tris).toLocaleString()}   anims ${gltf.animations.length}\n` + info.join('\n');
+
+function resize() {
+  const w = Math.max(1, innerWidth), h = Math.max(1, innerHeight);
+  renderer.setSize(w, h);                     // updateStyle=true 여야 캔버스가 창을 넘지 않는다
+  cam.aspect = w / h; cam.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+(function loop() { requestAnimationFrame(loop); resize(); renderer.render(scene, cam); })();
+window.__insp = { scene, root, cam, renderer, gltf };
+</script></body></html>

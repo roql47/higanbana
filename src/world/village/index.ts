@@ -69,7 +69,7 @@ export class Village {
   }
 
   /** 비동기 에셋(지장·석등) — 생성자 밖에서 await */
-  async loadAssets() { await this.landmarks.load(); }
+  async loadAssets() { await Promise.all([this.landmarks.load(), this.cedars.load()]); }
 
   update(dt: number, center: THREE.Vector3) {
     this.paddy.update(dt);

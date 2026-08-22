@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Physics } from '@/core/physics';
 import type { VillageGround } from './ground';
+import { Props } from '@/world/props';
 
 /**
  * 마츠리 광장 — 야구라(櫓, 축제 망루)·노점(屋台)·초칭 줄.
@@ -24,6 +25,9 @@ const PAPER = new THREE.Color(0.98, 0.86, 0.66);
 
 export class MatsuriSquare {
   readonly group = new THREE.Group();
+  /** 절차적 북·노점 — Tripo 모델이 도착하면 통째로 감춘다 */
+  private procDrum = new THREE.Group();
+  private procStalls = new THREE.Group();
   /** 초칭 줄의 등불 위치(월드) — 보조 PointLight 후보 */
   readonly lanternPoints: THREE.Vector3[] = [];
   /** 노점 위치(월드, yaw) — 놋페라보·은신 배치용 */
@@ -38,6 +42,7 @@ export class MatsuriSquare {
     const c = opts.center;
     const radius = opts.radius ?? 11;
     const parts: { geo: THREE.BufferGeometry; mat: THREE.Material }[] = [];
+    const stallParts: { geo: THREE.BufferGeometry; mat: THREE.Material }[] = [];
     const mat = (color: THREE.Color, rough = 0.85) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0 });
     const mTimber = mat(TIMBER), mTimberDark = mat(TIMBER_DARK), mVerm = mat(VERMILION, 0.7);
     const mClothW = new THREE.MeshStandardMaterial({ color: CLOTH_WHITE, roughness: 1, side: THREE.DoubleSide });
@@ -84,12 +89,21 @@ export class MatsuriSquare {
       const drum = new THREE.CylinderGeometry(0.42, 0.42, 0.55, 16);
       drum.rotateZ(Math.PI / 2);
       drum.translate(c.x, gy + H1 + 0.45, c.z);
-      parts.push({ geo: drum, mat: mVerm });
+      this.procDrum.add(new THREE.Mesh(drum, mVerm));
       this.drumPos.set(c.x, gy + H1 + 0.45, c.z);
+      // 북은 야구라 마루 위에 **선다** — 모델에 받침대가 딸려 있어 마루 높이에 바닥을 맞춘다.
+      // 북소리 좌표(`drumPos`)는 절차적일 때 그대로다(ACT 4 의 자동 북소리가 여기서 난다)
+      void Props.loadNormalized('/models/props/taiko.glb', 1.0, 0.55).then((m) => {
+        m.position.set(c.x, gy + H1 + 0.08, c.z);
+        m.rotation.y = Math.PI / 2;      // 북면이 참배로(남쪽)를 본다
+        this.group.add(m);
+        this.procDrum.visible = false;
+      }).catch((e) => console.warn('[matsuri] 북 모델 로드 실패 — 절차적 원통 유지:', e));
       // 사다리
       for (let i = 0; i < 7; i++) box(0.5, 0.04, 0.05, c.x + S / 2 + 0.3, gy + 0.3 + i * 0.3, c.z, mTimber);
       // 콜라이더: 야구라 밑은 못 들어간다
       collide(c.x, c.z, S / 2 + 0.2, 1.6, S / 2 + 0.2);
+      this.group.add(this.procDrum);
     }
 
     // ---------- 노점 6채: 광장 둘레 원형 배치, 전부 중앙을 본다 ----------
@@ -102,23 +116,58 @@ export class MatsuriSquare {
       const W = 2.6, D = 1.6, H = 2.3;
       const cy = Math.cos(yaw), sy = Math.sin(yaw);
       const local = (lx: number, lz: number): [number, number] => [x + lx * cy + lz * sy, z - lx * sy + lz * cy];
-      // 카운터(앞) + 뒷판 + 기둥 4 + 천막 지붕
+      // 카운터(앞) + 뒷판 + 기둥 4 + 천막 지붕 — **노점 몸체만** 따로 모은다.
+      // Tripo 야타이가 도착하면 이 묶음만 감춘다(초칭·초칭 줄·콜라이더는 그대로 살아 있어야 한다)
+      const sbox = (w: number, h: number, d: number, bx: number, by: number, bz: number, m: THREE.Material, ry = 0) => {
+        const g = new THREE.BoxGeometry(w, h, d);
+        if (ry) g.rotateY(ry);
+        g.translate(bx, by, bz);
+        stallParts.push({ geo: g, mat: m });
+      };
       const [fx, fz] = local(0, D / 2 - 0.15);
-      box(W, 0.9, 0.35, fx, gy + 0.45, fz, mTimber, yaw);
+      sbox(W, 0.9, 0.35, fx, gy + 0.45, fz, mTimber, yaw);
       for (const lx of [-W / 2, W / 2]) for (const lz of [-D / 2, D / 2]) {
         const [px, pz] = local(lx, lz);
-        box(0.08, H, 0.08, px, gy + H / 2, pz, mTimber);
+        sbox(0.08, H, 0.08, px, gy + H / 2, pz, mTimber);
       }
       const [rx, rz] = local(0, 0);
-      box(W + 0.5, 0.04, D + 0.7, rx, gy + H, rz, i % 2 ? mClothI : mClothW, yaw);
+      sbox(W + 0.5, 0.04, D + 0.7, rx, gy + H, rz, i % 2 ? mClothI : mClothW, yaw);
       // 노렌(천 가림막) 앞 윗단
       const [nx, nz] = local(0, D / 2 + 0.2);
-      box(W + 0.1, 0.45, 0.02, nx, gy + H - 0.3, nz, i % 2 ? mClothW : mClothI, yaw);
+      sbox(W + 0.1, 0.45, 0.02, nx, gy + H - 0.3, nz, i % 2 ? mClothW : mClothI, yaw);
       // 노점 초칭 1개 (앞 처마)
       const [lx2, lz2] = local(W / 2 - 0.3, D / 2 + 0.25);
       this.addLantern(parts, lx2, gy + H - 0.6, lz2, 0.28);
       collide(x, z, W / 2, 0.9, D / 2, yaw);
       this.stalls.push({ pos: new THREE.Vector3(x, gy, z), yaw });
+    }
+
+    // ---------- 노점 몸체 병합 + Tripo 야타이 교체 ----------
+    {
+      const byMatS = new Map<THREE.Material, THREE.BufferGeometry[]>();
+      for (const q2 of stallParts) { if (!byMatS.has(q2.mat)) byMatS.set(q2.mat, []); byMatS.get(q2.mat)!.push(q2.geo); }
+      for (const [m, geos] of byMatS) {
+        const merged = mergeGeometries(geos, false);
+        if (!merged) continue;
+        merged.computeVertexNormals();
+        const mesh = new THREE.Mesh(merged, m);
+        mesh.castShadow = true; mesh.receiveShadow = true;
+        this.procStalls.add(mesh);
+      }
+      this.group.add(this.procStalls);
+      /**
+       * 야타이의 **카운터가 광장 중앙을 봐야** 한다. 이 모델은 정면이 로컬 −Z 라
+       * (씬에서 세 각도를 돌려 보고 확인했다 — +X 규약을 따르지 않는다) `yaw` 에 180° 를 더한다.
+       */
+      void Props.loadNormalized('/models/props/yatai.glb', 2.3, 0.5).then((tpl) => {
+        for (const st of this.stalls) {
+          const m = tpl.clone(true);
+          m.position.copy(st.pos);
+          m.rotation.y = st.yaw + Math.PI;
+          this.group.add(m);
+        }
+        this.procStalls.visible = false;
+      }).catch((e) => console.warn('[matsuri] 야타이 모델 로드 실패 — 절차적 노점 유지:', e));
     }
 
     // ---------- 초칭 줄: 야구라 → 각 노점으로 방사형 ----------

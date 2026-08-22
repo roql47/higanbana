@@ -57,6 +57,32 @@ export class ThirdPersonCamera {
   private shakeAmt = 0;
   shake(intensity: number) { this.shakeAmt = Math.min(1, this.shakeAmt + intensity); }
 
+  /**
+   * 시선을 목표 yaw 쪽으로 **끈다**. 조작을 뺏지 않고 무게만 준다 —
+   * 마우스 입력은 그대로 더해지므로 플레이어가 버티면 안 돌아갈 수도 있다.
+   * ACT 3 의 「멀리서 목소리가 들린다」가 이걸 쓴다 (ACT 1 의 시선 저항과 같은 문법).
+   */
+  pull(targetYaw: number, rate: number, dt: number) {
+    let d = targetYaw - this.yaw;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    this.yaw += d * (1 - Math.exp(-rate * dt));
+  }
+  /**
+   * 위아래도 같이 끈다 — `pull` 의 상하판.
+   * 비석의 각인처럼 **눈높이보다 낮은 것**을 볼 때, yaw 만 돌리면 글자는 화면 아래에 걸린다.
+   * 사용자 조작 범위 안으로 잘라 둬야 그 뒤 마우스로 이어서 볼 수 있다.
+   */
+  pullPitch(targetPitch: number, rate: number, dt: number) {
+    const c = settings.camera;
+    const t = clamp(targetPitch, c.minPitch, c.maxPitch);
+    this.pitch += (t - this.pitch) * (1 - Math.exp(-rate * dt));
+  }
+  /** 어떤 지점을 보려면 yaw 가 얼마여야 하는가 — 카메라 전방은 (−sin yaw, ·, −cos yaw) 다 */
+  static yawToward(from: THREE.Vector3, to: THREE.Vector3) {
+    return Math.atan2(-(to.x - from.x), -(to.z - from.z));
+  }
+
   update(
     dt: number,
     mouse: { x: number; y: number },

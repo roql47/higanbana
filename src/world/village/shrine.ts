@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Physics } from '@/core/physics';
 import type { VillageGround } from './ground';
+import { HondenDoor } from './hondenDoor';
 
 /**
  * 신사 경내(境内) — 센본토리이 끝, 언덕 위.
@@ -12,10 +13,17 @@ export class Shrine {
   readonly group = new THREE.Group();
   /** 봉납 지점(월드) — 배전 앞 */
   readonly altar = new THREE.Vector3();
+  /**
+   * **배전 마루 밑**(월드) — ACT 5 의 웃음소리가 여기서 난다.
+   * 이 좌표가 곧 **ACT 18 의 지하 입구**다. 소리가 먼저 자리를 잡고 나중에 구멍이 생긴다
+   */
+  readonly underfloor = new THREE.Vector3();
   /** 초즈야 수반 위치(월드) — 공물 "물" 자리 */
   readonly chozuya = new THREE.Vector3();
   /** 경내 중심 */
   readonly center = new THREE.Vector3();
+  /** 본전 문 — 1 부의 계기판 (`setStage(0…4)`) */
+  readonly honden: HondenDoor;
   private candleMat: THREE.MeshStandardMaterial;
   private lights: THREE.PointLight[] = [];
   private t = 0;
@@ -62,6 +70,7 @@ export class Shrine {
     for (let i = 0; i < 3; i++) box(2.4, 0.3, 0.4, cx, gy + 0.15 + i * 0.3, hz0 + HD / 2 + 1.0 - i * 0.4, mTimber);
     box(1.4, 0.7, 0.8, cx, gy + FL + 0.35, hz0 + HD / 2 - 0.6, mDark); // 새전함
     this.altar.set(cx, gy, hz0 + HD / 2 + 1.6); // 계단 아래, 새전함 정면
+    this.underfloor.set(cx, gy + 0.3, hz0);     // 마루 한가운데 아래 (마루 높이 0.9 의 밑)
     collide(cx, hz0, HW / 2 + 0.3, (FL + H) / 2, HD / 2 + 0.3); // 배전 전체 블록 (계단은 별도)
     // 계단은 플레이어가 오를 필요 없음(봉납은 아래서) → 블록에 포함
 
@@ -75,7 +84,19 @@ export class Shrine {
       const v = [[-rw, base, -rd], [rw, base, -rd], [rw, base, rd], [-rw, base, rd], [-rw + 0.2, peak, 0], [rw - 0.2, peak, 0]].flat();
       parts.push({ geo: roofGeo(v, cx, bz), mat: mDark });
     }
-    collide(cx, bz, 2.2, 2.6, 1.7);
+    // 콜라이더는 **몸통만** 잡는다(석단 위는 걸어 올라갈 수 있어야 한다) — 예전엔 석단까지
+    // 한 덩어리로 막아서 본전에 다가갈 수조차 없었다. ACT 17 에서 여기로 들어간다
+    collide(cx, bz, 1.5, 2.1, 1.1, gy + 1.4);
+    // 석단 옆·뒤는 막아 둔다(정면 계단으로만 오른다)
+    for (const [ox, oz, hx, hz] of [[-1.75, 0, 0.25, 1.5], [1.75, 0, 0.25, 1.5], [0, -1.4, 2, 0.1]] as [number, number, number, number][]) {
+      collide(cx + ox, bz + oz, hx, 0.7, hz);
+    }
+    // 석단 정면 계단 4 단 — 오토스텝 한계가 0.35 m(`settings.physics`)라 정확히 그만큼씩 오른다
+    for (let i = 0; i < 4; i++) {
+      const h = 0.35 * (i + 1), z = bz + 1.5 + 0.21 + (3 - i) * 0.42;
+      box(2.4, h, 0.42, cx, gy + h / 2, z, mStone);
+      collide(cx, z, 1.2, h / 2, 0.21);
+    }
     // 옥담(玉垣): 본전 둘레 낮은 울타리
     for (const [w, d, ox, oz] of [[6, 0.08, 0, -2.2], [0.08, 4.4, -3, 0], [0.08, 4.4, 3, 0]] as [number, number, number, number][]) {
       box(w, 0.9, d, cx + ox, gy + 0.45, bz + oz, mVerm);
@@ -116,6 +137,18 @@ export class Shrine {
       this.lights.push(l); this.group.add(l);
     }
 
+    /**
+     * ---------- 본전 문 ----------
+     * 병합에 넣지 않는다 — **움직이는 물건**이다(들썩임·틈·개방).
+     * 봉납이 쌓이는 동안 세계가 나빠지는 걸 보여 주는 눈금이라, 1 부 내내 `setStage()` 로 읽힌다
+     */
+    this.honden = new HondenDoor(scene, {
+      cx, gy, bz,
+      faceZ: bz + 1.1,        // 몸통 깊이 2.2 의 남쪽 면
+      baseY: gy + 1.4 + 1.5 - 1.3 + 0.05,   // 몸통 바닥(gy+1.6) 바로 위
+    });
+    this.group.add(this.honden.group);
+
     // ---------- 병합 (속성 세트를 맞추기 위해 전부 비인덱스로) ----------
     const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
     for (const p of parts) { if (!byMat.has(p.mat)) byMat.set(p.mat, []); byMat.get(p.mat)!.push(p.geo.index ? p.geo.toNonIndexed() : p.geo); }
@@ -131,6 +164,7 @@ export class Shrine {
 
   update(dt: number) {
     this.t += dt;
+    this.honden.update(dt);
     const f = 0.85 + 0.15 * Math.sin(this.t * 6.1) * Math.sin(this.t * 2.3);
     this.candleMat.emissiveIntensity = 0.9 * f;
     for (const l of this.lights) l.intensity = 1.4 * f;

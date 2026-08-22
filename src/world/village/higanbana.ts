@@ -10,14 +10,34 @@ import { Simplex2D } from '../noise';
  *  - **군락(임시 안전지대)**: 남쪽 들판의 붉은 꽃밭. 요괴가 들어오기를 꺼린다 — 안에 있으면
  *    시야 판정이 무효(은신과 같은 규칙: 추격 중 시야가 이어져 있으면 소용없다)
  */
+export interface HiganbanaOpts {
+  /**
+   * 꽃을 비울 참배로 구간 `[s0, s1]` — **센본토리이 터널**. 거기선 붉은 기둥이 색을 맡는다.
+   * 맵마다 터널 위치가 다르므로 밖에서 준다 (히가사토는 s 102~143, 구 마을은 s 46~100).
+   * 이걸 틀리게 잡으면 ACT 1 이 달리는 구간의 꽃이 통째로 사라진다 — 실제로 그랬다.
+   */
+  tunnel?: [number, number];
+  /** 군락(안전지대) 중심·반경 */
+  cluster?: { x: number; z: number; r: number };
+  /**
+   * **붉은 길** — 이 구간에서는 덤불 간격이 좁아지고 길에 바짝 붙는다.
+   * ACT 1 의 그림이 *끝없이 이어지는 피안화 길* 이라 참배로 남단이 여기에 해당한다.
+   */
+  corridor?: { s0: number; s1: number };
+}
+
 export class Higanbana {
   readonly mesh: THREE.InstancedMesh;
   readonly count: number;
   /** 군락 중심·반경 (안전지대 판정) */
-  readonly cluster = { x: -18.5, z: 42.2, r: 5.0 }; // FLOWER_FIELD(배미 하나를 비운 자리) 중앙
+  readonly cluster: { x: number; z: number; r: number };
   private uniforms = { uTime: { value: 0 } };
 
-  constructor(scene: THREE.Scene, ground: VillageGround) {
+  constructor(scene: THREE.Scene, ground: VillageGround, opts: HiganbanaOpts = {}) {
+    // FLOWER_FIELD(배미 하나를 비운 자리) 중앙 — 맵이 바뀌면 밖에서 준다
+    this.cluster = opts.cluster ?? { x: -18.5, z: 42.2, r: 5.0 };
+    const tunnel = opts.tunnel ?? [44, 101];
+    const corr = opts.corridor ?? null;
     const geo = makeFlower();
     // 정점색이 확산·발광을 모두 이끈다: 줄기(어두운 녹색)는 안 빛나고 꽃술 끝(밝은 분홍)이 가장 빛난다
     const mat = new THREE.MeshStandardMaterial({
@@ -72,15 +92,22 @@ export class Higanbana {
     };
     let sPos = 7;
     while (sPos < ground.roadLength - 3) {
-      if (sPos > 44 && sPos < 101) { sPos = 101; continue; } // 터널 건너뜀
+      if (sPos > tunnel[0] && sPos < tunnel[1]) { sPos = tunnel[1]; continue; } // 터널 건너뜀
+      // **붉은 길**: 도리이에 가까워질수록 촘촘해지고 길가에 붙는다(0 → 1).
+      // 균일하게 깔면 화단이지 길이 아니다 — 밀도가 앞으로 갈수록 조여야 "이어진다"로 읽힌다
+      const k = corr && sPos >= corr.s0 && sPos <= corr.s1
+        ? smooth((sPos - corr.s0) / Math.max(1, corr.s1 - corr.s0)) : 0;
       const p = ground.roadAt(sPos);
       const nx = -p.dirZ, nz = p.dirX;
       const side = rng() < 0.5 ? -1 : 1;
-      const off = 2.7 + rng() * 1.3;
-      clump(p.x + nx * side * off, p.z + nz * side * off, 4 + Math.floor(rng() * 5), 0.55 + rng() * 0.35);
-      // 가끔 반대편에도 작은 덤불
-      if (rng() < 0.35) clump(p.x - nx * side * (2.7 + rng()), p.z - nz * side * (2.7 + rng()), 2 + Math.floor(rng() * 3), 0.4);
-      sPos += 6 + rng() * 9;
+      const off = (2.7 + rng() * 1.3) - k * 0.85;
+      clump(p.x + nx * side * off, p.z + nz * side * off, 4 + Math.floor(rng() * 5) + Math.round(k * 4), 0.55 + rng() * 0.35);
+      // 반대편 덤불 — 붉은 길 안에서는 거의 매번(양쪽에 다 있어야 "길"이 된다)
+      if (rng() < 0.35 + k * 0.55) {
+        const off2 = 2.7 + rng() - k * 0.7;
+        clump(p.x - nx * side * off2, p.z - nz * side * off2, 2 + Math.floor(rng() * 3) + Math.round(k * 3), 0.4 + k * 0.25);
+      }
+      sPos += (6 + rng() * 9) * (1 - k * 0.62);
     }
     // 여섯 지장 곁 — 피안화와 지장은 같은 곳에 핀다
     const jz = ground.roadAt(36);
@@ -88,6 +115,7 @@ export class Higanbana {
     clump(jz.x - 4.4, jz.z - 2.5, 5, 0.6);
     // --- 군락: 남쪽 들판 — 붉은 안전지대 ---
     const c = this.cluster;
+
     const target = 240;
     let n = 0, tries = 0;
     while (n < target && tries++ < target * 4) {
@@ -117,6 +145,9 @@ export class Higanbana {
 
   update(dt: number) { this.uniforms.uTime.value += dt; }
 }
+
+/** 0..1 부드럽게 (smoothstep) */
+const smooth = (t: number) => { const x = Math.min(1, Math.max(0, t)); return x * x * (3 - 2 * x); };
 
 /**
  * 피안화 한 그루 — 실제 구조를 따른다:

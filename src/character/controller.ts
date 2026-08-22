@@ -13,6 +13,11 @@ export interface MoveInput {
   crouch?: boolean;
   jumpPressed: boolean;
   jumpHeld: boolean;
+  /**
+   * 최고 속도 배율. ACT 1 처럼 **장면이 속도를 정하는** 구간에서 쓴다 —
+   * 목숨 걸고 달리는 아이를 평소 달리기(3.6 m/s)로 움직이면 산책으로 보인다.
+   */
+  speedMul?: number;
 }
 
 export const CAPSULE_RADIUS = 0.35;
@@ -95,7 +100,7 @@ export class CharacterController {
     if (inputLen > 1e-4) this.moveDir.divideScalar(this.moveDir.length());
 
     // --- 수평 속도: 목표 속도로 지수 수렴 ---
-    const maxSpeed = input.crouch ? m.crouchSpeed : input.walk ? m.walkSpeed : m.runSpeed;
+    const maxSpeed = (input.crouch ? m.crouchSpeed : input.walk ? m.walkSpeed : m.runSpeed) * (input.speedMul ?? 1);
     const targetVx = this.moveDir.x * inputLen * maxSpeed;
     const targetVz = this.moveDir.z * inputLen * maxSpeed;
     const curSpeed = Math.hypot(this.velocity.x, this.velocity.z);

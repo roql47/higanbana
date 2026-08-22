@@ -53,6 +53,44 @@ export class Props {
     return loader;
   }
 
+  /**
+   * Tripo 소품 한 벌을 **바로 쓸 수 있는 형태로** 읽는다 — 목표 높이, 바닥 원점, XZ 중심.
+   *
+   * 절차적 지오메트리를 모델로 갈아 끼울 때마다 같은 코드를 세 번 썼다(묘석·나팔·우물).
+   * 원본은 크기도 원점도 제각각이라 정규화 없이는 배치 좌표를 전부 다시 잡아야 한다.
+   *
+   * @param tint 알베도를 눌러 주는 계수. 이 게임의 밤은 어둡고, 낮 기준으로 구워진 텍스처는
+   *   초칭 불빛을 받으면 그대로 하얗게 뜬다 (묘석에서 실측했다).
+   */
+  static async loadNormalized(url: string, targetH: number, tint = 1): Promise<THREE.Group> {
+    const gltf = await Props.loader().loadAsync(url);
+    const root = gltf.scene;
+    root.updateMatrixWorld(true);
+    const parts: { geo: THREE.BufferGeometry; mat: THREE.Material }[] = [];
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) parts.push({ geo: toFloatGeometry(m.geometry, m.matrixWorld), mat: Array.isArray(m.material) ? m.material[0]! : m.material });
+    });
+    const bb = new THREE.Box3();
+    for (const g of parts) { g.geo.computeBoundingBox(); bb.union(g.geo.boundingBox!); }
+    const size = bb.getSize(new THREE.Vector3());
+    const s = targetH / Math.max(0.01, size.y);
+    const c = bb.getCenter(new THREE.Vector3());
+    const out = new THREE.Group();
+    for (const g of parts) {
+      g.geo.translate(-c.x, -bb.min.y, -c.z);
+      g.geo.scale(s, s, s);
+      const mat = (g.mat as THREE.MeshStandardMaterial).clone();
+      if (tint !== 1 && mat.color) mat.color.multiplyScalar(tint);
+      const mesh = new THREE.Mesh(g.geo, mat);
+      mesh.castShadow = false;      // 초칭 그림자는 6면 큐브맵이다 — 소품마다 켜면 프레임이 죽는다
+      mesh.receiveShadow = true;
+      out.add(mesh);
+    }
+    out.userData['height'] = targetH;
+    return out;
+  }
+
   async load(defs: PropDef[]) {
     const loader = Props.loader();
     const results = await Promise.allSettled(defs.map((d) => loader.loadAsync(d.url)));

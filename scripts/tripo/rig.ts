@@ -2,14 +2,25 @@
  * 리깅 가능 여부 확인 → 자동 리깅
  *
  *   node scripts/tripo/rig.ts --task task_xxx --name final [--spec mixamo|tripo] [--rig-model v1.0-20240301] [--check-only]
+ *   node scripts/tripo/rig.ts --file <로컬 GLB 경로> --name <이름>   (직접 만든/받은 GLB 를 올려서 리깅)
  * 출력: assets/tripo/<name>/rig/  (model_url.glb = 리깅된 모델, task.json)
  */
 import { resolve } from 'node:path';
-import { createTask, downloadOutputs, logTask, OUT_DIR, parseArgs, waitTask, balance } from './lib.ts';
+import { createTask, downloadOutputs, logTask, OUT_DIR, parseArgs, uploadFile, waitTask, balance } from './lib.ts';
 
 const a = parseArgs();
-const input = String(a['task'] ?? '');
-if (!input) throw new Error('--task <generation task_id> 필요');
+/**
+ * 입력은 **생성 태스크 id** 이거나, 올려 둔 파일의 토큰(`file_…`)이다.
+ * `--file` 로 로컬 GLB 를 주면 여기서 올려 토큰을 얻는다 — 미오(mio-web)도 이 경로로 리깅했다.
+ */
+let input = String(a['task'] ?? '');
+if (!input && a['file']) {
+  const path = String(a['file']);
+  console.log(`▶ upload ${path}`);
+  input = await uploadFile(path);
+  console.log(`  file_token: ${input}`);
+}
+if (!input) throw new Error('--task <generation task_id> 또는 --file <경로> 필요');
 const name = String(a['name'] ?? input);
 const spec = String(a['spec'] ?? 'mixamo');
 const rigModel = String(a['rig-model'] ?? 'v1.0-20240301');

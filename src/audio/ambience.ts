@@ -60,13 +60,19 @@ export class Ambience {
   /** 컨텍스트가 돌고 샘플 뱅크가 준비되면 바탕 루프를 한 번만 시작 */
   private ensure(): boolean {
     if (this.started) return true;
-    const ctx = this.sfx.context, master = this.sfx.masterGain;
+    const ctx = this.sfx.context, master = this.sfx.masterGain, space = this.sfx.space;
     if (!ctx || !master || ctx.state !== 'running' || !this.sfx.bank.ready) return false;
     this.started = true;
     const bank = this.sfx.bank;
     this.bus = ctx.createGain(); this.bus.gain.value = 1;
     this.lp = ctx.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 20000; this.lp.Q.value = 0.5;
-    this.bus.connect(this.lp).connect(master);
+    // 출력은 **덕킹 버스**로 — 위협이 가까우면 벌레·바람이 통째로 눌린다(audio/space.ts).
+    // 동시에 사본을 리버브 센드로 흘린다: 풍경(風鈴)이 툇마루의 잔향을 달고 울려야 그 자리에 있는 소리가 된다
+    this.bus.connect(this.lp).connect(this.sfx.ambientOut ?? master);
+    if (space) {
+      const rev = ctx.createGain(); rev.gain.value = 0.35;
+      this.lp.connect(rev).connect(space.send);
+    }
     const defs: { key: string; weight: Bed['weight']; wander: [number, number]; scatter?: [number, number] }[] = [
       { key: 'amb/wind', weight: (w) => 1 - 0.65 * w.indoors, wander: [0.5, 1], scatter: [6, 12] },
       { key: 'amb/crickets', weight: (w) => 1 - 0.5 * w.indoors, wander: [0.6, 1], scatter: [2.5, 5] },

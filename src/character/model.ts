@@ -44,8 +44,15 @@ export class CharacterModel {
   private headPitch = 0;
   private spinePitch = 0;
   private headBone: THREE.Object3D | null = null;
-  private neckBone: THREE.Object3D | null = null;
+  /** 목 본(위→아래 순) — 보정을 한 관절에 몰지 않고 목 전체에 나눠 건다 */
+  private neckBones: THREE.Object3D[] = [];
   private spineBones: THREE.Object3D[] = [];
+  /** 손 본 — 손목 롤 보정(`settings.character.handRoll`)이 여기 걸린다 */
+  private handBones: THREE.Object3D[] = [];
+  /** 쇄골 — 어깨선 수평 보정(`settings.character.torsoRoll`)이 여기 걸린다 */
+  private clavicleBones: THREE.Object3D[] = [];
+  private tmpQ2 = new THREE.Quaternion();
+  private tmpV = new THREE.Vector3();
   private innerBaseY = 0;
   private tmpQ = new THREE.Quaternion();
   private originalMaps = new Map<THREE.MeshStandardMaterial, THREE.Texture>();
@@ -95,8 +102,10 @@ export class CharacterModel {
 
     scene.traverse((o) => {
       if (/^(Head|mixamorig:Head)$/.test(o.name)) this.headBone = o;
-      if (/^(NeckTwist01|Neck|mixamorig:Neck)$/.test(o.name)) this.neckBone = o;
+      if (/^(NeckTwist\d+|Neck|mixamorig:Neck)$/.test(o.name)) this.neckBones.push(o);
       if (/^(Spine01|Spine02|mixamorig:Spine1|mixamorig:Spine2)$/.test(o.name)) this.spineBones.push(o);
+      if (/^([LR]_Hand|mixamorig:(Left|Right)Hand)$/.test(o.name)) this.handBones.push(o);
+      if (/^([LR]_Clavicle|mixamorig:(Left|Right)Shoulder)$/.test(o.name)) this.clavicleBones.push(o);
     });
     for (const mat of this.materials) {
       const std = mat as THREE.MeshStandardMaterial;
@@ -203,8 +212,28 @@ export class CharacterModel {
     }
   }
 
+  /**
+   * 클립 등록 — **회전만 받는다.**
+   *
+   * 이 프로젝트의 클립은 `character.glb` 리그에서 만들어졌는데 게임은 `mio.glb` 를 쓴다.
+   * 그런데 클립에는 42 본 전부의 **position·scale 트랙**이 들어 있어서, 재생하는 순간
+   * 미오의 본 오프셋이 **원본 리그의 비율로 덮어써진다** — 즉 미오가 다른 사람의 골격으로 포즈를 잡는다.
+   *
+   * 실측(미오 rest 대비 클립이 써 넣는 본 길이):
+   * `L_Upperarm` **0.635** · `R_Upperarm` 0.696 · `Head` 0.727 · `L_Forearm` 0.898 /
+   * `L_Clavicle` 1.094 · `NeckTwist01` 1.079 · `Spine02` 1.079
+   *
+   * 어깨 관절이 목 쪽으로 36 % 당겨지니 어깨가 좁아지고 **움츠러들어 보인다**(사용자 지적).
+   * v3.1 의 어깨 처짐, v3.7 의 고개 기울기도 전부 이 한 가지에서 나온 증상이다.
+   *
+   * 그래서 **position·scale 트랙을 버린다**. 리타게팅의 기본 규칙이다 — 회전은 옮겨도 되지만
+   * 뼈 길이는 받는 쪽 것을 쓴다. 예외는 `Root`·`Hip` 의 이동(걷기 상하 바운스·루트 모션)뿐이고,
+   * Hip 을 원점에 두는 Tripo 관례는 `calibrateOffset()` 이 이미 흡수한다.
+   * (`character.glb` 는 자기 리그에서 만든 클립이라 트랙 값이 곧 rest — 버려도 결과가 같다)
+   */
   addClip(name: string, clip: THREE.AnimationClip) {
     clip.name = name;
+    clip.tracks = clip.tracks.filter((t) => KEEP_TRACK.test(t.name));
     const action = this.mixer.clipAction(clip);
     action.enabled = true;
     this.actions.set(name, action);
@@ -341,16 +370,94 @@ export class CharacterModel {
       const each = this.spinePitch / this.spineBones.length;
       for (const b of this.spineBones) { this.tmpQ.setFromAxisAngle(AXIS_X, each); b.quaternion.multiply(this.tmpQ); }
     }
+    /**
+     * **어깨선 수평 보정.** 애니 클립은 `character.glb` 리그에서 만들어졌는데 이 게임은
+     * `mio.glb`(웹 스튜디오 리깅)를 쓴다. 두 리그의 rest 가 Hip 에서 4~7°, 쇄골·상완에서
+     * 10~16° 다르고, 그 차이가 **모든 클립에 상시 편향**으로 남는다.
+     *
+     * 실측(한 사이클 평균, 캐릭터 로컬): 어깨 높이차 idle −17.6 / walk −11.5 / run −13 mm.
+     * 세 클립이 같은 값을 내면 그건 연출이 아니라 리그 오차다 — 왼쪽 어깨가 그만큼 내려가 있다.
+     *
+     * **척추가 아니라 쇄골에 건다.** 척추를 돌리면 어깨선은 펴지지만 그 위의 머리까지 같이
+     * 끌려가 옆으로 밀린다(실측: 어깨를 0 으로 맞추는 각에서 머리가 −27 mm 로 갔다).
+     * 쇄골은 머리의 부모가 아니므로 어깨만 움직인다.
+     *
+     * 축은 **캐릭터 전방**이다(좌우로 기우는 회전이므로). 본의 로컬 축은 리그마다 제멋대로라
+     * 월드에서 전방을 구해 본의 부모 공간으로 옮겨 쓴다.
+     */
+    const troll = settings.character.torsoRoll;
+    if (Math.abs(troll) > 1e-4 && this.clavicleBones.length) {
+      // ⚠️ 전방을 **노드 쿼터니언에서 유추하지 않는다.** `inner`·GLB 루트 어느 쪽으로 잡아도
+      //    리그의 회전된 rest 때문에 옆구리나 수직 축이 나왔다(실측: 롤 ±0.06 에 어깨가 양쪽 다 나빠졌다).
+      //    컨트롤러 yaw 는 이 프로젝트의 한 곳뿐인 진실이다 — 전방은 (−sin yaw, 0, −cos yaw).
+      for (const b0 of this.clavicleBones) {
+        this.tmpV.set(-Math.sin(ctrl.yaw), 0, -Math.cos(ctrl.yaw));
+        b0.parent!.getWorldQuaternion(this.tmpQ2);
+        this.tmpV.applyQuaternion(this.tmpQ2.invert()).normalize(); // 부모 로컬로
+        this.tmpQ.setFromAxisAngle(this.tmpV, troll);
+        b0.quaternion.premultiply(this.tmpQ);
+      }
+    }
     this.headPitch = damp(this.headPitch, this.headPitchTarget, 8, dt);
     if (Math.abs(this.headPitch) > 1e-4) {
+      // 목 몫은 **목 관절 수만큼 나눈다**(척추와 같은 방식). 이 리그의 목은 NeckTwist01·02 두
+      // 마디인데 예전엔 01 만 잡아서 17° 를 한 관절이 다 받았다 — 목뿌리에 각이 지고 그 위는
+      // 뻣뻣한 막대가 된다. 나눠 걸면 같은 총각도가 **곡선**으로 읽힌다.
       const share = settings.character.neckShare;
-      if (this.neckBone) { this.tmpQ.setFromAxisAngle(AXIS_X, this.headPitch * share); this.neckBone.quaternion.multiply(this.tmpQ); }
-      if (this.headBone) { this.tmpQ.setFromAxisAngle(AXIS_X, this.headPitch * (this.neckBone ? 1 - share : 1)); this.headBone.quaternion.multiply(this.tmpQ); }
+      const nb = this.neckBones.length;
+      if (nb) {
+        const each = (this.headPitch * share) / nb;
+        for (const b of this.neckBones) { this.tmpQ.setFromAxisAngle(AXIS_X, each); b.quaternion.multiply(this.tmpQ); }
+      }
+      if (this.headBone) { this.tmpQ.setFromAxisAngle(AXIS_X, this.headPitch * (nb ? 1 - share : 1)); this.headBone.quaternion.multiply(this.tmpQ); }
+    }
+    /**
+     * **머리 좌우 기울기 보정** — 고개가 상시 오른쪽 어깨 쪽으로 기울어 있었다(사용자 지적).
+     * idle 180 스텝 실측 −3.6°(폭 −4.4~−3.1) — **애니 변동이 1.3° 뿐**이라 연기가 아니라 편향이다.
+     *
+     * 축은 `torsoRoll` 과 같은 이유로 **컨트롤러 yaw 에서 구한 전방**이다. 본 로컬 축을 쓰면
+     * 리그 rest 가 돌아가 있어 롤이 아니라 요/피치가 섞인다. 피치와 같은 비율(`neckShare`)로
+     * 목·머리에 나눠 걸어 목만 꺾이지 않게 한다.
+     */
+    const hroll = settings.character.headRoll;
+    if (Math.abs(hroll) > 1e-4) {
+      const share = settings.character.neckShare;
+      const nb = this.neckBones.length;
+      const rollBone = (b: THREE.Object3D, ang: number) => {
+        this.tmpV.set(-Math.sin(ctrl.yaw), 0, -Math.cos(ctrl.yaw));
+        b.parent!.getWorldQuaternion(this.tmpQ2);
+        this.tmpV.applyQuaternion(this.tmpQ2.invert()).normalize(); // 부모 로컬로
+        this.tmpQ.setFromAxisAngle(this.tmpV, ang);
+        b.quaternion.premultiply(this.tmpQ);
+      };
+      if (nb) { const each = (hroll * share) / nb; for (const b of this.neckBones) rollBone(b, each); }
+      if (this.headBone) rollBone(this.headBone, hroll * (nb ? 1 - share : 1));
+    }
+    /**
+     * **손목 롤 보정** — 이 리그는 손이 팔뚝 축을 기준으로 180° 돌아가 있다.
+     *
+     * 어떻게 확인했나(눈으로는 앞뒤 구분이 어렵다): 손 위에서 내려다보고 **엄지가 가리키는 방향**을 봤다.
+     * 팔을 늘어뜨린 자세에서 엄지는 **앞쪽**을 향해야 하는데 뒤쪽·바깥을 향하고 있었다
+     * (덩달아 뒤에서 손바닥이, 앞에서 손등이 보였다 — 즉 손바닥이 뒤를 봤다).
+     *
+     * 축은 추측하지 않고 쟀다: 팔뚝→손 방향을 손 본의 로컬 좌표로 옮기면 **(±0.2, 0.97, ~0)** 이므로
+     * 로컬 **+Y** 가 팔 축이다. 그래서 로컬 Y 로 롤을 건다.
+     *
+     * 애니메이션 클립이 매 프레임 손 본을 덮어쓰므로 **믹서 뒤에** 곱해야 한다(척추·고개 보정과 같은 자리).
+     * 리그를 다시 뽑아 바로잡으면 `handRoll` 을 0 으로 두면 된다.
+     */
+    const roll = settings.character.handRoll;
+    if (Math.abs(roll) > 1e-4) {
+      this.tmpQ.setFromAxisAngle(AXIS_Y, roll);
+      for (const b of this.handBones) b.quaternion.multiply(this.tmpQ);
     }
     this.postPose?.(dt); // 웅크림 포즈(CrouchPose)·공격 등 절차 자세는 여기서 얹는다
   }
 }
 
 const AXIS_X = new THREE.Vector3(1, 0, 0);
+/** 리타게팅: 회전 트랙 + Root·Hip 이동만 남긴다 (`addClip` 주석 참고) */
+const KEEP_TRACK = /(\.quaternion$)|^(Root|Hip)\.position$/;
+const AXIS_Y = new THREE.Vector3(0, 1, 0);
 /** 상체 레이어에 포함할 본 (Tripo / Mixamo 네이밍) */
 const UPPER_BONE_RE = /^(Spine\d*|Waist|NeckTwist\d*|Neck|Head|[LR]_(Clavicle|Upperarm|UpperarmTwist\d*|Forearm|ForearmTwist\d*|Hand)|mixamorig:(Spine\d*|Neck|Head|(Left|Right)(Shoulder|Arm|ForeArm|Hand)))$/;

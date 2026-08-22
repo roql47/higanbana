@@ -28,6 +28,13 @@ async function one(clip: string) {
   const body = { input, animation: `${prefix}${clip}`, out_format: 'glb', bake_animation: true, export_with_geometry: true, animate_in_place: inPlace };
   const id = await createTask('/animations/retarget', body);
   console.log(`▶ ${clip} → ${id}`);
+  /**
+   * **task_id 를 먼저 남긴다.** 아래 logTask 는 다운로드까지 끝나야 실행되므로,
+   * 다운로드가 끊기거나 프로세스가 죽으면 크레딧은 나갔는데 task_id 가 사라진다.
+   * Tripo 에는 태스크 목록 조회 API 가 없어 되찾을 방법도 없다(생성 때 겪은 30크레딧 손실과 같은 구멍).
+   * → 생성 직후 기록해 두면 `tripo:fetch --task <id>` 로 언제든 회수할 수 있다.
+   */
+  logTask({ step: 'retarget_created', name, clip, task_id: id, params: body });
   const t = await waitTask(id, clip);
   const url = String(t.output?.['model_url'] ?? '');
   if (!url) throw new Error(`${clip}: model_url 없음 ${JSON.stringify(t.output)}`);

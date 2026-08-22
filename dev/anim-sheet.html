@@ -1,0 +1,205 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>anim sheet</title>
+<style>html,body{margin:0;height:100%;background:#20242c;overflow:hidden}canvas{display:block}
+#hud{position:fixed;left:8px;top:8px;color:#fff;font:12px/1.5 monospace;background:#000a;padding:6px 9px;white-space:pre;border-radius:4px}</style>
+</head><body><div id="hud">loading…</div>
+<script type="module">
+/**
+ * **애니메이션 검토용 컨택트시트** (dev 서버 전용).
+ *
+ * 한 클립을 N 등분해 **같은 화면에 나란히** 세운다. 한 프레임씩 URL 을 바꿔 가며 보면
+ * 사이클이 머리에 안 남는다 — 달리기가 달리기로 읽히는지는 **연속된 자세를 한눈에** 봐야 판단된다.
+ * (`model-inspect.html` 은 정지 한 컷 · 형상 확인용이고, 이쪽은 동작 확인용이다.)
+ *
+ *   /dev/anim-sheet.html?m=/models/mio.glb&anim=run&n=8
+ *   m    : public 경로(/models/…) 또는 프로젝트 루트 상대경로(assets/…)
+ *   anim : 클립 이름 (없으면 첫 번째)
+ *   n    : 칸 수 (기본 8)
+ *   view : back(기본, 등 뒤) | side | front | 각도(도)
+ *   mode : geo(기본) | albedo | wire
+ */
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+
+const q = new URLSearchParams(location.search);
+const N = Number(q.get('n') ?? 8);
+const mode = q.get('mode') ?? 'geo';
+const path = q.get('m') ?? '/models/mio.glb';
+const ROOT_FS = q.get('root') ?? '/Users/jay/Claude/3D_motion';
+const src = path.startsWith('/') ? path : `${import.meta.env.BASE_URL}@fs${ROOT_FS}/${path}`;
+/** 카메라가 보는 방향. 이 씬의 판단 기준은 **등 뒤**다 — ACT 1 이 그 각도이기 때문 */
+const VIEW = { back: 180, side: 90, front: 0 };
+const viewDeg = VIEW[q.get('view') ?? 'back'] ?? Number(q.get('view') ?? 180);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+// dpr 을 올리면 이 뷰어에서는 그린 그림이 캔버스 좌상단 1/4 로 몰린다(브라우저 패널 캡처 기준
+// 실측). 검토용 시트라 선명도보다 **프레임이 맞는 것**이 중요하므로 1 로 고정한다.
+renderer.setPixelRatio(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NeutralToneMapping;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x20242c);
+// 실루엣이 읽혀야 하므로 정면광보다 **비스듬한 키라이트**가 낫다
+const key1 = new THREE.DirectionalLight(0xffffff, 2.2); key1.position.set(1.4, 2.0, 1.8); scene.add(key1);
+const key2 = new THREE.DirectionalLight(0xbfd4ff, 0.8); key2.position.set(-2, 0.8, -1.2); scene.add(key2);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x33383f, 0.6));
+
+const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+const gltf = await loader.loadAsync(src);
+const clip = gltf.animations.find((c) => c.name === q.get('anim')) ?? gltf.animations[0];
+if (!clip) { document.getElementById('hud').textContent = `${path}: 클립 없음`; throw new Error('no clip'); }
+
+/**
+ * **키는 뼈로 잰다 — 지오메트리 바운딩박스가 아니라.**
+ *
+ * 빌드 산출물은 meshopt 양자화라 `Box3.setFromObject` 가 ±1 짜리 양자화 상자를 돌려준다
+ * (여기서 키를 역산했더니 전원이 1.0 m 로 나와 시트가 통째로 어긋났다 — 게임 쪽 캐릭터 로더
+ * 도 같은 이유로 뼈에서 쟀다). 클립을 한 주기 훑으며 가장 곧게 뻗은 순간을 키로,
+ * 가장 낮은 발을 바닥으로 삼는다.
+ */
+const probe = gltf.scene;
+const probeMixer = new THREE.AnimationMixer(probe);
+probeMixer.clipAction(clip).play();
+const pw = new THREE.Vector3();
+let span = 0, boneFloor = Infinity;
+for (let i = 0; i < 24; i++) {
+  probeMixer.setTime((clip.duration * i) / 24);
+  probe.updateMatrixWorld(true);
+  let lo = Infinity, hi = -Infinity;
+  probe.traverse((o) => { if (!o.isBone) return; o.getWorldPosition(pw); lo = Math.min(lo, pw.y); hi = Math.max(hi, pw.y); });
+  if (lo < Infinity) { span = Math.max(span, hi - lo); boneFloor = Math.min(boneFloor, lo); }
+}
+probeMixer.setTime(0);
+// 발목~정수리 본은 사람 키의 약 0.88 (머리통과 발바닥이 본 바깥에 있다)
+const scale = span > 1e-4 ? (1.7 * 0.88) / span : 1.7;
+
+const cells = [];
+for (let i = 0; i < N; i++) {
+  const root = cloneSkinned(gltf.scene);
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    o.frustumCulled = false;
+    const m = o.material;
+    if (mode === 'geo') o.material = new THREE.MeshStandardMaterial({ color: 0xd6d8dc, roughness: 0.72, metalness: 0 });
+    if (mode === 'albedo') o.material = new THREE.MeshBasicMaterial({ map: m.map });
+    if (mode === 'wire') o.material = new THREE.MeshBasicMaterial({ color: 0x88ddff, wireframe: true });
+  });
+  const mixer = new THREE.AnimationMixer(root);
+  mixer.clipAction(clip).play();
+  // 마지막 칸이 첫 칸과 겹치지 않게 **주기를 N 등분**한다 (loop 클립은 t=dur 가 t=0 이다)
+  mixer.setTime((clip.duration * i) / N);
+  const holder = new THREE.Group();
+  holder.add(root);
+  holder.rotation.y = viewDeg * THREE.MathUtils.DEG2RAD;
+  scene.add(holder);
+  cells.push({ root, holder, mixer });
+}
+
+/**
+ * **칸 간격은 실루엣 폭에서 낸다.** 상수로 두면 팔다리를 크게 벌리는 클립에서 옆칸과 겹친다.
+ * 모든 칸의 X 폭 중 최대값을 재서 그만큼 벌린다.
+ */
+let wide = 0, floor = Infinity, ceil = -Infinity;
+const wp = new THREE.Vector3();
+for (const c of cells) {
+  c.root.scale.setScalar(scale);
+  c.holder.updateMatrixWorld(true);
+  let lo = Infinity, hi = -Infinity, xa = Infinity, xb = -Infinity;
+  c.holder.traverse((o) => {
+    if (!o.isBone) return;
+    o.getWorldPosition(wp);
+    lo = Math.min(lo, wp.y); hi = Math.max(hi, wp.y);
+    xa = Math.min(xa, wp.x); xb = Math.max(xb, wp.x);
+  });
+  if (lo === Infinity) continue;
+  wide = Math.max(wide, xb - xa);
+  floor = Math.min(floor, lo);
+  ceil = Math.max(ceil, hi);
+}
+// 뼈 폭에는 치마·머리카락이 안 들어간다 — 여유를 넉넉히 준다
+const gap = Math.max(wide * 1.5, (ceil - floor) * 0.55);
+cells.forEach((c, i) => {
+  c.holder.position.set((i - (N - 1) / 2) * gap, -floor + (ceil - floor) * 0.06, 0);
+  c.holder.updateMatrixWorld(true);
+});
+
+/**
+ * 시트 전체가 프레임에 들어오는 거리 — 세로/가로 중 빡빡한 쪽에 맞춘다.
+ * 뼈 높이에는 **발바닥과 머리카락이 안 들어가므로** 위아래로 넉넉히 여유를 준다
+ * (안 주면 발이 프레임 아래로 잘린다 — 달리기 검토에서 발이 안 보이면 볼 이유가 없다).
+ */
+const MARGIN = 1.42;
+const sheetW = gap * N, sheetH = (ceil - floor) * MARGIN;
+// 칸을 `y = -floor + 6%` 로 올려 세웠으므로 뼈는 세계에서 [6%, 106%] 구간에 있다 —
+// 화면 중심은 그 한가운데다 (`-floor` 를 여기 또 더하면 통째로 위로 뜬다)
+const midY = (ceil - floor) * 0.56;
+const cam = new THREE.PerspectiveCamera(Number(q.get('fov') ?? 30), 1, 0.05, 400);
+function frameAll() {
+  const w = Math.max(1, innerWidth), h = Math.max(1, innerHeight);
+  renderer.setSize(w, h);
+  cam.aspect = w / h; cam.updateProjectionMatrix();
+  const vFov = cam.fov * THREE.MathUtils.DEG2RAD;
+  const dV = (sheetH * 0.5) / Math.tan(vFov * 0.5);
+  const dH = (sheetW * 0.5) / Math.tan(Math.atan(Math.tan(vFov * 0.5) * cam.aspect));
+  const d = Math.max(dV, dH) * 1.1;
+  cam.position.set(0, midY, d);
+  cam.lookAt(0, midY, 0);
+}
+addEventListener('resize', frameAll);
+
+/**
+ * **리그가 몸을 어느 쪽으로 세워 놨는지 잰다** — 이 뷰어에서 가장 중요한 숫자다.
+ *
+ * 자동 리깅은 캐릭터의 정면을 스스로 판정하는데, 틀리면 프리셋 애니메이션이
+ * **몸이 보는 방향과 어긋난 쪽으로** 걷는다. 눈으로는 "달리기는 하는데 뭔가 이상하다" 로만
+ * 보여서 애니메이션 탓을 하게 된다(실제로 그랬다). 두 축을 재서 비교하면 한 줄로 판정된다:
+ *   · 어깨축 = 왼 위팔 → 오른 위팔 (몸의 좌우)
+ *   · 보행축 = 한 주기 동안 발이 가장 크게 움직인 방향
+ * 정상이면 **직교**한다(실측: character.glb 81°). 나란하면 그 리그는 옆으로 달린다(sayo-t 19°).
+ *
+ * ⚠️ 이 값은 **직교하는지**만 말해 준다. 어느 쪽이 앞인지는 알려 주지 않는다 —
+ * 이 리그 계열은 `L_`/`R_` 이름표가 뒤바뀌어 있어서 어깨축의 **부호를 믿을 수 없다**.
+ * 정면은 `view=0` 에서 얼굴이 보이는지로 판정한다.
+ */
+function facingCheck() {
+  // v1.0 은 사람 이름, v2.5 는 `tripo0_Left_Limb_0` 같은 일반 이름을 쓴다 — 둘 다 받는다
+  const pick = (...names) => { for (const n of names) { const o = probe.getObjectByName(n); if (o) return o; } return null; };
+  const LA = pick('L_Upperarm', 'tripo0_Left_Limb_0'), RA = pick('R_Upperarm', 'tripo0_Right_Limb_0');
+  const feet = [pick('L_Foot', 'tripo1_Left_Limb_2'), pick('R_Foot', 'tripo1_Right_Limb_2')].filter(Boolean);
+  if (!LA || !RA || !feet.length) return 'facing: 뼈를 못 찾음';
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), lat = new THREE.Vector3();
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let i = 0; i < 24; i++) {
+    probeMixer.setTime((clip.duration * i) / 24);
+    probe.updateMatrixWorld(true);
+    LA.getWorldPosition(a); RA.getWorldPosition(b);
+    lat.add(b.sub(a).setY(0));
+    for (const f of feet) {
+      f.getWorldPosition(a);
+      x0 = Math.min(x0, a.x); x1 = Math.max(x1, a.x);
+      y0 = Math.min(y0, a.y); y1 = Math.max(y1, a.y);
+      z0 = Math.min(z0, a.z); z1 = Math.max(z1, a.z);
+    }
+  }
+  probeMixer.setTime(0);
+  lat.setY(0).normalize();
+  const stride = new THREE.Vector3(x1 - x0, 0, z1 - z0);
+  const sx = stride.x, sz = stride.z;
+  stride.normalize();
+  const deg = Math.acos(Math.min(1, Math.abs(lat.dot(stride)))) * THREE.MathUtils.RAD2DEG;
+  return `facing: 어깨축(${lat.x.toFixed(2)}, ${lat.z.toFixed(2)})  보폭 x${sx.toFixed(2)} z${sz.toFixed(2)} 들림 ${(y1 - y0).toFixed(2)}` +
+    `  →  어깨⊥보행 ${deg.toFixed(0)}°  ${deg > 60 ? '✓' : '✗ 옆으로 달린다'}`;
+}
+
+document.getElementById('hud').textContent =
+  `${path}\n${clip.name}  ${clip.duration.toFixed(2)}s  ${clip.tracks.length} tracks  ·  ${N}칸 · view ${viewDeg}°\n` +
+  `${facingCheck()}\n` +
+  gltf.animations.map((a) => a.name).join(' ');
+
+(function loop() { requestAnimationFrame(loop); frameAll(); renderer.render(scene, cam); })();
+window.__sheet = { scene, cam, cells, clip, gltf, renderer };
+</script></body></html>

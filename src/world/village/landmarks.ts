@@ -78,7 +78,7 @@ export class Landmarks {
 }
 
 /** Tripo 소품 정규화: 목표 높이, 바닥 원점, XZ 중심. 정면은 Tripo +X → +Z */
-function normalize(root: THREE.Object3D, targetH: number) {
+export function normalize(root: THREE.Object3D, targetH: number) {
   root.updateMatrixWorld(true);
   const geos: { geo: THREE.BufferGeometry; mat: THREE.Material }[] = [];
   root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) geos.push({ geo: toFloatGeometry(m.geometry, m.matrixWorld), mat: Array.isArray(m.material) ? m.material[0]! : m.material }); });

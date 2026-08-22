@@ -1,0 +1,157 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>sayo run</title>
+<style>
+html,body{margin:0;height:100%;background:#10141c;overflow:hidden}canvas{display:block}
+#hud{position:fixed;left:8px;top:8px;color:#fff;font:12px/1.6 monospace;background:#000b;padding:8px 10px;white-space:pre;border-radius:4px}
+#panel{position:fixed;right:8px;top:8px;color:#fff;font:12px/1.5 monospace;background:#000b;padding:8px 10px;border-radius:4px;width:280px}
+#panel label{display:flex;justify-content:space-between;gap:6px;align-items:center}
+#panel input[type=range]{width:150px}
+#panel b{min-width:40px;text-align:right}
+#code{position:fixed;left:8px;bottom:8px;color:#ffd9a0;font:12px/1.6 monospace;background:#000b;padding:8px 10px;white-space:pre;border-radius:4px;user-select:all}
+</style></head><body>
+<div id="hud">loading…</div><div id="panel"></div><div id="code"></div>
+<script type="module">
+/**
+ * **사요 달리기 구도 튜닝대** (dev 서버 전용).
+ *
+ *   /dev/sayo-run.html
+ *
+ * ACT 1 의 카메라(어린 미오의 눈높이 1.05 m)를 그대로 세우고 그 앞에 사요를 놓는다.
+ * `src/story/sayo.ts` 를 **그대로 import** 하므로 여기서 보이는 게 게임에서 보이는 것이다 —
+ * 프롤로그를 13 초씩 다시 돌리지 않고 팔 IK 와 구도를 고칠 수 있다.
+ *
+ * ⚠️ 게임 카메라는 **흔들리고 앞으로 숙인다**(달리는 몸). 그걸 끄고 맞춘 구도는 게임에서
+ *    아래로 밀린다 — 실측으로 손이 화면 밖(y 105 %)으로 나갔다. `흔들림`·`pitch` 를 켠 채 맞출 것.
+ *
+ * 슬라이더 값은 왼쪽 아래에 **act1.ts 상수 형태**로 찍힌다. 그대로 알려주면 반영한다.
+ *
+ * 키: [i] 팔 IK · [g] 흘끗 · [c] 카메라 위치 · [b] 흔들림 · [space] 정지
+ */
+import * as THREE from 'three';
+import { Sayo } from '@/story/sayo';
+
+const q = new URLSearchParams(location.search);
+const num = (k, d) => (q.get(k) === null ? d : Number(q.get(k)));
+// 기본값 = 지금 act1.ts 에 들어 있는 값
+const P = {
+  lead: num('lead', 0.42),         // LEAD — 앞서는 거리(m)
+  side: num('side', 0.17),         // SIDE — 오른쪽으로(m)
+  handY: num('handY', 0.96),       // HAND_Y — 미오의 손 높이(m)
+  handSide: num('handSide', -0.2), // HAND_SIDE — 손이 왼쪽으로(−)
+  handFwd: num('handFwd', 0.08),   // HAND_FWD — 손이 몸 앞으로(+)
+  height: num('height', 1.47),     // 사요 키(m) — 바꾸면 페이지가 다시 로드된다
+  fov: num('fov', 68),             // 게임 66(정지) → 74(전속력). 끌려갈 때 ≈ 68
+  pitch: num('pitch', 2.2),        // 달리는 몸이 숙인 각(도). 게임 lean ≈ 2~4°
+  eye: num('eye', 1.05),
+  speed: num('speed', 9.0),
+  bob: num('bob', 1),
+};
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NeutralToneMapping;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a2030);
+scene.add(new THREE.HemisphereLight(0x9fb4dc, 0x2b3040, 1.5));
+const key = new THREE.DirectionalLight(0xcfe0ff, 1.6); key.position.set(2, 4, 3); scene.add(key);
+const back = new THREE.DirectionalLight(0x88a0d0, 0.8); back.position.set(-1, 2, -4); scene.add(back);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x3a4030, roughness: 1 }));
+ground.rotation.x = -Math.PI / 2; scene.add(ground);
+const grid = new THREE.GridHelper(40, 40, 0x556070, 0x2a3140); grid.position.y = 0.002; scene.add(grid);
+
+// 근평면은 게임과 같은 0.1 — 손이 이보다 가까워지면 잘린다
+const camera = new THREE.PerspectiveCamera(P.fov, 1, 0.1, 200);
+const handMark = new THREE.Mesh(new THREE.SphereGeometry(0.02, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff5566 }));
+scene.add(handMark);
+
+const sayo = await Sayo.load(scene, { url: '/models/sayo.glb', height: P.height });
+sayo.show(true);
+window.__sayo = sayo; window.__P = P;
+
+const pos = new THREE.Vector3(), hand = new THREE.Vector3(), tmp = new THREE.Vector3();
+let ik = true, glance = 0, sideCam = 0, paused = false, bobT = 0;
+addEventListener('keydown', (e) => {
+  if (e.code === 'KeyI') ik = !ik;
+  if (e.code === 'KeyG') glance = glance > 0 ? 0 : 1;
+  if (e.code === 'KeyC') sideCam = (sideCam + 1) % 4;
+  if (e.code === 'KeyB') P.bob = P.bob ? 0 : 1;
+  if (e.code === 'Space') { paused = !paused; e.preventDefault(); }
+});
+
+// --- 슬라이더 ---
+const panel = document.getElementById('panel');
+const ranges = {
+  lead: [0.25, 2.5, 0.01], side: [-0.6, 0.6, 0.01],
+  handY: [0.3, 1.3, 0.01], handSide: [-0.6, 0.6, 0.01], handFwd: [-0.3, 0.6, 0.01],
+  height: [1.2, 1.8, 0.01], fov: [50, 100, 1], pitch: [-6, 10, 0.2],
+};
+for (const [k, [lo, hi, st]] of Object.entries(ranges)) {
+  const row = document.createElement('label');
+  row.innerHTML = '<span>' + k + '</span><input type=range min=' + lo + ' max=' + hi + ' step=' + st + ' value=' + P[k] + '><b>' + P[k] + '</b>';
+  const input = row.querySelector('input'), out = row.querySelector('b');
+  input.oninput = () => {
+    P[k] = Number(input.value); out.textContent = input.value;
+    if (k === 'fov') { camera.fov = P.fov; camera.updateProjectionMatrix(); }
+    // 키는 로드 시점에만 반영되므로 URL 로 다시 연다
+    if (k === 'height') location.search = new URLSearchParams(P).toString();
+  };
+  panel.appendChild(row);
+}
+
+const hud = document.getElementById('hud');
+const codeEl = document.getElementById('code');
+const bone = (n) => { let o = null; sayo.root.traverse((x) => { if (x.name === n) o = x; }); return o; };
+let sized = [0, 0], last = performance.now();
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+
+  // 미오(카메라)는 원점, 진행 방향은 −Z. 사요는 그 앞 lead, 오른쪽 side
+  pos.set(P.side, 0, -P.lead);
+  hand.set(P.handSide, P.handY, -P.handFwd);
+  handMark.position.copy(hand);
+  sayo.update(paused ? 0 : dt, { pos, yaw: Math.PI, hand: ik ? hand : null, speed: P.speed, glance });
+
+  const w = innerWidth, h = innerHeight;
+  if (sized[0] !== w || sized[1] !== h) { sized = [w, h]; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+
+  // --- 카메라: 게임의 달리는 몸 (`firstPerson.ts` 와 같은 식) ---
+  if (!paused) bobT += dt * Math.PI * (P.speed / 1.02);
+  const sy = Math.sin(bobT * 2);
+  const bobY = P.bob ? (sy < 0 ? sy * 1.35 : sy * 0.72) * 0.055 : 0;
+  const bobX = P.bob ? Math.cos(bobT) * 0.035 : 0;
+  const roll = P.bob ? Math.cos(bobT) * 0.028 : 0;
+  if (sideCam === 0) {
+    camera.position.set(bobX, P.eye + bobY, 0);
+    camera.rotation.set(0, 0, 0);
+    // 기본 카메라가 이미 −Z 를 본다 (여기서 Y 로 돌리면 사요를 등지고 선다)
+    camera.rotateX(-P.pitch * Math.PI / 180);         // 달리는 몸이 앞으로 숙인다
+    camera.rotateZ(roll);
+  } else if (sideCam === 1) { camera.position.set(2.2, 1.6, 0.6); camera.lookAt(P.side, 0.8, -P.lead); }
+  else if (sideCam === 2) { camera.position.set(-2.4, 1.2, -0.4); camera.lookAt(P.side, 0.8, -P.lead); }
+  else { camera.position.set(0.2, 4.2, -1.2); camera.lookAt(P.side, 0.4, -P.lead); }
+  renderer.render(scene, camera);
+
+  // --- 계측: 화면 어디에 있는가(%) ---
+  const wp = (n) => { const o = bone(n); const m = o.matrixWorld.elements; return new THREE.Vector3(m[12], m[13], m[14]); };
+  const L = wp('L_Upperarm'), R = wp('R_Upperarm'), H = wp('L_Hand'), HEAD = wp('Head');
+  const right = R.clone().sub(L);
+  const pct = (v3) => { const p = v3.clone().project(camera); return [Math.round((p.x * 0.5 + 0.5) * 100), Math.round((-p.y * 0.5 + 0.5) * 100)]; };
+  const bodyP = pct(tmp.copy(sayo.root.position).setY(0.9));
+  const handP = pct(H), headP = pct(HEAD);
+  const handD = camera.position.distanceTo(H);
+  hud.textContent = [
+    '[i] IK ' + (ik ? 'on' : 'off') + '   [g] 흘끗 ' + glance + '   [c] 카메라 ' + sideCam + '   [b] 흔들림 ' + (P.bob ? 'on' : 'off') + '   [space] ' + (paused ? '정지' : '재생'),
+    '화면 위치(%)   몸 x ' + bodyP[0] + '   머리 y ' + headP[1] + '   손 ' + handP[0] + ',' + handP[1],
+    '손~카메라 ' + handD.toFixed(2) + ' m ' + (handD < 0.15 ? '⚠ 렌즈에 닿는다(손바닥이 화면을 덮는다)' : handD > 0.6 ? '(멀다)' : ''),
+    '어깨선 ' + (Math.atan2(right.x, -right.z) * 180 / Math.PI).toFixed(0) + '°(90 정상)  높이차 ' + (right.y * 1000).toFixed(0) + ' mm  어깨→손 ' + H.clone().sub(L).length().toFixed(3) + ' m(최대 0.41)',
+    '0~100 % 가 화면 안. 첨부 구도는 몸 x 65~75 · 머리 y 20~40 · 손 15~40 / 60~85 근처',
+  ].join('\n');
+  codeEl.textContent = 'act1.ts:  LEAD ' + P.lead + '  ·  SIDE ' + P.side + '  ·  HAND_Y ' + P.handY + '  ·  HAND_SIDE ' + P.handSide + '  ·  HAND_FWD ' + P.handFwd;
+}
+requestAnimationFrame(frame);
+</script></body></html>

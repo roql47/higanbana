@@ -27,8 +27,30 @@ const texSize = Number(a['tex'] ?? 2048);
 const rotOnly = new Set(String(a['rot-only'] ?? 'sword_combo').split(',').map((x) => x.trim()).filter(Boolean));
 const HIP_BONES = ['Hip', 'Hips', 'mixamorig:Hips'];
 const quality = Number(a['quality'] ?? 85);
+/**
+ * 정면 축 보정은 **여기서 하지 않는다.** 씬 루트(Armature)는 애니메이션 채널의 타겟이라
+ * 여기서 회전을 구워 넣어도 클립이 재생되는 순간 덮어써진다(2026-08-21 확인).
+ * 모델마다 다른 정면 축은 `src/character/config.ts` 의 `yawOffset` 으로 맞춘다:
+ *   OpenAPI 산출물(character.glb) = 정면 +X → `-Math.PI / 2`
+ *   웹 스튜디오 산출물(mio.glb)    = 정면 +Z → `0`
+ */
 // 정점 감축 비율 (0 = 안 함). 여우 요괴처럼 face_limit 없이 생성돼 정점이 수십만 개인 모델용
 const simplifyRatio = Number(a['simplify'] ?? 0);
+/**
+ * **rest 포즈가 다른 리그에 클립을 붙일 때의 한계** (2026-08-21 실측)
+ *
+ * Tripo 클립은 본의 *절대 로컬 회전*을 담는다. 클립을 만든 리그와 붙일 리그의 rest 가 다르면
+ * 같은 로컬 회전이 다른 월드 포즈를 만든다. 미오(웹 스튜디오 리깅) vs 구 캐릭터 실측:
+ *
+ *   L_Clavicle 15° · L_Upperarm 17°  → 몸통·어깨는 눈에 안 띈다
+ *   L_Forearm  42° · R_Forearm  59°
+ *   L_Hand    101° · R_Hand    179°  → **손바닥이 뒤집혀 보인다**(사용자 리포트)
+ *
+ * `q' = restTgt ∘ restSrc⁻¹ ∘ q` 를 본마다 독립으로 적용해 봤으나 **더 나빠졌다** —
+ * 자식 본의 로컬 회전은 *보정된 부모의 프레임* 기준이라, 본마다 따로 고치면 체인이 어긋난다
+ * (소매가 산산조각 났다). 제대로 하려면 프레임마다 월드 회전을 재구성해야 하고,
+ * 그게 Tripo 유료 리타겟이 하는 일이다. → 손목 정확도가 필요하면 리타겟을 산다.
+ */
 
 await MeshoptEncoder.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
