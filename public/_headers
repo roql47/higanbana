@@ -1,5 +1,6 @@
 # Cloudflare Pages 캐시 정책. Vite 가 dist/ 루트로 그대로 복사한다.
-# 여러 규칙이 겹치면 더 구체적인 경로의 값이 적용된다.
+# 주의: 겹치는 규칙은 우선순위가 아니라 '병합'된다. /audio/* 와 /audio/manifest.json 을
+# 동시에 두면 Cache-Control 값이 두 개 이어붙어 깨지므로, 경로가 겹치지 않게 유지할 것.
 
 # Vite 가 파일명에 콘텐츠 해시를 박는 유일한 곳 → 영구 캐시 안전
 /assets/*
@@ -15,10 +16,6 @@
   Cache-Control: public, max-age=86400
 /hdri/*
   Cache-Control: public, max-age=86400
-
-# 오디오 매니페스트는 에셋 추가 시 바로 반영돼야 한다
-/audio/manifest.json
-  Cache-Control: public, max-age=300
 
 /index.html
   Cache-Control: public, max-age=0, must-revalidate
