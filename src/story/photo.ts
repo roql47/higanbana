@@ -256,9 +256,9 @@ export function makeFaceBleed(photoWidth: number, z: number, damaged = 1): THREE
  * 아이콘만 모델로 바꿨더니 「클릭하면 옛날 사진이 나온다」는 리포트가 왔다. 당연하다 —
  * 가방 속 그림과 펼친 그림이 다른 물건일 수는 없다. 뷰어도 같은 모델에서 뜬다.
  *
- * **종이 영역은 레이캐스트로 찾는다.** 손가락이 사진 위아래로 감겨 있어서 바운딩으로 자르면
- * 손이 함께 들어온다. 격자로 훑어 **정확히 두 면**(종이의 앞·뒤)만 뚫리는 칸을 모으면
- * 그게 가려지지 않은 종이다 — 손가락 앞이면 네 면이 뚫린다.
+ * **손까지 통째로 담는다**(사용자 지시). 한 번은 종이만 잘라내 봤는데(격자 레이캐스트로
+ * 면이 정확히 둘 뚫리는 칸 = 가려지지 않은 종이) 그건 「쥐고 있는 물건」이 아니라 도판이 된다.
+ * 지금은 모델 전체를 정면에서 담고, 카드 비율(3:2)에 맞춰 **넓혀서** 채운다 — 잘라내지 않는다.
  *
  * 얼룩은 굽지 않고 **따로 들고 있는다**: 원판은 깨끗하게 두고 훼손도별로 얹어 캐시한다.
  * ACT 30 은 `damaged 0` 으로 같은 원판을 다시 받는다.
@@ -274,6 +274,8 @@ export async function captureModelPhoto(
   const gltf = await Props.loader().loadAsync(url);
   const root = gltf.scene;
   const scene = new THREE.Scene();
+  // 뷰어 배경과 같은 계열의 어두운 판. 투명하게 두면 카드 그림자가 허공에 뜬다
+  scene.background = new THREE.Color(0x0b0e13);
   scene.add(root);
   scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa2b0, 2.4));
   const key = new THREE.DirectionalLight(0xffffff, 1.1);
@@ -286,34 +288,10 @@ export async function captureModelPhoto(
   const c = box.getCenter(new THREE.Vector3());
   const planeSize = Math.max(size.x, size.y);
 
-  // --- 종이 영역 찾기 (격자 레이캐스트) ---
-  const ray = new THREE.Raycaster();
-  const N = 56;
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  const dir = new THREE.Vector3(0, 0, -1);
-  const org = new THREE.Vector3();
-  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-    const x = box.min.x + (size.x * (i + 0.5)) / N;
-    const y = box.min.y + (size.y * (j + 0.5)) / N;
-    ray.set(org.set(x, y, box.max.z + size.z), dir);
-    if (ray.intersectObject(root, true).length !== 2) continue;   // 2 = 종이만
-    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-  }
-  if (!(maxX > minX && maxY > minY)) throw new Error('사진면을 못 찾았다');
-  /**
-   * 안쪽으로 4 % 접는다. 손끝이 사진 **모서리를 조금 물고** 들어오기 때문이다
-   * (실측: 격자 56×56 에서 종이 1706 칸 · 손 142 칸, 종이의 바운딩은 모델 폭의 98 %).
-   * 「종이만 있는 최대 직사각형」도 재 봤는데 손이 가로로 가로질러서 세로 띠(폭 16 %)가 나온다 —
-   * 쓸 수 없다. 바운딩을 조금 접는 쪽이 사진을 온전히 남기면서 손끝만 자른다.
-   */
-  const insetX = (maxX - minX) * 0.04, insetY = (maxY - minY) * 0.04;
-  minX += insetX; maxX -= insetX; minY += insetY; maxY -= insetY;
-
-  // 3:2 로 맞춰 자른다 (뷰어 카드가 그 비율이다). 긴 쪽을 줄여 가운데를 남긴다
-  let rw = maxX - minX, rh = maxY - minY;
-  const rcx = (minX + maxX) / 2, rcy = (minY + maxY) / 2;
-  if (rw / rh > 1.5) rw = rh * 1.5; else rh = rw / 1.5;
+  // --- 담을 사각형: 모델 전체 + 여유, 카드 비율(3:2)로 **넓혀서** 맞춘다 ---
+  let rw = size.x * 1.06, rh = size.y * 1.06;
+  if (rw / rh < 1.5) rw = rh * 1.5; else rh = rw / 1.5;
+  const rcx = c.x, rcy = c.y;
 
   const height = Math.round(width / 1.5);
   const cam = new THREE.OrthographicCamera(-rw / 2, rw / 2, rh / 2, -rh / 2, 0.01, size.z * 8 + 1);
