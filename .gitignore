@@ -5,3 +5,6 @@ dist/
 *.blend1
 assets/tripo/
 assets/audio/cache/
+
+# 더빙 캐시 (재생성 가능)
+scripts/voice/.stamps-*.json

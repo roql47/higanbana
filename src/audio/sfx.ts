@@ -1,5 +1,6 @@
 import { settings } from '@/core/settings';
-import { SampleBank } from './bank';
+import { SampleBank, type Voice } from './bank';
+import { lang } from '@/core/i18n';
 import { AudioSpace, SpatialSource } from './space';
 /**
  * `AudioParam.exponentialRampToValueAtTime(0)` 은 **RangeError 를 던진다** — 지수 램프는 0 에 닿을 수 없다.
@@ -51,9 +52,43 @@ export class Sfx {
   private _space: AudioSpace | null = null;
   /** 샘플 뱅크 (다른 오디오 모듈도 같이 쓴다) */
   readonly bank = new SampleBank();
+  /**
+   * 더빙 뱅크 — **같은 `SampleBank` 를 매니페스트만 달리해 한 벌 더** 쓴다.
+   *
+   * 선로드·디코딩·`has()` 폴백·variation 이 전부 이미 있어서 새로 만들 것이 없다.
+   * 언어마다 폴더가 갈리므로(`voice/ko/`, `voice/ja/`) 언어 선택이 곧 목소리 선택이 된다.
+   * 파일이 없으면 `has()` 가 false → 자막만 나온다(`story/dialogue.ts` 의 `id` 주석).
+   * (이름이 `voiceBank` 인 건 `voice()` 가 이미 있어서다 — 그쪽은 대사가 아니라 프로시저럴 웅얼거림)
+   */
+  readonly voiceBank = new SampleBank(import.meta.env.BASE_URL + `voice/${lang()}/manifest.json`);
+  /** 지금 말하고 있는 줄 — 다음 줄이 시작되거나 스킵되면 끊는다 */
+  private lineVoice: Voice | null = null;
 
   /** 샘플 네트워크 선로드 — 로딩 화면에서 GLB 와 같이 받는다 */
-  preload() { return this.bank.prefetch(); }
+  preload() { return Promise.all([this.bank.prefetch(), this.voiceBank.prefetch()]).then(() => {}); }
+
+  /**
+   * 대사 한 줄을 낭독한다. **재생됐으면 그 길이(초), 없으면 null** —
+   * `story/dialogue.ts` 가 이 값으로 자막 표시 시간을 정한다.
+   *
+   * 잔향 버스가 아니라 **dry 마스터**로 낸다. 대사는 방의 울림보다 알아듣는 게 먼저고,
+   * 존이 바뀔 때마다(실내↔야외) 같은 목소리가 다르게 들리면 인물이 흔들린다.
+   */
+  speakLine(key: string): number | null {
+    if (!this.ready() || !this.voiceBank.has(key)) return null;
+    this.stopLine();
+    const buf = this.voiceBank.buffer(key);
+    const v = this.voiceBank.play(key, { gain: settings.audio.voice, dest: this.dryOut ?? undefined });
+    if (!v) return null;
+    this.lineVoice = v;
+    return buf ? buf.duration : null;
+  }
+
+  /** 낭독 중단 (스킵·가로채기). 뚝 끊으면 딸깍거려서 아주 짧게 페이드한다 */
+  stopLine() {
+    this.lineVoice?.stop(0.06);
+    this.lineVoice = null;
+  }
 
   unlock() {
     if (this.ctx) { if (this.ctx.state === 'suspended') void this.ctx.resume().then(() => this.startAmbient()); else this.startAmbient(); return; }
@@ -77,6 +112,7 @@ export class Sfx {
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     void this.bank.attach(this.ctx, this.bus); // 샘플의 기본 출력도 효과음 버스 = 잔향을 탄다
+    void this.voiceBank.attach(this.ctx, this.master); // 대사는 dry — `speakLine` 주석 참고
     if (this.ctx.state === 'running') this.startAmbient();
     else void this.ctx.resume().then(() => this.startAmbient());
   }

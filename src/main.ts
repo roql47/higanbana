@@ -575,6 +575,13 @@ async function main() {
   // --- 스토리 시스템 (PLAN-STORY S0): 자막 · 퀘스트 보이스(목표 문구를 넘겨받는다) · 시퀀서 ---
   const hudRoot = document.getElementById('hud')!;
   const dialogue = new Dialogue();
+  /**
+   * 더빙 배선 — 자막 시스템은 오디오를 모르고, 오디오는 대사를 모른다. 여기서만 만난다
+   * (`story/dialogue.ts` 의 `id` · `audio/sfx.ts` 의 `speakLine`).
+   * 파일이 없는 줄은 `speakLine` 이 null 을 돌려주고 지금까지처럼 자막만 나온다.
+   */
+  dialogue.onSpeak = (id) => sfx.speakLine(id);
+  dialogue.onStopSpeak = () => sfx.stopLine();
   // 「전기가 죽는다」 — 씬에 아무것도 안 넣는 DOM 한 장 (각색 6 C안)
   const phone = new Phone();
   const quests = new Quests(missionGoal);
@@ -1021,6 +1028,33 @@ async function main() {
       void sequencer.play(buildDemoSeq(village, quests)).then(() => renderHud());
     }
     if (e.code === 'KeyO' && !invUI.isOpen) toggleMissionFold();
+    // dev 전용: 콘솔 텔레포트 — 소품 실사 확인용. __tp(x, z, yaw?, pitch?) · __go('이름', dx, dz) · __ls('패턴')
+    if (debug && !(window as any).__tp) {
+      (window as any).__tp = (x: number, z: number, yaw?: number, pitch?: number) => {
+        const g = village?.ground;
+        controller.teleport(new THREE.Vector3(x, (g ? g.heightAt(x, z) : controller.position.y) + 0.2, z));
+        if (yaw !== undefined) tpCam.yaw = yaw;
+        if (pitch !== undefined) tpCam.pitch = pitch;
+      };
+      (window as any).__ls = (pat: string) => {
+        const names: string[] = [];
+        scene.traverse((o) => { if (o.name && o.name.toLowerCase().includes(pat.toLowerCase())) names.push(o.name); });
+        return names;
+      };
+      (window as any).__go = (name: string, dx = 0, dz = 3) => {
+        let target: THREE.Object3D | undefined;
+        scene.traverse((o) => { if (!target && o.name === name) target = o; });
+        if (!target) return 'not found: ' + name;
+        const c = new THREE.Box3().setFromObject(target).getCenter(new THREE.Vector3());
+        const px = c.x + dx, pz = c.z + dz;
+        const g = village?.ground;
+        const py = (g ? g.heightAt(px, pz) : c.y) + 0.2;
+        controller.teleport(new THREE.Vector3(px, py, pz));
+        tpCam.yaw = Math.atan2(-(c.x - px), -(c.z - pz));
+        tpCam.pitch = 0.28;
+        return `at (${px.toFixed(1)}, ${pz.toFixed(1)}) → ${name} (${c.x.toFixed(1)}, ${c.y.toFixed(1)}, ${c.z.toFixed(1)})`;
+      };
+    }
     if (e.code === 'KeyM') { muted = !muted; sfx.setMaster(muted ? 0 : settings.audio.master); }
     // 닫는 쪽은 **진짜 Esc** 다 — 메뉴가 떠 있다는 건 이미 락이 풀렸다는 뜻이라 keydown 이 온다
     if (e.code === 'Escape' && pauseMenu.isOpen) { e.preventDefault(); pauseMenu.close(); }

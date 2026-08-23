@@ -1,0 +1,127 @@
+{
+ "version": 1,
+ "generated": "2026-08-23T00:58:40.456Z",
+ "sounds": {
+  "act1/sayo-run-1": {
+   "files": [
+    "act1/sayo-run-1.mp3"
+   ],
+   "gain": 1,
+   "loop": false,
+   "license": "macOS say (TTS)",
+   "durations": [
+    0.32
+   ]
+  },
+  "act1/sayo-run-2": {
+   "files": [
+    "act1/sayo-run-2.mp3"
+   ],
+   "gain": 1,
+   "loop": false,
+   "license": "macOS say (TTS)",
+   "durations": [
+    1.09
+   ]
+  },
+  "act1/sayo-run-3": {
+   "files": [
+    "act1/sayo-run-3.mp3"
+   ],
+   "gain": 1,
+   "loop": false,
+   "license": "macOS say (TTS)",
+   "durations": [
+    0.57
+   ]
+  },
+  "act1/back-01": {
+   "files": [
+    "act1/back-01.mp3"
+   ],
+   "gain": 1,
+   "loop": false,
+   "license": "macOS say (TTS)",
+   "durations": [
+    0.3
+   ]
+  },
+  "act1/back-02": {
+   "files": [
+    "act1/back-02.mp3"
+   ],
+   "gain": 1,
+   "loop": false,
+   "license": "macOS say (TTS)",
+   "durations": [
+    0.52
+   ]
+  },
+  "act1/back-03": {
+   "files": [
+    "act1/back-03.mp3"
+   ],
+   "gain": 1,
+   "loop": false,
+   "license": "macOS say (TTS)",
+   "durations": [
+    0.76
+   ]
+  },
+  "act1/sayo-getup": {
+   "files": [
+    "act1/sayo-getup.mp3"
+   ],
+   "gain": 1,
+   "loop": false,
+   "license": "macOS say (TTS)",
+   "durations": [
+    0.45
+   ]
+  },
+  "act1/sayo-dontlook": {
+   "files": [
+    "act1/sayo-dontlook.mp3"
+   ],
+   "gain": 1,
+   "loop": false,
+   "license": "macOS say (TTS)",
+   "durations": [
+    0.54
+   ]
+  },
+  "act1/mio-sister": {
+   "files": [
+    "act1/mio-sister.mp3"
+   ],
+   "gain": 1,
+   "loop": false,
+   "license": "macOS say (TTS)",
+   "durations": [
+    0.4
+   ]
+  },
+  "act1/sayo-mio": {
+   "files": [
+    "act1/sayo-mio.mp3"
+   ],
+   "gain": 1,
+   "loop": false,
+   "license": "macOS say (TTS)",
+   "durations": [
+    0.46
+   ]
+  },
+  "act1/sayo-rule": {
+   "files": [
+    "act1/sayo-rule.mp3"
+   ],
+   "gain": 1,
+   "loop": false,
+   "license": "macOS say (TTS)",
+   "durations": [
+    2.85
+   ]
+  }
+ }
+}

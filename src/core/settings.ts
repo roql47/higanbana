@@ -148,6 +148,8 @@ export const settings = {
     combat: 0.7,
     matsuri: 0.5,
     heartbeat: 0.6,
+    /** 대사 낭독(더빙) — 자막보다 목소리가 묻히면 안 되므로 효과음보다 높게 */
+    voice: 0.95,
     /** 리버브 센드 전역 배율 (0 = 잔향 끔). 존별 절대량은 audio/space.ts 의 ZONES.wet */
     reverb: 1.0,
     /** 벽 오클루전 세기 (0 = 벽이 소리를 안 막음 — 예전 동작) */

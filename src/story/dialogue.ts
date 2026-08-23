@@ -5,12 +5,22 @@
  * 타자기 출력으로 "말하는 중"을 표현한다. 시퀀서와 필드 연출이 같은 창구를 쓴다.
  */
 
+/** 낭독이 끝나고 자막이 남아 있는 시간(초) — 말이 끝나자마자 글자가 사라지면 못 읽는다 */
+const VOICE_TAIL = 0.45;
+
 export interface DialogueLine {
   /** 화자 표기 (없으면 지문) */
   who?: string;
   text: string;
-  /** 초. 없으면 글자 수로 추정 */
+  /** 초. 없으면 글자 수로 추정. **더빙이 있으면 오디오 길이가 이걸 이긴다** */
   dur?: number;
+  /**
+   * 더빙 키 (`scripts/voice/build.ts` 가 만드는 `public/voice/<언어>/` 아래 경로).
+   *
+   * 붙인 줄만 목소리가 나온다 — 파일이 없으면 조용히 자막만 나온다(`SampleBank.has`).
+   * 그래서 **한 줄씩 채워 넣을 수 있다**: 녹음이 없는 줄은 지금과 완전히 같게 동작한다.
+   */
+  id?: string;
 }
 
 /**
@@ -49,6 +59,15 @@ export class Dialogue {
    * 한 줄이 먹는 **거리**가 고정되어, 속도를 올려도 비트 표를 다시 짤 필요가 없다.
    */
   private rate = 1;
+  /**
+   * 더빙 훅. 재생됐으면 **그 오디오의 길이(초)**, 없으면 null 을 돌려준다.
+   * `Dialogue` 가 오디오를 직접 알지 않게 바깥(main)에서 꽂는다 — 순환 import 를 피한다.
+   */
+  onSpeak: ((id: string) => number | null) | null = null;
+  /** 스킵·가로채기로 줄이 끊길 때 목소리도 같이 끊는다 */
+  onStopSpeak: (() => void) | null = null;
+  /** 지금 줄이 목소리로 재생 중이면 그 길이(초), 아니면 null */
+  private spoken: number | null = null;
 
   constructor() {
     this.root = document.createElement('div');
@@ -70,10 +89,11 @@ export class Dialogue {
     return new Promise((r) => this.resolvers.push(r));
   }
 
-  /** 재생 중단 + 큐 비움 (스킵) */
+  /** 재생 중단 + 큐 비움 (스킵·가로채기) */
   clear() {
     this.queue.length = 0;
     this.cur = null;
+    if (this.spoken !== null) { this.onStopSpeak?.(); this.spoken = null; }
     this.root.classList.remove('show');
     this.flushResolvers();
   }
@@ -85,6 +105,8 @@ export class Dialogue {
       this.cur = next;
       this.t = 0;
       this.chars = 0;
+      // 목소리가 있으면 **여기서** 시작한다 — 자막이 뜨는 순간과 같은 프레임이어야 입이 맞는다
+      this.spoken = next.id && this.onSpeak ? this.onSpeak(next.id) : null;
       this.whoEl.textContent = next.who ?? '';
       this.whoEl.style.setProperty('--who', WHO_COLOR[next.who ?? ''] ?? 'rgba(243,234,214,0.6)');
       this.whoEl.style.display = next.who ? '' : 'none';
@@ -93,15 +115,33 @@ export class Dialogue {
     }
     const cur = this.cur;
     this.t += dt;
-    // 타자기: 다 찍힌 뒤에도 읽을 시간을 남긴다
-    const want = Math.min(cur.text.length, Math.floor(this.t * this.cps * this.rate));
+    /**
+     * 타자기: 다 찍힌 뒤에도 읽을 시간을 남긴다.
+     * **목소리가 있으면 글자가 목소리를 따라간다** — 낭독의 75 % 지점에서 문장이 다 찍히게
+     * 맞춘다. 고정 속도로 찍으면 짧은 외침("뛰어!")은 소리보다 한참 먼저 끝나고,
+     * 긴 줄은 소리가 끝난 뒤에도 계속 찍힌다.
+     */
+    const cps = this.spoken !== null
+      ? Math.max(4, cur.text.length / Math.max(0.2, this.spoken * 0.75))
+      : this.cps * this.rate;
+    const want = Math.min(cur.text.length, Math.floor(this.t * cps));
     if (want !== this.chars) {
       this.chars = want;
       this.lineEl.textContent = cur.text.slice(0, want);
     }
-    const dur = (cur.dur ?? Math.max(1.6, cur.text.length / this.cps + 1.3)) / this.rate;
+    /**
+     * 표시 시간 = **둘 중 긴 쪽.**
+     *
+     * 손으로 맞춘 `dur` 은 자막 길이를 보고 정한 값이라 긴 낭독을 잘라먹고, 반대로 짧은 외침
+     * ("뛰어!" 0.3 초)에 오디오만 따르면 연출 박자가 통째로 앞당겨진다. 그래서 낭독은
+     * 반드시 끝까지 나오되(`spoken + 여운`), 원래 박자보다 짧아지지는 않게 한다.
+     * 배속(`rate`)은 `dur` 쪽에만 걸린다 — 소리는 못 당긴다(재생속도를 올리면 피치가 따라 올라간다).
+     */
+    const authored = (cur.dur ?? Math.max(1.6, cur.text.length / this.cps + 1.3)) / this.rate;
+    const dur = this.spoken !== null ? Math.max(this.spoken + VOICE_TAIL, authored) : authored;
     if (this.t >= dur) {
       this.cur = null;
+      this.spoken = null;
       if (this.queue.length === 0) {
         this.root.classList.remove('show');
         this.flushResolvers();

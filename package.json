@@ -15,7 +15,9 @@
     "build:character": "node scripts/build-character.ts",
     "audio:fetch": "node scripts/audio/fetch.ts",
     "audio:search": "node scripts/audio/fetch.ts --search",
-    "tripo:fetch": "node scripts/tripo/fetch.ts"
+    "tripo:fetch": "node scripts/tripo/fetch.ts",
+    "voice:build": "node scripts/voice/build.ts",
+    "voice:list": "node scripts/voice/build.ts --list"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",
