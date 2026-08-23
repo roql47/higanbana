@@ -476,3 +476,58 @@ body.locked-aspect { background: #000; }
   transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
 }
 .lang-buttons button:hover { background: rgba(232,223,201,0.18); border-color: rgba(255,200,118,0.7); transform: translateY(-1px); }
+
+/* --- 일시정지 메뉴 (ui/pauseMenu.ts) — Esc 로 열린다 --- */
+.pause {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(6, 8, 12, 0.62);
+  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+  transition: opacity 0.2s ease;
+}
+.pause.hidden { opacity: 0; pointer-events: none; }
+.pause-panel {
+  width: min(420px, 90vw); max-height: 92vh; overflow-y: auto;
+  padding: 22px 24px 18px; border-radius: 6px;
+  background: rgba(14, 16, 22, 0.94); border: 1px solid rgba(243, 234, 214, 0.16);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6);
+  color: #f3ead6;
+}
+.pause-title {
+  font-family: var(--serif);
+  font-size: 12px; letter-spacing: 0.34em; text-indent: 0.34em;
+  color: rgba(243, 234, 214, 0.5); text-align: center; margin-bottom: 18px;
+}
+.pause-resume, .pause-restart {
+  display: block; width: 100%; padding: 11px; margin: 0;
+  border-radius: 3px; border: 1px solid rgba(243, 234, 214, 0.3);
+  background: rgba(243, 234, 214, 0.06); color: inherit;
+  font-family: inherit; font-size: 14px; letter-spacing: 0.08em; cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.pause-resume:hover, .pause-restart:hover { background: rgba(243, 234, 214, 0.16); border-color: rgba(255, 200, 118, 0.7); }
+.pause-resume { border-color: rgba(255, 200, 118, 0.55); color: #ffc876; }
+.pause-restart { margin-top: 16px; font-size: 12.5px; opacity: 0.65; }
+
+.pause-rows { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(243, 234, 214, 0.1); display: flex; flex-direction: column; gap: 9px; }
+.pause-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12.5px; }
+.pause-label { color: rgba(243, 234, 214, 0.72); letter-spacing: 0.04em; }
+.pause-note { font-size: 11px; color: #ffc876; text-align: right; margin-top: -4px; }
+.pause-note[hidden] { display: none; }
+
+.pause-seg { display: flex; gap: 4px; }
+.pause-seg button, .pause-toggle {
+  padding: 5px 11px; border-radius: 3px;
+  border: 1px solid rgba(243, 234, 214, 0.18); background: transparent;
+  color: rgba(243, 234, 214, 0.55); font-family: inherit; font-size: 11.5px; cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.pause-seg button:hover, .pause-toggle:hover { color: #f3ead6; border-color: rgba(243, 234, 214, 0.4); }
+.pause-seg button.on, .pause-toggle.on {
+  color: #ffc876; border-color: rgba(255, 200, 118, 0.6); background: rgba(255, 200, 118, 0.1);
+}
+.pause-toggle { min-width: 52px; }
+
+.pause-vol { width: 168px; accent-color: #ffc876; }
+.pause-hint { margin-top: 16px; text-align: center; font-size: 11px; color: rgba(243, 234, 214, 0.4); }
+.pause-hint kbd { font-size: 10px; }

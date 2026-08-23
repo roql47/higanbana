@@ -196,9 +196,18 @@ export function createTweaks(hooks: TweakHooks, visible = true) {
   rd.addBinding(r, 'brightness', { min: -0.5, max: 0.5, step: 0.01 }).on('change', hooks.onRenderChange);
   rd.addBinding(r, 'showColliders');
 
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyH') el.style.display = el.style.display === 'none' ? '' : 'none';
-  });
+  /**
+   * `H` 는 **개발용일 때만** 듣는다.
+   *
+   * 예전에는 `visible` 과 무관하게 토글해서, 배포본에서 H 를 누르면 Movement·Weapon grip 같은
+   * 슬라이더 60여 개가 열렸다 — 그런데 시작 힌트는 그걸 「설정」이라고 안내하고 있었다.
+   * 플레이어의 설정은 이제 Esc 의 일시정지 메뉴다 (`ui/pauseMenu.ts`).
+   */
+  if (visible) {
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyH') el.style.display = el.style.display === 'none' ? '' : 'none';
+    });
+  }
 
   return pane;
 }

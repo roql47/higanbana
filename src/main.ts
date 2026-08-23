@@ -35,6 +35,7 @@ import { Combat } from '@/character/combat';
 import { Dummies } from '@/world/dummies';
 import { Popups } from '@/ui/popups';
 import { Waypoint } from '@/ui/waypoint';
+import { PauseMenu } from '@/ui/pauseMenu';
 import { Props } from '@/world/props';
 import { NavGrid } from '@/ai/navgrid';
 import { Senses } from '@/ai/senses';
@@ -533,12 +534,26 @@ async function main() {
   document.getElementById('hud')!.appendChild(signReadEl);
   /** 포인터락 직후 잠깐 뜨는 Esc 안내 — 커서를 되찾는 법이 어디에도 없었다 */
   const escHintEl = document.createElement('div'); escHintEl.className = 'esc-hint';
-  escHintEl.innerHTML = L('<kbd>Esc</kbd> 마우스 커서', '<kbd>Esc</kbd> マウスカーソル');
+  escHintEl.innerHTML = L('<kbd>Esc</kbd> 일시정지 · 설정', '<kbd>Esc</kbd> 一時停止 · 設定');
   document.getElementById('hud')!.appendChild(escHintEl);
   let escHintT = 0;
+  /**
+   * **Esc = 일시정지** (사용자 요청 2026-08-22).
+   *
+   * 포인터락 중에는 Esc keydown 이 페이지로 오지 않는다 — 브라우저가 락을 푸는 데 쓴다.
+   * 그래서 키가 아니라 **락이 풀리는 순간**을 듣는다 (`ui/pauseMenu.ts` 주석 참고).
+   * 우리가 스스로 푼 경우(인벤토리·사진 뷰어)에는 열지 않는다: 그 창들은 `isOpen` 이
+   * `exitPointerLock()` 보다 **먼저** 켜지고 `pointerlockchange` 는 다음 태스크에 오므로,
+   * 여기서 상태만 확인하면 플래그 없이 갈린다.
+   */
   document.addEventListener('pointerlockchange', () => {
-    if (document.pointerLockElement === canvas) { escHintT = 4.5; escHintEl.classList.add('show'); }
-    else escHintEl.classList.remove('show');
+    if (document.pointerLockElement === canvas) {
+      escHintT = 4.5; escHintEl.classList.add('show');
+      return;
+    }
+    escHintEl.classList.remove('show');
+    if (!started || invUI.isOpen || photoViewer.isOpen || deathT > 0) return;
+    pauseMenu.open();
   });
 
   // 하단: 프롬프트 라인만 (공물 칩은 미션 패널로 이동)
@@ -940,6 +955,45 @@ async function main() {
     onHudChange: () => { saveHudPrefs(); onResize(); },
   }, debug);
 
+  /** 처음부터 — `R` 과 일시정지 메뉴가 같은 것을 부른다 */
+  const resetRun = () => {
+    controller.teleport(spawn);
+    for (const h of hunters) h.reset();
+    dorotabo?.reset();
+    rules?.reset();
+    village?.pedestals.clear();
+    actions?.reset();
+    if (actions) saltEl.textContent = L('소금 × ', '塩 × ') + actions.salt;
+    stamina = settings.stamina.max; exhausted = false; crouching = false;
+    renderHud();
+    endEl.classList.remove('show');
+  };
+
+  /**
+   * Esc 로 열리는 일시정지 메뉴 (`ui/pauseMenu.ts`). 여는 쪽은 `pointerlockchange` 가 잡는다.
+   * 「계속하기」는 포인터락을 다시 요청한다 — 크롬은 Esc 해제 직후 1 초 동안 재잠금을 막으므로
+   * 실패하면 한 번 더 시도한다(그래도 안 되면 화면을 클릭하면 된다. `core/input.ts` 가 받는다).
+   */
+  const pauseMenu = new PauseMenu({
+    onResume: () => {
+      const grab = () => {
+        // 되잡을 이유가 사라졌으면 조용히 그만둔다 — 재시도가 인벤토리 위에서 락을 뺏으면 안 된다
+        if (pauseMenu.isOpen || invUI.isOpen || photoViewer.isOpen || document.pointerLockElement) return;
+        try { void (canvas.requestPointerLock?.() as unknown as Promise<void> | undefined)?.catch?.(() => {}); }
+        catch { /* 포인터락 불가 환경(자동화 등) — 드래그 오빗으로 대체된다 */ }
+      };
+      grab();
+      // 크롬은 Esc 해제 직후 1 초 동안 재잠금을 막는다. 한 번만 더 시도하고, 그래도 안 되면
+      // 화면을 클릭하면 된다(`core/input.ts` 가 받는다)
+      setTimeout(grab, 1100);
+    },
+    onRestart: resetRun,
+    onQuality: (lv) => { saveQuality(lv); applyQualityLive(profileFor(lv)); },
+    onVolume: (v) => { muted = false; sfx.setMaster(v); },
+    onHudChange: () => { saveHudPrefs(); onResize(); },
+  }, quality.level);
+  invUI.canOpen = () => !pauseMenu.isOpen;   // 일시정지 위로 Tab 이 열리지 않게
+
   // --- 단축키: R 리셋, M 음소거, F 전체화면 ---
   let muted = false;
   window.addEventListener('keydown', (e) => {
@@ -961,13 +1015,15 @@ async function main() {
       if (r === -1) { toastEl.textContent = L('소금이 없다', '塩がない'); toastEl.classList.add('show'); toastT = 1.6; }
       saltEl.textContent = L('소금 × ', '塩 × ') + actions.salt;
     }
-    if (e.code === 'KeyR' && !cine) { controller.teleport(spawn); for (const h of hunters) h.reset(); dorotabo?.reset(); rules?.reset(); village?.pedestals.clear(); actions?.reset(); if (actions) saltEl.textContent = L('소금 × ', '塩 × ') + actions.salt; stamina = settings.stamina.max; exhausted = false; crouching = false; renderHud(); endEl.classList.remove('show'); }
+    if (e.code === 'KeyR' && !cine) resetRun();
     // T (debug): 시퀀서 데모 — S0 스택 검증용 (PLAN-STORY §8)
     if (e.code === 'KeyT' && debug && !cine && village && rules && deathT <= 0) {
       void sequencer.play(buildDemoSeq(village, quests)).then(() => renderHud());
     }
     if (e.code === 'KeyO' && !invUI.isOpen) toggleMissionFold();
     if (e.code === 'KeyM') { muted = !muted; sfx.setMaster(muted ? 0 : settings.audio.master); }
+    // 닫는 쪽은 **진짜 Esc** 다 — 메뉴가 떠 있다는 건 이미 락이 풀렸다는 뜻이라 keydown 이 온다
+    if (e.code === 'Escape' && pauseMenu.isOpen) { e.preventDefault(); pauseMenu.close(); }
     if (e.code === 'KeyF') { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.(); }
   });
 
@@ -1004,7 +1060,8 @@ async function main() {
         if (next) {
           applyQualityLive(profileFor(next));
           saveQuality(next);
-          toast(L(`프레임이 낮아 품질을 ${next} 로 낮췄습니다 (H 패널에서 변경 가능)`,
+          pauseMenu.syncQuality(next);
+          toast(L(`프레임이 낮아 품질을 ${next} 로 낮췄습니다 (Esc 로 바꿀 수 있습니다)`,
             `フレームが低いため画質を ${next} に下げました（H パネルで変更できます）`));
           adaptT = 0; // 변경 직후(셰이더 재컴파일 등) 2 s 는 다시 무시
         }
@@ -1263,6 +1320,16 @@ async function main() {
 
   /** 한 프레임 시뮬레이션+렌더. 테스트에서 rAF 없이 결정적으로 호출 가능 (`__dbg.step(dt, render)`) */
   function step(dt: number, render = true) {
+    /**
+     * 일시정지 — **시뮬레이션을 통째로 건너뛴다.** 인벤토리(`uiOpen`)는 입력만 막고 세계는
+     * 계속 도는데, 이 메뉴는 그러면 안 된다: 알트탭 한 사이에 요괴가 다가와 있으면 그건
+     * 일시정지가 아니다. 화면은 계속 그린다(마지막 프레임이 그대로 남는다).
+     */
+    if (pauseMenu.isOpen) {
+      if (render) postfx.composer.render(dt);
+      input.endFrame();
+      return;
+    }
     // 히트스톱: 잠깐 세상을 느리게
     if (hitstop > 0) { hitstop -= dt; dt *= 0.12; }
     const uiOpen = invUI.isOpen || photoViewer.isOpen;
@@ -1506,7 +1573,7 @@ async function main() {
       `${fpsShown.toFixed(0)} fps\n` +
       `speed ${controller.horizontalSpeed.toFixed(2)} m/s  ${controller.grounded ? 'ground' : 'air'}\n` +
       `pos ${controller.position.x.toFixed(1)}, ${controller.position.y.toFixed(1)}, ${controller.position.z.toFixed(1)}\n` +
-      L('H: 튜닝 패널', 'H: 設定パネル');
+      L('H: 튜닝 패널(개발)', 'H: チューニング(開発)');
   }
   requestAnimationFrame(frame);
   if (import.meta.env.DEV) {

@@ -25,8 +25,8 @@ function fillShell() {
       '<kbd>Q</kbd> 提灯の明るさ · <kbd>E</kbd> 拾う/供える/調べる · <kbd>Tab</kbd> 持ち物 · <kbd>左クリック</kbd> 石を投げる · <kbd>G</kbd> 塩'),
     L('<kbd>마우스</kbd> 시점 · <kbd>휠</kbd> 줌 · 웅크려서 노점 아래·벼 사이·벽장에 숨을 수 있다',
       '<kbd>マウス</kbd> 視点 · <kbd>ホイール</kbd> ズーム · しゃがめば屋台の下・稲の間・押入れに隠れられる'),
-    L('<kbd>O</kbd> 목표 접기 · <kbd>Esc</kbd> 마우스 커서 · <kbd>R</kbd> 리셋 · <kbd>M</kbd> 음소거 · <kbd>F</kbd> 전체화면 · <kbd>H</kbd> 설정',
-      '<kbd>O</kbd> 目標を畳む · <kbd>Esc</kbd> マウスカーソル · <kbd>R</kbd> リセット · <kbd>M</kbd> 消音 · <kbd>F</kbd> 全画面 · <kbd>H</kbd> 設定'),
+    L('<kbd>Esc</kbd> 일시정지 · 설정 · <kbd>O</kbd> 목표 접기 · <kbd>R</kbd> 리셋 · <kbd>M</kbd> 음소거 · <kbd>F</kbd> 전체화면',
+      '<kbd>Esc</kbd> 一時停止 · 設定 · <kbd>O</kbd> 目標を畳む · <kbd>R</kbd> リセット · <kbd>M</kbd> 消音 · <kbd>F</kbd> 全画面'),
   ].map((s) => `<span>${s}</span>`).join('');
   // 타이틀 카드 — **한 언어만.** 예전엔 「彼岸花」 아래에 「피안화」를 겹쳐 놓았고, 그게 이중표기의 상징이었다.
   // 일본어판만 읽기(かな)를 아래에 둔다 — 그건 일본어 타이틀의 관례이지 다른 언어 병기가 아니다

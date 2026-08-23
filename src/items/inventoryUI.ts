@@ -20,11 +20,11 @@ const KEYS: [string, string][] = [
   ['<kbd>G</kbd>', L('소금 (격퇴)', '塩（追い払う）')],
   ['<kbd>Tab</kbd>', L('인벤토리 — 기록물은 클릭해서 읽는다', '持ち物 — 記録はクリックして読む')],
   ['<kbd>O</kbd>', L('목표 패널 접기 / 펼치기', '目標パネルを畳む / 開く')],
-  ['<kbd>Esc</kbd>', L('<b>마우스 커서 꺼내기</b> (다시 클릭하면 조작으로 돌아온다)', '<b>マウスカーソルを出す</b>（もう一度クリックで操作に戻る）')],
+  ['<kbd>Esc</kbd>', L('<b>일시정지 · 설정</b> — 언어 · 화질 · 소리 · HUD (마우스 커서도 여기서 나온다)',
+    '<b>一時停止 · 設定</b> — 言語 · 画質 · 音量 · HUD（マウスカーソルもここで出る）')],
   ['<kbd>R</kbd>', L('리셋', 'リセット')],
   ['<kbd>M</kbd>', L('음소거', '消音')],
   ['<kbd>F</kbd>', L('전체화면', '全画面')],
-  ['<kbd>H</kbd>', L('설정 패널', '設定パネル')],
 ];
 
 /**
@@ -39,6 +39,8 @@ export class InventoryUI {
   private dragFrom: number | null = null;
   isOpen = false;
   onToggle?: (open: boolean) => void;
+  /** 지금 열어도 되는가 — 일시정지 메뉴가 떠 있으면 Tab 이 그 위로 열리면 안 된다 */
+  canOpen?: () => boolean;
   /** 기록물(`type: 'record'`)을 클릭했을 때 — 전용 뷰어를 여는 쪽에서 붙인다 */
   onUse?: (itemId: string) => void;
 
@@ -105,7 +107,14 @@ export class InventoryUI {
 
     inv.on('change', () => this.render());
     inv.on('equip', () => this.render());
-    window.addEventListener('keydown', (e) => { if (e.code === 'Tab') { e.preventDefault(); this.toggle(); } if (e.code === 'Escape' && this.isOpen) this.toggle(false); });
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Tab') {
+        e.preventDefault();
+        if (!this.isOpen && this.canOpen && !this.canOpen()) return;
+        this.toggle();
+      }
+      if (e.code === 'Escape' && this.isOpen) this.toggle(false);
+    });
     this.render();
   }
 
