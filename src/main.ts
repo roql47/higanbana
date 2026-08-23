@@ -1128,6 +1128,50 @@ async function main() {
     for (const s2 of stash) s2.obj.position.copy(s2.pos);
     chochin.setLevel(2);
   }
+  /**
+   * ACT 2 의 가족사진 — 실제 씬(도리이 앞·낮)에서 **로케 촬영**한다.
+   *
+   * ⚠️ 예전엔 이걸 `start()` 안에서 했다. 그런데 이 함수는 싼 함수가 아니다 —
+   * 시간대를 낮으로 바꾸며 **환경맵(PMREM)을 다시 굽고**, 되돌리며 **한 번 더 굽고**,
+   * 2 배 해상도로 렌더한 뒤 `readRenderTargetPixels` 로 GPU→CPU 동기 읽기를 한다.
+   * 실측 **281 ms**. 그게 「새 게임을 눌렀는데 화면이 잠깐 멈춘다」의 정체였다
+   * (사용자 리포트 2026-08-22).
+   *
+   * 촬영은 상태를 전부 원위치시키므로 **언제 해도 결과가 같다.** 그러니 로딩 화면이
+   * 아직 덮고 있는 지금 해 둔다 — 여기서는 멈춰도 그게 로딩이다.
+   */
+  if (isVillage && model && timeOfDay && village) {
+    loadingPct.textContent = L('사진을 꺼내는 중…', '写真を取り出しています…');
+    await new Promise((r) => setTimeout(r, 0));   // 위 글자가 화면에 찍히고 나서 멈추게
+    try {
+      // 언니는 **사요 모델로** 찍는다 (없으면 photo.ts 가 미오 두 번으로 폴백)
+      preparePhoto({ model, renderer, scene, village, timeOfDay, sister: sayo, hide: chochin ? [chochin.root, chochin.body] : [] });
+    } catch (e) { console.warn('[photo]', e); }
+  }
+
+  /**
+   * 가족사진의 인벤토리 아이콘 = **손에 쥔 그 물건**.
+   *
+   * ① 먼저 캔버스 사진을 줄여 넣는다 — 즉시 뜨는 폴백.
+   * ② 곧이어 `photo-symbol.glb`(말린 인화지 한 장)를 정면에서 한 컷 찍어 갈아 끼운다.
+   *    이모지(🖼️)도, 캔버스 도판도 「가방에 든 사진」으로는 안 읽혔다(사용자).
+   * 인벤은 열 때마다 다시 그리므로 도중에 바뀌어도 문제없다.
+   *
+   * ⚠️ 이것도 `start()` 안에 있었다. `photoThumb()` 하나가 **38 ms** 라(캔버스 축소),
+   * 위 로케 촬영을 옮기고 나니 남은 멈춤이 통째로 이거였다. 촬영 바로 뒤로 옮긴다 —
+   * 여기서는 `shot` 이 이미 있고, 화면은 아직 로딩이 덮고 있다.
+   */
+  if (isVillage) {
+    try { ITEMS['photo']!.icon = photoThumb(); } catch (e) { console.warn('[photo] 아이콘 생성 실패', e); }
+    // 얼룩은 텍스처에 이미 구워져 있으므로 덧그리지 않는다(`damaged 0`)
+    void photoThumbFromModel(renderer, '/models/props/photo-symbol.glb', 256, 0)
+      .then((url) => { ITEMS['photo']!.icon = url; if (invUI.isOpen) invUI.render(); })
+      .catch((e) => console.warn('[photo] 심볼 아이콘 실패 → 캔버스 축소본 유지', e));
+    // 뷰어로 펼쳤을 때의 원판 — 사용자가 준 사진 한 장(`public/textures/photo-front.webp`)
+    void loadPhotoFront()
+      .catch((e) => console.warn('[photo] 원판 로드 실패 → 캔버스 사진 유지', e));
+  }
+
   loadingPct.textContent = totalItems ? `${loadedItems} / ${totalItems}  ·  ${L('로드 완료', '読み込み完了')}` : L('준비 완료', '準備完了');
   startBtn.hidden = false;
   let started = false;
@@ -1159,17 +1203,16 @@ async function main() {
     setTimeout(() => loadingEl.remove(), 1200);
     // ACT 1~2 프롤로그 → 끝나면 금줄 게이트 안쪽에서 플레이 시작 (PLAN-STORY §8.4)
     setYokaiActive(!(village && rain && !skipIntro));   // 프롤로그를 볼 때만 꺼둔다
+    if (rokuroQa && rules && village) {
+      // 방울 줍기 이벤트를 정상 경로로 태운다. 플레이어만 반대편에 세워 몸통 활주를 곧바로 본다.
+      rules.update(0, village.hokora.suzuPos);
+      rules.interact(village.hokora.suzuPos);
+    }
     if (village && rain && !skipIntro) {
       hintExpired = true; // 연출 중엔 조작 힌트를 띄우지 않는다
-      // ACT 2 의 가족사진 — 실제 씬(도리이 앞·낮)에서 로케 촬영. 프레임 루프 전이라 화면엔 안 보인다
-      if (model && timeOfDay) {
-        try {
-          // 언니는 **사요 모델로** 찍는다 (없으면 photo.ts 가 미오 두 번으로 폴백)
-          preparePhoto({ model, renderer, scene, village, timeOfDay, sister: sayo, hide: chochin ? [chochin.root, chochin.body] : [] });
-        } catch (e) { console.warn('[photo]', e); }
-      }
+      // 가족사진은 로딩 중에 이미 찍어 뒀다 (위 `preparePhoto` 주석 — 여기서 하면 클릭이 281 ms 멈춘다)
       void playPrologue({
-        sequencer, dialogue, village, controller, rain, sfx, chochin, phone, sayo, give,
+        sequencer, dialogue, village, controller, rain, sfx, chochin, phone, sayo, give, input,
         fp: firstPerson!, pursuers: pursuers!, lightning: lightning!, bus: bus!, camera,
         setSurfaceOverride: (sf) => { surfaceOverride = sf; },
         setDread: (v) => { dreadEl.style.opacity = String(Math.min(0.95, v)); },
@@ -1196,47 +1239,24 @@ async function main() {
       setTimeout(() => { hintExpired = true; }, 14000); // 조작 힌트는 처음 잠깐만
       // 프롤로그를 건너뛰어도 **가방 안은 같아야 한다** — 사진은 ACT 2b 에서 넣는 물건이고,
       // 없으면 인벤 튜토리얼도 ACT 16·30 의 재열람도 자리를 잃는다.
-      // 로케 촬영도 여기서 한 번 해 둔다(안 하면 뷰어가 그려진 폴백을 띄운다)
-      if (isVillage && model && timeOfDay && village) {
-        try {
-          preparePhoto({ model, renderer, scene, village, timeOfDay, sister: sayo, hide: chochin ? [chochin.root, chochin.body] : [] });
-        } catch (e) { console.warn('[photo]', e); }
-      }
+      // (로케 촬영은 로딩 중에 이미 끝났다 — 위 `preparePhoto` 주석)
       // 프롤로그가 없으니 언니가 나올 자리도 없다 — 사진만 찍고 돌려준다
       sayo?.dispose();
       sayo = null;
       if (isVillage) give('photo');
     }
-    /**
-     * 가족사진의 인벤토리 아이콘 = **손에 쥔 그 물건**.
-     *
-     * ① 먼저 캔버스 사진을 줄여 넣는다 — 즉시 뜨는 폴백.
-     * ② 곧이어 `photo-hands.glb`(사진을 쥔 두 손)를 정면에서 한 컷 찍어 갈아 끼운다.
-     *    이모지(🖼️)도, 캔버스 도판도 「가방에 든 사진」으로는 안 읽혔다(사용자).
-     * 인벤은 열 때마다 다시 그리므로 도중에 바뀌어도 문제없다.
-     */
-    try { ITEMS['photo']!.icon = photoThumb(); } catch (e) { console.warn('[photo] 아이콘 생성 실패', e); }
-    /**
-     * 아이콘은 **가족사진 심볼**에서 딴다 — Tripo 로 뽑은 「말린 인화지 한 장」에
-     * 우리 사진을 평면 투영으로 입힌 소품(`props/photo-symbol.glb`).
-     * 얼룩은 텍스처에 이미 구워져 있으므로 덧그리지 않는다(`damaged 0`).
-     */
-    void photoThumbFromModel(renderer, '/models/props/photo-symbol.glb', 256, 0)
-      .then((url) => { ITEMS['photo']!.icon = url; if (invUI.isOpen) invUI.render(); })
-      .catch((e) => console.warn('[photo] 심볼 아이콘 실패 → 캔버스 축소본 유지', e));
-    // 뷰어로 펼쳤을 때의 원판 — 사용자가 준 사진 한 장(`public/textures/photo-front.webp`)
-    void loadPhotoFront()
-      .catch((e) => console.warn('[photo] 원판 로드 실패 → 캔버스 사진 유지', e));
   };
   let hintExpired = false;
   startBtn.addEventListener('click', start);
   window.addEventListener('keydown', (e) => { if (e.code === 'Enter' || e.code === 'Space') start(); }, { once: false });
 
-  if (import.meta.env.DEV) {
+  // 배포 빌드에서도 `?debug` 를 명시하면 QA 도구를 연다. 원격 프리뷰/정적 호스트에서
+  // 개발 서버와 같은 사당·AI 상태 검증을 할 수 있어야 한다.
+  if (debug) {
     // 사진 아이콘 재단용 — 크롭/얼룩 위치를 큰 해상도로 확인할 때 쓴다
     (window as unknown as Record<string, unknown>)['__photoThumb'] = (size = 1024, damaged = 1) =>
       photoThumbFromModel(renderer, '/models/props/photo-hands.glb', size, damaged);
-    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, crows, chochin, faceFill, hunters, get hunter() { return hunters[0]; }, dorotabo, senses, matsuri, scares, rules, ambience, get actions() { return actions; }, get hiding() { return hiding; }, get crouching() { return crouching; }, setCrouch(v: boolean) { crouching = v; }, story: { quests, dialogue, sequencer, flags: storyFlags, save: storySave, phone, photoViewer, fp: firstPerson, pursuers, lightning, bus, get sayo() { return sayo; }, get act1() { return act1; }, get act2() { return act2; }, get act3() { return act3; }, get act4() { return act4; }, get lifesigns() { return lifesigns; }, get speakers() { return village?.speakers; } }, get navgrid() { return navgridRef; }, get timeOfDay() { return timeOfDay; }, get audioSpace() { return sfx.space; }, get audioZone() { return audioZone; } };
+    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, crows, chochin, faceFill, hunters, get hunter() { return hunters[0]; }, dorotabo, get rokuro() { return rokuro; }, senses, matsuri, scares, rules, ambience, get actions() { return actions; }, get hiding() { return hiding; }, get crouching() { return crouching; }, setCrouch(v: boolean) { crouching = v; }, story: { quests, dialogue, sequencer, flags: storyFlags, save: storySave, phone, photoViewer, fp: firstPerson, pursuers, lightning, bus, get sayo() { return sayo; }, get act1() { return act1; }, get act2() { return act2; }, get act3() { return act3; }, get act4() { return act4; }, get lifesigns() { return lifesigns; }, get speakers() { return village?.speakers; } }, get navgrid() { return navgridRef; }, get timeOfDay() { return timeOfDay; }, get audioSpace() { return sfx.space; }, get audioZone() { return audioZone; } };
   }
 
   // --- 리사이즈 ---
