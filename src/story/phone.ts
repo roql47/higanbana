@@ -23,11 +23,25 @@
  * 그래서 값은 처음부터 고정이고, 연출은 *언제 다시 보게 하느냐* 로만 만든다.
  */
 
+import { L } from '@/core/i18n';
+
 export type PhoneScreen = 'lock' | 'calling' | 'failed';
 
-/** 참사 10 주기 당일. 공고판(`world/higasato/speaker.ts`)의 2015-09-23 과 같은 날짜다 */
-const DATE_JP = '9月23日 火曜日';
+/**
+ * 폰 화면의 글자. 날짜는 참사 10 주기 당일 — 공고판(`world/higasato/speaker.ts`)의
+ * 2015-09-23 과 **같은 날**이다(10 년 차이로).
+ *
+ * **미오의 폰이니까 미오의 언어로 나온다.** 배경이 일본 시골이라 처음엔 전부 일본어로
+ * 박아 뒀는데, 그래서 한국어판에서 화면 한복판의 물건만 일본어로 남았다
+ * (사용자 리포트 2026-08-22 「한국어 버전에서 핸드폰은 아직도 일본어야」).
+ * 「圏外」는 직역(권외)보다 한국 폰 화면에 실제로 뜨는 말로 옮긴다.
+ */
+const DATE = L('9월 23일 화요일', '9月23日 火曜日');
 const TIME = '15:04';
+const NO_SIGNAL = L('신호 없음', '圏外');
+const SISTER = L('언니', '姉');
+const CALLING = L('발신 중…', '呼び出し中…');
+const FAILED = L('연결할 수 없습니다', '圏外です');
 
 export class Phone {
   private root: HTMLElement;
@@ -43,7 +57,7 @@ export class Phone {
     this.root.className = 'phone';
     this.root.innerHTML =
       '<div class="scr">' +
-        '<div class="bar"><span class="sig">圏外</span><span class="bat">86%</span></div>' +
+        `<div class="bar"><span class="sig">${NO_SIGNAL}</span><span class="bat">86%</span></div>` +
         '<div class="mid"><div class="big"></div><div class="sub"></div></div>' +
         '<div class="note"></div>' +
       '</div>';
@@ -86,12 +100,12 @@ export class Phone {
     // ③ 에서 "다시 본다"가 안 된다 — 내내 보고 있었던 게 되니까.
     if (screen === 'lock') {
       this.bigEl.textContent = TIME;
-      this.subEl.textContent = DATE_JP;
+      this.subEl.textContent = DATE;
       this.noteEl.textContent = '';
     } else {
-      this.bigEl.textContent = '姉';
-      this.subEl.textContent = screen === 'calling' ? '呼び出し中…' : '';
-      this.noteEl.textContent = screen === 'failed' ? '圏外です' : '';
+      this.bigEl.textContent = SISTER;
+      this.subEl.textContent = screen === 'calling' ? CALLING : '';
+      this.noteEl.textContent = screen === 'failed' ? FAILED : '';
     }
     this.root.classList.toggle('failed', screen === 'failed');
   }

@@ -106,7 +106,7 @@ export class Act2 {
       // 사진은 이미 무릎에 있다 — 「학생.」에 고개를 든 순간 내려갔다(`lookedUp`).
       // 한 손에 두 개를 들고 있는 그림이 안 나오는 건 그 덕이다.
       { at: 27.8, run: (d) => d.phone.show('lock') },
-      { at: 29.4, run: (d) => void d.dialogue.say({ text: '15:04. 9月23日.', dur: 2.0 }) },
+      { at: 29.4, run: (d) => void d.dialogue.say({ text: L('15:04. 9월 23일.', '15:04. 9月23日.'), dur: 2.0 }) },
       { at: 31.6, run: (d) => { d.phone.set('calling'); void d.dialogue.say({ text: L('「언니」— 미오는 통화 버튼을 누른다.', '「姉」— ミオは通話ボタンを押す。'), dur: 2.4 }); } },
       // 발신음이 **울리지 않는다**. 없는 소리가 실패를 말한다 — 안내 멘트를 깔면 그냥 정보다
       { at: 34.6, run: (d) => { d.phone.set('failed'); void d.dialogue.say({ text: L('발신음이 울리지 않는다.', '発信音が鳴らない。'), dur: 2.2 }); } },
