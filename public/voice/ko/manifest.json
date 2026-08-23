@@ -1,6 +1,6 @@
 {
  "version": 1,
- "generated": "2026-08-23T00:58:40.456Z",
+ "generated": "2026-08-23T01:28:28.339Z",
  "sounds": {
   "act1/sayo-run-1": {
    "files": [
@@ -8,9 +8,9 @@
    ],
    "gain": 1,
    "loop": false,
-   "license": "macOS say (TTS)",
+   "license": "ElevenLabs eleven_v3 · Sarah",
    "durations": [
-    0.32
+    0.59
    ]
   },
   "act1/sayo-run-2": {
@@ -19,9 +19,9 @@
    ],
    "gain": 1,
    "loop": false,
-   "license": "macOS say (TTS)",
+   "license": "ElevenLabs eleven_v3 · Sarah",
    "durations": [
-    1.09
+    1.71
    ]
   },
   "act1/sayo-run-3": {
@@ -30,9 +30,9 @@
    ],
    "gain": 1,
    "loop": false,
-   "license": "macOS say (TTS)",
+   "license": "ElevenLabs eleven_v3 · Sarah",
    "durations": [
-    0.57
+    1.13
    ]
   },
   "act1/back-01": {
@@ -41,9 +41,9 @@
    ],
    "gain": 1,
    "loop": false,
-   "license": "macOS say (TTS)",
+   "license": "ElevenLabs eleven_v3 · Harry",
    "durations": [
-    0.3
+    0.52
    ]
   },
   "act1/back-02": {
@@ -52,9 +52,9 @@
    ],
    "gain": 1,
    "loop": false,
-   "license": "macOS say (TTS)",
+   "license": "ElevenLabs eleven_v3 · Harry",
    "durations": [
-    0.52
+    1.04
    ]
   },
   "act1/back-03": {
@@ -63,9 +63,9 @@
    ],
    "gain": 1,
    "loop": false,
-   "license": "macOS say (TTS)",
+   "license": "ElevenLabs eleven_v3 · Harry",
    "durations": [
-    0.76
+    0.87
    ]
   },
   "act1/sayo-getup": {
@@ -74,9 +74,9 @@
    ],
    "gain": 1,
    "loop": false,
-   "license": "macOS say (TTS)",
+   "license": "ElevenLabs eleven_v3 · Sarah",
    "durations": [
-    0.45
+    0.69
    ]
   },
   "act1/sayo-dontlook": {
@@ -85,9 +85,9 @@
    ],
    "gain": 1,
    "loop": false,
-   "license": "macOS say (TTS)",
+   "license": "ElevenLabs eleven_v3 · Sarah",
    "durations": [
-    0.54
+    1.01
    ]
   },
   "act1/mio-sister": {
@@ -96,9 +96,9 @@
    ],
    "gain": 1,
    "loop": false,
-   "license": "macOS say (TTS)",
+   "license": "ElevenLabs eleven_v3 · Jessica",
    "durations": [
-    0.4
+    2
    ]
   },
   "act1/sayo-mio": {
@@ -107,9 +107,9 @@
    ],
    "gain": 1,
    "loop": false,
-   "license": "macOS say (TTS)",
+   "license": "ElevenLabs eleven_v3 · Sarah",
    "durations": [
-    0.46
+    0.93
    ]
   },
   "act1/sayo-rule": {
@@ -118,9 +118,9 @@
    ],
    "gain": 1,
    "loop": false,
-   "license": "macOS say (TTS)",
+   "license": "ElevenLabs eleven_v3 · Sarah",
    "durations": [
-    2.85
+    3.24
    ]
   }
  }

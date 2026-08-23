@@ -12,10 +12,10 @@ const YOUNG_MIO = L('어린 미오', '幼いミオ');
  * 예전엔 문자열 배열이었는데, 더빙은 **줄마다 ID** 가 있어야 파일을 매달 수 있다
  * (`story/dialogue.ts` 의 `id`). 표로 바꾸면 `scripts/voice/build.ts` 도 여기를 그대로 읽는다.
  */
-const NUDGE: { id: string; text: string }[] = [
-  { id: 'act1/sayo-run-1', text: L('뛰어!', '走って!') },
-  { id: 'act1/sayo-run-2', text: L('미오야, 빨리!', 'ミオ、早く!') },
-  { id: 'act1/sayo-run-3', text: L('놓지 마!', '離さないで!') },
+const NUDGE: { id: string; dir: string; text: string }[] = [
+  { id: 'act1/sayo-run-1', dir: '[shouting]', text: L('뛰어!', '走って!') },
+  { id: 'act1/sayo-run-2', dir: '[shouting]', text: L('미오야, 빨리!', 'ミオ、早く!') },
+  { id: 'act1/sayo-run-3', dir: '[shouting, desperate]', text: L('놓지 마!', '離さないで!') },
 ];
 import type { Dialogue } from './dialogue';
 import type { FirstPerson } from './firstPerson';
@@ -240,14 +240,14 @@ export class Act1 {
       // ① 아주 먼 번개 — 폭풍이 이미 와 있다는 것만 알린다(천둥은 5초쯤 뒤에야 온다)
       { at: 7, run: (d) => d.lightning.strike({ dist: 0.9, strength: 0.8 }) },
       // 뒤에서 겹치는 목소리 — 셋이 서로 다른 사람이다. 가까울수록 크게 들린다
-      { at: 16, run: (d) => { d.sfx.shout(0.42 * d.pursuers.voice + 0.2); void d.dialogue.say({ id: 'act1/back-01', who: BACK, text: L('미오!', 'ミオ!'), dur: 1.5 }); } },
+      { at: 16, run: (d) => { d.sfx.shout(0.42 * d.pursuers.voice + 0.2); void d.dialogue.say({ id: 'act1/back-01', dir: '[shouting]', who: BACK, text: L('미오!', 'ミオ!'), dur: 1.5 }); } },
       // 진흙에 미끄러진다. 뒤가 확 붙는다 — 잡히지는 않지만 숨이 목까지 온다.
       // 뒤쪽 목소리 사이의 **빈자리**에 넣는다. 뒤에 붙이면 「보지 마!」를 잘라먹는다
       { at: 27, run: (d, s) => s.trip() },
-      { at: 32, run: (d) => { d.sfx.shout(0.5 * d.pursuers.voice + 0.24); void d.dialogue.say({ id: 'act1/back-02', who: BACK, text: L('거기 서!', '止まれ!'), dur: 1.5 }); } },
+      { at: 32, run: (d) => { d.sfx.shout(0.5 * d.pursuers.voice + 0.24); void d.dialogue.say({ id: 'act1/back-02', dir: '[shouting, angry]', who: BACK, text: L('거기 서!', '止まれ!'), dur: 1.5 }); } },
       // ② 중거리 번개 — **붉은 피안화 길**이 여기서 처음 통째로 드러난다
       { at: 36, run: (d) => d.lightning.strike({ dist: 0.45 }) },
-      { at: 38, run: (d) => { d.sfx.shout(0.6 * d.pursuers.voice + 0.3); void d.dialogue.say({ id: 'act1/back-03', who: BACK, text: L('아이를 잡아!', 'その子を捕まえろ!'), dur: 1.7 }); } },
+      { at: 38, run: (d) => { d.sfx.shout(0.6 * d.pursuers.voice + 0.3); void d.dialogue.say({ id: 'act1/back-03', dir: '[shouting, angry]', who: BACK, text: L('아이를 잡아!', 'その子を捕まえろ!'), dur: 1.7 }); } },
       // 울며 뒤를 돌아보려 한다 — 플레이어가 안 돌아봐도 **미오가 스스로** 고개를 돌린다
       { at: 44, run: (d, s) => { s.beginForcedLook(); d.sfx.sob(0.62); } },
       // ③ 바로 위에서 친다 — **도리이**가 실루엣으로 드러난다. 종 치기 전에 꼬리가 끝나야 해서 여기가 마지막
@@ -530,7 +530,7 @@ export class Act1 {
     // 넘어진 만큼 뒤가 붙는다. 11 m — 횃불이 등 뒤에서 길바닥을 비출 거리
     d.pursuers.closeTo(this.startS + this.travelled, 11);
     d.dialogue.clear();
-    void d.dialogue.say({ id: 'act1/sayo-getup', who: SAYO, text: L('일어나!', '立って!'), dur: 1.4 });
+    void d.dialogue.say({ id: 'act1/sayo-getup', dir: '[shouting, urgent]', who: SAYO, text: L('일어나!', '立って!'), dur: 1.4 });
     this.glanceT = TRIP_S * 0.9;   // 언니가 돌아본다 — 얼굴까지는 안 돈다(`sayo.ts`)
   }
 
@@ -541,7 +541,7 @@ export class Act1 {
     const d = this.d;
     d.sfx.shout(0.9, true);
     d.dialogue.clear();   // 다른 줄이 재생 중이어도 이건 **가로챈다** — 외침이 줄을 서면 외침이 아니다
-    void d.dialogue.say({ id: 'act1/sayo-dontlook', who: '???', text: L('보지 마!', '見ないで!'), dur: 1.9 });
+    void d.dialogue.say({ id: 'act1/sayo-dontlook', dir: '[screaming, terrified]', who: '???', text: L('보지 마!', '見ないで!'), dur: 1.9 });
     d.fp.snapForward(0.6);
   }
 
@@ -588,11 +588,11 @@ export class Act1 {
     d.setSurfaceOverride(null);
 
     // 암전 위의 대사 — 이 게임의 첫 금기가 여기서 심어진다
-    await d.dialogue.say({ id: 'act1/mio-sister', who: YOUNG_MIO, text: L('언니……?', 'お姉ちゃん……?'), dur: 2.2 });
+    await d.dialogue.say({ id: 'act1/mio-sister', dir: '[nervously, small trembling voice]', who: YOUNG_MIO, text: L('언니……?', 'お姉ちゃん……?'), dur: 2.2 });
     await wait(500);
-    await d.dialogue.say({ id: 'act1/sayo-mio', who: SAYO, text: L('미오야.', 'ミオ。'), dur: 2.0 });
+    await d.dialogue.say({ id: 'act1/sayo-mio', dir: '[softly, gently]', who: SAYO, text: L('미오야.', 'ミオ。'), dur: 2.0 });
     await wait(900);   // 잠시 침묵
-    await d.dialogue.say({ id: 'act1/sayo-rule', who: SAYO, text: L('피안화가 피어 있는 길은 절대로 따라오면 안 돼.', '彼岸花の咲いている道は、絶対についてきちゃだめ。'), dur: 4.0 });
+    await d.dialogue.say({ id: 'act1/sayo-rule', dir: '[whispers, sadly]', who: SAYO, text: L('피안화가 피어 있는 길은 절대로 따라오면 안 돼.', '彼岸花の咲いている道は、絶対についてきちゃだめ。'), dur: 4.0 });
 
     this.state = 'done';
     d.sayo?.show(false);
