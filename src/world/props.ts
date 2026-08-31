@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { toFloatGeometry } from '@/core/geom';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { createGLTFLoader } from '@/core/gltf';
 import type { Physics } from '@/core/physics';
 import type { Island } from './terrain';
 import { Simplex2D } from './noise';
@@ -48,9 +47,7 @@ export class Props {
   }
 
   static loader() {
-    const loader = new GLTFLoader();
-    loader.setMeshoptDecoder(MeshoptDecoder);
-    return loader;
+    return createGLTFLoader();
   }
 
   /**

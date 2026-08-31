@@ -16,6 +16,7 @@ export function setupTouch(input: Input, canvas: HTMLCanvasElement) {
     <button class="jump-btn" id="jump-btn" aria-label="jump">↑</button>
     <button class="walk-btn" id="walk-btn" aria-label="walk">걷기</button>
     <button class="atk-btn" id="atk-btn" aria-label="attack">⚔</button>
+    <button class="view-btn" id="view-btn" aria-label="camera view">◉</button>
     <button class="inv-btn" id="inv-btn" aria-label="inventory">☰</button>
   `;
   document.body.appendChild(ui);
@@ -79,6 +80,7 @@ export function setupTouch(input: Input, canvas: HTMLCanvasElement) {
   };
   press(jumpBtn, 'Space');
   press(ui.querySelector<HTMLButtonElement>('#atk-btn')!, 'KeyJ');
+  press(ui.querySelector<HTMLButtonElement>('#view-btn')!, 'KeyP');
   ui.querySelector<HTMLButtonElement>('#inv-btn')!.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Tab', key: 'Tab' })); }, { passive: false });
   // 걷기 토글
   let walking = false;

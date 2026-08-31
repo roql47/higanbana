@@ -13,13 +13,13 @@ const KEYS: [string, string][] = [
   ['<kbd>Shift</kbd>', L('달리기 (스태미나)', '走る（スタミナ）')],
   [L('<kbd>C</kbd>', '<kbd>C</kbd>'), L('웅크림 — 노점 아래·벼 사이·벽장에 숨는다', 'しゃがむ — 屋台の下・稲の間・押入れに隠れる')],
   [L('<kbd>마우스</kbd>', '<kbd>マウス</kbd>'), L('시점', '視点')],
+  ['<kbd>P</kbd>', L('1인칭 / 3인칭 시점 전환', '一人称 / 三人称視点を切り替える')],
   [L('<kbd>휠</kbd>', '<kbd>ホイール</kbd>'), L('줌', 'ズーム')],
   ['<kbd>E</kbd>', L('줍기 · 봉납 · 조사 (꾹 누르는 것도 있다)', '拾う · 供える · 調べる（長押しのものもある）')],
   ['<kbd>Q</kbd>', L('초칭 밝기 — 끔 / 약 / 강', '提灯の明るさ — 消す / 弱 / 強')],
-  [L('<kbd>좌클릭</kbd>', '<kbd>左クリック</kbd>'), L('돌 던지기 (소리로 유인)', '石を投げる（音で誘う）')],
-  ['<kbd>G</kbd>', L('소금 (격퇴)', '塩（追い払う）')],
   ['<kbd>Tab</kbd>', L('인벤토리 — 기록물은 클릭해서 읽는다', '持ち物 — 記録はクリックして読む')],
   ['<kbd>O</kbd>', L('목표 패널 접기 / 펼치기', '目標パネルを畳む / 開く')],
+  ['<kbd>J</kbd>', L('조사 기록과 현재 가설', '調査記録と現在の仮説')],
   ['<kbd>Esc</kbd>', L('<b>일시정지 · 설정</b> — 언어 · 화질 · 소리 · HUD (마우스 커서도 여기서 나온다)',
     '<b>一時停止 · 設定</b> — 言語 · 画質 · 音量 · HUD（マウスカーソルもここで出る）')],
   ['<kbd>R</kbd>', L('리셋', 'リセット')],
@@ -29,13 +29,14 @@ const KEYS: [string, string][] = [
 
 /**
  * Tab 으로 여닫는 인벤토리 오버레이. 열리면 포인터락 해제·게임 입력 차단(main 이 `isOpen` 확인).
- * 클릭: 격자의 무기 → 장착 / 장착 슬롯 클릭 → 해제. 드래그로 슬롯 교환.
+ * 클릭: 기록물을 연다. 드래그로 슬롯을 교환한다.
  */
 export class InventoryUI {
   readonly el: HTMLElement;
   private grid: HTMLElement;
-  private equipSlot: HTMLElement;
-  private tooltip: HTMLElement;
+  private detail: HTMLElement;
+  private selectedIndex: number | null = null;
+  private readonly readRecords = loadReadRecords();
   private dragFrom: number | null = null;
   isOpen = false;
   onToggle?: (open: boolean) => void;
@@ -50,61 +51,68 @@ export class InventoryUI {
     this.el.className = 'inv hidden';
     this.el.innerHTML = `
       <div class="inv-panel">
-        <div class="inv-head"><span class="inv-title">${L('인벤토리', '持ち物')}</span><span class="inv-hint">${L('<kbd>Tab</kbd> 닫기 · 클릭 장착/열기 · 드래그 이동', '<kbd>Tab</kbd> 閉じる · クリックで装備/開く · ドラッグで移動')}</span></div>
+        <div class="inv-head"><span class="inv-title">${L('인벤토리', '持ち物')}</span><span class="inv-hint">${L('<kbd>Tab</kbd> 닫기 · 클릭 열기 · 드래그 이동', '<kbd>Tab</kbd> 閉じる · クリックで開く · ドラッグで移動')}</span></div>
         <div class="inv-body">
-          <div class="inv-equip">
-            <div class="inv-label">${L('주무기', '主武器')}</div>
-            <div class="inv-slot inv-slot-equip" data-equip="1"></div>
-            <div class="inv-equipname"></div>
-          </div>
           <div class="inv-grid"></div>
+          <div class="inv-detail" aria-live="polite"></div>
         </div>
-        <div class="inv-keys">
-          <div class="inv-keys-title">${L('조작', '操作')}</div>
+        <details class="inv-keys">
+          <summary><span>${L('조작 도움말', '操作ヘルプ')}</span><small>${L('필요할 때 펼치기', '必要な時に開く')}</small></summary>
           <dl>${KEYS.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
-        </div>
-        <div class="inv-tooltip hidden"></div>
+        </details>
       </div>`;
     document.body.appendChild(this.el);
     this.grid = this.el.querySelector('.inv-grid')!;
-    this.equipSlot = this.el.querySelector('.inv-slot-equip')!;
-    this.tooltip = this.el.querySelector('.inv-tooltip')!;
+    this.detail = this.el.querySelector('.inv-detail')!;
 
     for (let i = 0; i < inv.slots.length; i++) {
       const s = document.createElement('div');
       s.className = 'inv-slot';
       s.dataset['index'] = String(i);
       s.draggable = true;
+      s.tabIndex = 0;
+      s.setAttribute('role', 'button');
       this.grid.appendChild(s);
     }
-    this.grid.addEventListener('click', (e) => {
-      const slot = (e.target as HTMLElement).closest<HTMLElement>('.inv-slot');
-      if (!slot) return;
+    const useSlot = (slot: HTMLElement) => {
       const idx = Number(slot.dataset['index']);
+      this.selectedIndex = idx;
+      this.showDetail(idx);
       const item = inv.item(inv.slots[idx]?.itemId ?? null);
       if (item?.type === 'weapon') inv.equip(idx);
       // 기록물은 장착하는 게 아니라 **여는** 물건이다 (가족사진·명부·일기·문서)
-      else if (item?.type === 'record') this.onUse?.(item.id);
+      else if (item?.type === 'record') {
+        this.readRecords.add(item.id);
+        saveReadRecords(this.readRecords);
+        this.render();
+        this.onUse?.(item.id);
+      }
+    };
+    this.grid.addEventListener('click', (e) => {
+      const slot = (e.target as HTMLElement).closest<HTMLElement>('.inv-slot');
+      if (!slot) return;
+      useSlot(slot);
     });
-    this.equipSlot.addEventListener('click', () => inv.unequip());
+    this.grid.addEventListener('keydown', (e) => {
+      if (e.code !== 'Enter' && e.code !== 'Space') return;
+      const slot = (e.target as HTMLElement).closest<HTMLElement>('.inv-slot');
+      if (!slot) return;
+      e.preventDefault();
+      useSlot(slot);
+    });
+    // 설명은 커서를 따라다니지 않고 같은 자리에 머문다. 패드·키보드 포커스에서도 같은 정보가 보인다.
+    this.grid.addEventListener('pointerover', (e) => {
+      const slot = (e.target as HTMLElement).closest<HTMLElement>('.inv-slot');
+      if (slot) this.showDetail(Number(slot.dataset['index']));
+    });
+    this.grid.addEventListener('focusin', (e) => {
+      const slot = (e.target as HTMLElement).closest<HTMLElement>('.inv-slot');
+      if (slot) this.showDetail(Number(slot.dataset['index']));
+    });
     // 드래그 교환
     this.grid.addEventListener('dragstart', (e) => { const s = (e.target as HTMLElement).closest<HTMLElement>('.inv-slot'); this.dragFrom = s ? Number(s.dataset['index']) : null; });
     this.grid.addEventListener('dragover', (e) => e.preventDefault());
     this.grid.addEventListener('drop', (e) => { e.preventDefault(); const s = (e.target as HTMLElement).closest<HTMLElement>('.inv-slot'); if (s && this.dragFrom !== null) inv.swap(this.dragFrom, Number(s.dataset['index'])); this.dragFrom = null; });
-    // 툴팁
-    this.el.addEventListener('mousemove', (e) => {
-      const slot = (e.target as HTMLElement).closest<HTMLElement>('.inv-slot');
-      const id = slot ? (slot.dataset['equip'] ? inv.mainhand : inv.slots[Number(slot.dataset['index'])]?.itemId ?? null) : null;
-      const item = inv.item(id);
-      if (!item) { this.tooltip.classList.add('hidden'); return; }
-      this.tooltip.classList.remove('hidden');
-      this.tooltip.innerHTML = `<b>${item.name}</b><br><span>${item.desc}</span>`
-        + (item.weapon ? `<br><i>${L(`피해 ${item.weapon.damage} · 사거리 ${item.weapon.reach} m`, `威力 ${item.weapon.damage} · 間合い ${item.weapon.reach} m`)}</i>` : '');
-      const r = this.el.getBoundingClientRect();
-      this.tooltip.style.left = `${e.clientX - r.left + 14}px`; this.tooltip.style.top = `${e.clientY - r.top + 14}px`;
-    });
-    this.el.addEventListener('mouseleave', () => this.tooltip.classList.add('hidden'));
-
     inv.on('change', () => this.render());
     inv.on('equip', () => this.render());
     window.addEventListener('keydown', (e) => {
@@ -134,13 +142,41 @@ export class InventoryUI {
       const s = this.inv.slots[i]!;
       const item = this.inv.item(s.itemId);
       el.classList.toggle('filled', !!item);
-      el.innerHTML = item ? `${iconHTML(item.icon)}${s.count > 1 ? `<span class="inv-count">${s.count}</span>` : ''}` : '';
+      el.classList.toggle('selected', i === this.selectedIndex && !!item);
+      el.classList.toggle('unread', item?.type === 'record' && !this.readRecords.has(item.id));
+      el.setAttribute('aria-label', item ? `${item.name}. ${item.desc}` : L('빈 슬롯', '空きスロット'));
+      el.innerHTML = item
+        ? `${iconHTML(item.icon)}${s.count > 1 ? `<span class="inv-count">${s.count}</span>` : ''}`
+          + (item.type === 'record' && !this.readRecords.has(item.id) ? '<i class="inv-new">NEW</i>' : '')
+        : '';
     });
-    const eq = this.inv.equipped;
-    this.equipSlot.classList.toggle('filled', !!eq);
-    this.equipSlot.innerHTML = eq ? iconHTML(eq.icon) : '';
-    this.el.querySelector('.inv-equipname')!.textContent = eq ? eq.name : L('비어 있음', '空');
+    if (this.selectedIndex !== null && !this.inv.item(this.inv.slots[this.selectedIndex]?.itemId ?? null)) this.selectedIndex = null;
+    this.showDetail(this.selectedIndex);
   }
+
+  private showDetail(index: number | null) {
+    const item = index === null ? null : this.inv.item(this.inv.slots[index]?.itemId ?? null);
+    if (!item) {
+      this.detail.classList.add('empty');
+      this.detail.innerHTML = `<span>${L('아이템에 커서를 올리면 설명을 볼 수 있습니다.', 'アイテムを選ぶと説明を確認できます。')}</span>`;
+      return;
+    }
+    this.detail.classList.remove('empty');
+    this.detail.innerHTML = `<b>${item.name}</b><span>${item.desc}</span>`
+      + (item.weapon ? `<i>${L(`피해 ${item.weapon.damage} · 사거리 ${item.weapon.reach} m`, `威力 ${item.weapon.damage} · 間合い ${item.weapon.reach} m`)}</i>` : '')
+      + (item.type === 'record' ? `<small>${L('클릭하거나 Enter로 읽기', 'クリックまたは Enter で読む')}</small>` : '');
+  }
+}
+
+const READ_RECORDS_KEY = '3dm.inventory.read-records.v1';
+function loadReadRecords(): Set<string> {
+  try {
+    const ids = JSON.parse(localStorage.getItem(READ_RECORDS_KEY) ?? '[]');
+    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []);
+  } catch { return new Set(); }
+}
+function saveReadRecords(ids: Set<string>) {
+  try { localStorage.setItem(READ_RECORDS_KEY, JSON.stringify([...ids])); } catch { /* 저장 불가 환경 */ }
 }
 
 /**

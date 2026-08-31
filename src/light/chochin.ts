@@ -1,6 +1,24 @@
 import * as THREE from 'three';
 import { settings } from '@/core/settings';
 import { damp } from '@/core/math';
+import { Props } from '@/world/props';
+
+/**
+ * 섀도맵 진단 로그 게이트. **`import.meta.env.DEV` 만으로는 부족하다** —
+ * 큐브 섀도맵 null 로 인한 드로우 거부는 드라이버를 타서(ANGLE Metal 은 조용히 넘긴다)
+ * 문제가 실제로 보이는 곳이 배포본이다. 거기서 `?debug` 로 켤 수 있어야 현장에서 판정된다.
+ */
+const SHADOW_DEBUG = import.meta.env.DEV
+  || (typeof location !== 'undefined' && new URLSearchParams(location.search).has('debug'));
+
+const CHOCHIN_MODEL = '/models/props/chochin.glb';
+let chochinTemplate: Promise<THREE.Group> | null = null;
+
+/** Tripo 원본은 한 재질이다. 한 번만 읽고 각 등불은 지오메트리·텍스처를 공유해 복제한다. */
+function loadChochinTemplate() {
+  chochinTemplate ??= Props.loadNormalized(CHOCHIN_MODEL, 1, 1);
+  return chochinTemplate;
+}
 
 /**
  * 초칭(提灯) — 오른손에 든 종이등.
@@ -16,6 +34,8 @@ export class Chochin {
   readonly root = new THREE.Group();      // 손 본(R_Hand)을 따라가는 마운트
   readonly body = new THREE.Group();      // 진자 — 월드 기준 수직 유지
   readonly light: THREE.PointLight;
+  /** 종이등 시각물만 따로 숨긴다. `body` 를 숨기면 그 안의 PointLight 도 렌더 목록에서 빠진다 */
+  private paper: THREE.Group;
   private paperMat: THREE.MeshStandardMaterial;
   private handBone: THREE.Object3D | null = null;
   private hipBone: THREE.Object3D | null = null;
@@ -28,6 +48,10 @@ export class Chochin {
   private swing = 0;
   private swingV = 0;
   private flickerVal = 1;
+  /** 점광원 큐브 섀도맵 갱신 시계. 조명은 60Hz, 그림자만 30Hz로 유지한다. */
+  private shadowT = 0;
+  /** 섀도맵 null 경고는 한 번만 (dev) — 매 프레임 찍으면 콘솔이 죽는다 */
+  private shadowWarned = false;
   /** 손에 들고 있는가 — 획득 전(ACT 2~4)에는 false (`setHeld`) */
   private isHeld = true;
   /** 위협 근접도 0..1 — 가까울수록 불꽃이 크게 흔들린다 (main 이 매 프레임 넣어줌) */
@@ -48,15 +72,16 @@ export class Chochin {
 
     const size = settings.chochin.size;
     const { paper, mat } = makeLantern(size);
+    this.paper = paper;
     this.paperMat = mat;
     this.body.add(paper);
 
     this.light = new THREE.PointLight(settings.chochin.color, 1, settings.chochin.rangeHigh, 2);
-    // decay 2(물리값)는 광원이 몸에서 30 cm 라 다리·치마가 순백으로 포화돼 텍스처가 사라진다
-    // (사용자 리포트 "정면 뷰에서 질감이 뭉개짐"). 1.5 로 완만하게 — 2 m 지점 밝기는 그대로,
-    // 0.3 m 근접 조도만 약 2.6배 낮아져 질감이 살아난다.
+    // decay 2(물리값)는 광원이 몸에서 30 cm 라 다리·치마가 순백으로 포화돼 텍스처가 사라진다.
+    // 최대 단계에서도 길이 안 보이던 문제를 해결하기 위해 1.35 로 완만하게 조정한다.
+    // 광량과 함께 중거리 조도를 확보하되 근접부는 과하게 포화되지 않는 범위다.
     // 얼굴 쪽은 이 등불로 해결되지 않는다(골반 높이에서 아래·옆으로 비춘다) → light/faceFill.ts 참고.
-    this.light.decay = 1.5;
+    this.light.decay = 1.35;
     this.light.castShadow = true;
     this.light.shadow.mapSize.set(shadowMapSize, shadowMapSize);
     // 그림자 여드름 대책 (2026-08-19, "캐릭터가 조각 깨져 보임" 리포트):
@@ -107,8 +132,36 @@ export class Chochin {
   setHeld(v: boolean) {
     if (this.isHeld === v) return;
     this.isHeld = v;
-    this.root.visible = v;
-    this.light.visible = v && settings.chochin.level > 0;
+    // root/body 안에는 PointLight 가 있다. 조상 그룹을 숨겨도 three 는 라이트 수를 줄여
+    // NUM_POINT_LIGHTS 셰이더를 다시 컴파일한다. 시각물만 숨기고 라이트는 세기 0으로 상주시킨다.
+    this.root.visible = true;
+    this.body.visible = true;
+    this.paper.visible = v;
+    this.light.visible = true;
+    if (!v) this.light.intensity = 0;
+    this.syncShadowWork();
+  }
+
+  /**
+   * 점광원 그림자는 한 번 갱신할 때 씬을 여섯 방향으로 다시 그린다.
+   * `castShadow` 자체를 토글하면 NUM_POINT_LIGHT_SHADOWS 셰이더 변형이 바뀌어 획득/점등 순간
+   * 전체 재질이 다시 컴파일될 수 있으므로 그대로 둔다. 대신 불이 실제로 켜져 있을 때만
+   * 큐브 섀도맵을 갱신한다. 다시 켜는 첫 프레임은 반드시 새로 굽는다.
+   */
+  private syncShadowWork() {
+    const lit = this.isHeld && settings.chochin.level > 0;
+    // 켜진 동안도 renderer의 매 프레임 자동 갱신에 맡기지 않는다. update()가 30Hz로 요청한다.
+    this.light.shadow.autoUpdate = false;
+    // ⚠️ `lit` 만으로 잠그면 안 된다. three 의 `WebGLShadowMap.render()` 는
+    // `autoUpdate === false && needsUpdate === false` 스킵을 **맵 할당보다 먼저** 하므로,
+    // 한 번도 안 구운 상태에서 꺼지면 `shadow.map` 이 영영 null 로 남는다. 그런데 `castShadow` 는
+    // (재컴파일 방지를 위해) 계속 true라 셰이더에는 `samplerCubeShadow` 가 남아 있고, three 는
+    // 큐브 shadow 용 빈 텍스처 폴백이 없어 비교모드 없는 `emptyCubeTexture` 를 물린다
+    // → ANGLE 이 그 프로그램의 **모든 드로우콜을 거부**한다
+    // (`GL_INVALID_OPERATION: Mismatch between texture format and sampler type`).
+    // 표준 재질만 통째로 사라지는 증상이 이것이다. 맵이 없으면 꺼져 있어도 한 번은 굽는다.
+    this.light.shadow.needsUpdate = lit || this.light.shadow.map === null;
+    this.shadowT = 0;
   }
 
   /** 루트 스케일을 상쇄해 월드에서 settings.chochin.size 미터가 되게 한다 */
@@ -153,11 +206,12 @@ export class Chochin {
     const c = settings.chochin;
     c.level = ((n % 3) + 3) % 3;
     this.light.color.set(c.color);
-    this.light.visible = this.isHeld && c.level > 0;
+    this.light.visible = true;
     this.light.distance = c.level === 2 ? c.rangeHigh : c.rangeLow;
     this.paperMat.emissiveIntensity = c.level === 0 ? 0.0 : c.level === 1 ? 0.35 : 0.85;
     // opacity 는 건드리지 않는다 — transparent 재질의 불투명도 변화도 렌더 상태를 바꿔
     // 셰이더 변형이 갈릴 수 있다(실측 재컴파일 확인). 꺼짐은 emissive 로만 표현.
+    this.syncShadowWork();
   }
 
   cycle() { this.setLevel(settings.chochin.level + 1); }
@@ -167,6 +221,9 @@ export class Chochin {
     this.light.shadow.map?.dispose();
     this.light.shadow.map = null;
     this.light.shadow.mapSize.set(size, size);
+    // 버린 맵은 **반드시** 다시 굽는다 — 등불 미소지(ACT 2~4)나 「끔」 상태에서 품질을 바꾸면
+    // `syncShadowWork()` 가 다시 불릴 일이 없어 null 인 채로 남는다 (위 주석의 그 상태다).
+    this.light.shadow.needsUpdate = true;
   }
 
   /**
@@ -192,9 +249,33 @@ export class Chochin {
     this.body.parent!.getWorldQuaternion(this.qParent);
     this.body.quaternion.copy(this.qParent).invert().multiply(this.qCur);
 
+    // PointLight의 공간적 결과는 그대로 두고 시간 해상도만 30Hz로 제한한다.
+    // 60fps 기준 한 프레임 지연이라 눈에 띄지 않지만, 여섯 방향 depth 렌더는 절반으로 줄어든다.
+    if (this.lit) {
+      this.shadowT -= dt;
+      if (this.shadowT <= 0) {
+        this.shadowT = 1 / 30;
+        this.light.shadow.needsUpdate = true;
+      }
+    } else if (this.light.shadow.map === null) {
+      // 자가 치유 그물 — 어떤 경로로 맵이 null 이 되든 다음 섀도 패스에서 되살린다.
+      // 프레임당 분기 하나가 「씬 전체 드로우 거부」보다 싸다.
+      this.light.shadow.needsUpdate = true;
+      if (SHADOW_DEBUG && !this.shadowWarned) {
+        this.shadowWarned = true;
+        console.warn('[chochin] 큐브 섀도맵이 null 이었다 — 다시 굽는다 (samplerCubeShadow mismatch 방지). '
+          + `held=${this.isHeld} level=${settings.chochin.level} mapSize=${this.light.shadow.mapSize.width}`);
+      }
+    }
+
     // --- 불꽃 흔들림 (요괴가 가까울수록 심하게 — 초칭이 무서워한다) ---
-    if (c.level === 0) {
-      this.light.intensity = 0.02; // "꺼짐" — 라이트 자체는 유지 (재컴파일 방지)
+    if (!this.isHeld) {
+      this.light.intensity = 0;
+      this.paperMat.emissiveIntensity = 0;
+    } else if (c.level === 0) {
+      // 강도 0이어도 라이트 객체는 visible 상태라 셰이더 광원 수는 그대로다.
+      // `syncShadowWork()`가 큐브 섀도맵 갱신도 멈추므로 꺼진 등불의 GPU 비용은 거의 0이다.
+      this.light.intensity = 0;
     } else {
       const th = this.threat;
       const f = c.flicker * (1 + th * 2.6);
@@ -221,7 +302,11 @@ export class Chochin {
  * 종이등 한 채. **획득 전 처마에 걸려 있는 것도 같은 함수로 만든다**
  * (`world/higasato/eaveChochin.ts`) — 떼기 전과 든 뒤가 다른 물건이면 획득이 교환이 된다.
  */
-export function makeLantern(size: number) {
+export function makeLantern(
+  size: number,
+  material?: THREE.MeshStandardMaterial,
+  linkedMaterials: THREE.MeshStandardMaterial[] = [],
+) {
   const g = new THREE.Group();
   const bodyH = size * 0.72, rMax = size * 0.30;
 
@@ -235,7 +320,7 @@ export function makeLantern(size: number) {
     profile.push(new THREE.Vector2(Math.max(0.004, r), y));
   }
   const paperGeo = new THREE.LatheGeometry(profile, 18);
-  const paperMat = new THREE.MeshStandardMaterial({
+  const paperMat = material ?? new THREE.MeshStandardMaterial({
     color: 0xf6e2bd,
     emissive: new THREE.Color(0xffa348),
     emissiveIntensity: 1.6,
@@ -264,7 +349,48 @@ export function makeLantern(size: number) {
   hoop.rotation.y = Math.PI / 2;
   g.add(hoop);
 
+  // 절차 메시를 즉시 보여 주고, Tripo GLB가 도착하면 같은 그룹 안에서 교체한다.
+  // 호출부는 그룹·재질 참조를 계속 유지하므로 밝기 전환·진자·획득 로직을 바꿀 필요가 없다.
+  void loadChochinTemplate().then((tpl) => {
+    const model = tpl.clone(true);
+    let source: THREE.MeshStandardMaterial | null = null;
+    model.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const src = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.MeshStandardMaterial;
+      source ??= src;
+      mesh.material = paperMat;
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+    });
+    if (!source) return;
+    for (const target of [paperMat, ...linkedMaterials]) copyLanternSurface(source, target);
+    model.scale.setScalar(size);
+    model.position.y = -size / 2; // Props 정규화 원점은 바닥 — 등불 진자 원점은 몸통 중앙
+    g.clear();
+    g.add(model);
+  }).catch((e) => console.warn('[chochin] Tripo 모델 로드 실패 — 절차 모델 유지:', e));
+
   return { paper: g, mat: paperMat };
+}
+
+/** 텍스처/PBR은 Tripo에서, 발광색·오염 변주는 게임 재질에서 가져온다. */
+function copyLanternSurface(source: THREE.MeshStandardMaterial, target: THREE.MeshStandardMaterial) {
+  const color = target.color.clone();
+  const emissive = target.emissive.clone();
+  const emissiveIntensity = target.emissiveIntensity;
+  const opacity = target.opacity;
+  const transparent = target.transparent;
+  target.copy(source);
+  target.color.copy(color);
+  target.emissive.copy(emissive);
+  // 종이의 밝은 부분만 안에서 빛나고 검은 손잡이는 검게 남는다.
+  target.emissiveMap = source.map;
+  target.emissiveIntensity = emissiveIntensity;
+  target.opacity = opacity;
+  target.transparent = transparent;
+  target.side = THREE.DoubleSide;
+  target.needsUpdate = true;
 }
 
 /** 종이등 표면: 가로 살(骨) + 위아래 붉은 띠 */

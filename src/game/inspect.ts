@@ -3,7 +3,8 @@ import { L } from '@/core/i18n';
 
 /**
  * 조사 지점 레지스트리 (PLAN-STORY §4) — 비석·석판·기록물 같은 "E 로 읽는 것"의 공통 창구.
- * Rules(공물)와 별개다: E 키 처리는 main 에서 rules.interact 가 먼저, 실패하면 inspect.
+ * Rules(공물)와 별개다: 기본 E 키 처리는 main 에서 rules.interact 가 먼저, 실패하면 inspect.
+ * 다만 조사점과 봉인된 공물이 겹치는 장소는 `inputPriority`로 조사 입력을 먼저 받을 수 있다.
  *
  * **꾹 누르기**(`hold`)는 ACT 3 이 요구한 것이다 — 스토리보드의 「플레이어가 표면을 닦으면」은
  * 한 번의 E 로는 성립하지 않는다. 닦는 데 시간이 걸려야 이끼가 벗겨지는 걸 **보게** 된다.
@@ -20,6 +21,10 @@ export interface InspectPoint {
   onUse: () => boolean | void;
   /** 조건부 노출 (없으면 항상) */
   enabled?: () => boolean;
+  /** 공물 반경과 겹쳐도 이 조사점의 프롬프트·E 입력을 먼저 받는다 */
+  inputPriority?: boolean;
+  /** 바닥 기준 좌표를 쓰는 오브젝트의 표지자 높이. 기본 0.62 m. */
+  markerLift?: number;
   /** >0 이면 그 초만큼 **꾹** 눌러야 발동한다. 손을 떼면 되감긴다 */
   hold?: number;
   /** 꾹 누르는 동안의 진행도 0~1 (되감김 포함). 소리·재질 갱신용 */
@@ -39,6 +44,11 @@ export class Inspect {
   remove(id: string) { this.points.delete(id); }
   /** HUD 게이지 — 대상이 없거나 꾹 누르기가 아니면 0 */
   get holdProgress() { return this.near?.hold ? this.hold : 0; }
+  /** 월드 상호작용 표지자가 붙을 현재 조사점. 대상이 없으면 표시하지 않는다. */
+  get targetPosition(): THREE.Vector3 | null { return this.near?.pos ?? null; }
+  get targetMarkerLift() { return this.near?.markerLift ?? 0.62; }
+  /** 현재 조사점이 Rules(공물)보다 입력 우선권을 요구하는가 */
+  get hasInputPriority() { return this.near?.inputPriority === true; }
 
   /**
    * @param dt      꾹 누르기 진행에 쓴다 (0 이면 진행하지 않는다 — 사망·컷신 중)

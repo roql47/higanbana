@@ -37,7 +37,7 @@ export class Physics {
    * 오디오 오클루전(벽 너머 소리)이 매 프레임 몇 번 부르므로 Ray 객체를 재사용한다.
    * 끝점 바로 앞(5 cm)에 맞는 건 음원 자신의 콜라이더일 수 있어 막힌 것으로 치지 않는다.
    */
-  rayBlocked(from: THREE.Vector3, to: THREE.Vector3, exclude?: RAPIER.RigidBody): boolean {
+  rayBlocked(from: THREE.Vector3, to: THREE.Vector3, exclude?: RAPIER.RigidBody, exclude2?: RAPIER.RigidBody): boolean {
     const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
     const len = Math.hypot(dx, dy, dz);
     if (len < 1e-3) return false;
@@ -47,7 +47,12 @@ export class Physics {
     // solid=false: 시작점이 도형 **안**일 때 toi 0 을 돌려주지 않고 반대편 표면까지 통과시킨다.
     // solid=true 로 두면 리스너가 캐릭터 캡슐/지형 안에 있을 때 모든 방향이 "막힘" 으로 나온다 (실제로 그랬다).
     // 추가로 시작점 5 cm 안의 히트는 자기 몸으로 보고 무시한다
-    const hit = this.world.castRay(ray, len, false, undefined, undefined, undefined, exclude);
+    // 시야 판정처럼 발사자(플레이어)와 도착 대상(요괴) 두 몸을 모두 빼야 하는 경우가 있다.
+    // 첫 몸은 Rapier의 전용 필터로, 두 번째 몸은 predicate로 제외한다.
+    const hit = this.world.castRay(
+      ray, len, false, undefined, undefined, undefined, exclude,
+      exclude2 ? (collider) => collider.parent() !== exclude2 : undefined,
+    );
     return hit !== null && hit.timeOfImpact > 0.05 && hit.timeOfImpact < len - 0.05;
   }
 

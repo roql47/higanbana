@@ -24,6 +24,7 @@ export type TimeOfDayName =
   | 'evening'      // 현재의 히가사토 기본 — **늦은 저녁**. 해는 갔는데 하늘에 아직 빛이 남아 있다
   | 'dawn'         // ACT 21·33 — 새벽. 살아남은 아이가 발견되는 시간
   | 'day'          // ACT 34 — 1년 후 봄. 이 게임에서 유일하게 밝은 장면
+  | 'breach'       // ACT 11 — 세 번째 봉인이 풀림. 하늘은 붉지만 달은 사라진다
   | 'bloodMoon';   // ACT 24 — 피안의 밤. 거대한 붉은 달, 별이 없다
 
 export interface TimeOfDay {
@@ -130,6 +131,20 @@ export const TIMES: Record<TimeOfDayName, TimeOfDay> = {
     grade: { exposure: 0.80, saturation: 0.18, contrast: 0.02, vignette: 0.26 },
     mist: 0.05,
   },
+  // 세 번째 경고 — 아직 피안으로 완전히 넘어간 것은 아니지만, 현실의 달이 먼저 사라진다.
+  // ACT 24의 거대한 붉은 달과 구분해야 하므로 moonSize는 사실상 0이고 지평선만 검붉다.
+  // ⚠️ 한 단계 밝힘 (사용자 「동전 봉납 뒤 너무 어둡다 — 아주 살짝만」, 2026-08-23).
+  // rainNight 의 교훈 재사용: 어둠의 범인은 밝기보다 **대비**다 — contrast 0.11 은 4.9 % 이하를
+  // 순검정으로 뭉갰다(0.085 → 3.9 %). 나머지는 전부 한 눈금씩만: 붉은 무월(無月) 하늘은 그대로 두고
+  // 발밑과 중거리만 살린다. 어둡「지만」 보이는 자리 — 그래야 다음 단계(bloodMoon)가 더 어두워질 수 있다
+  breach: {
+    sky: { zenith: 0x17070b, horizon: 0x54151a, ground: 0x0c0608, moonColor: 0x331014, moonSize: 0.0001, stars: 0 },
+    light: { elevation: 18, azimuth: -72, intensity: 1.45, color: 0xb45b58 },
+    ambient: { hemi: 0.63, env: 0.68, hemiSky: 0x5a252c, hemiGround: 0x17090c },
+    fog: { color: 0x321117, density: 0.0185 },
+    grade: { exposure: 0.72, saturation: 0.23, contrast: 0.085, vignette: 0.545 },
+    mist: 0.34,
+  },
   // 피안의 밤 — 거대한 붉은 달. 별이 사라졌다(하늘이 이미 저쪽이다)
   bloodMoon: {
     sky: { zenith: 0x1a0508, horizon: 0x4e0d10, ground: 0x0e0406, moonColor: 0xff5a48, moonSize: 0.055, stars: 0 },
@@ -144,13 +159,15 @@ export const TIMES: Record<TimeOfDayName, TimeOfDay> = {
 interface SkyLike {
   moon: THREE.DirectionalLight;
   hemi: THREE.HemisphereLight;
+  /** PMREM 을 굽지 않는 값싼 달·직사광 갱신. */
+  updateLighting?: () => void;
   updateSun: () => void;
   setSkyColors: (o: { zenith?: number; horizon?: number; ground?: number; moonColor?: number; moonSize?: number; stars?: number }) => void;
 }
 
 /**
  * 시간대를 건다. `seconds > 0` 이면 그 시간에 걸쳐 **보간**한다.
- * 하늘 돔 색과 PMREM 굽기는 비싸므로 보간 중에는 6 Hz 로만 갱신한다.
+ * 하늘 돔과 직접광은 매 프레임 보간한다. PMREM 굽기만 전환 끝에서 한 번 수행한다.
  */
 export class TimeOfDayController {
   private cur: TimeOfDay;
@@ -158,7 +175,6 @@ export class TimeOfDayController {
   private to: TimeOfDay;
   private t = 0;
   private dur = 0;
-  private bakeAcc = 0;
   name: TimeOfDayName;
 
   constructor(private sky: SkyLike, private scene: THREE.Scene, private onGrade: () => void, start: TimeOfDayName = 'night') {
@@ -185,12 +201,10 @@ export class TimeOfDayController {
     this.t += dt;
     const k = THREE.MathUtils.smoothstep(Math.min(1, this.t / this.dur), 0, 1);
     lerpInto(this.cur, this.from, this.to, k);
-    this.bakeAcc += dt;
     const done = this.t >= this.dur;
-    // 하늘 굽기는 비싸다 — 보간 중엔 6 Hz, 끝날 때 한 번 확실히
-    const bake = done || this.bakeAcc >= 1 / 6;
-    if (bake) this.bakeAcc = 0;
-    this.apply(bake);
+    // pmrem.fromScene 은 동기 GPU 작업이다. ACT 2 하차 때 이걸 6 Hz 로 실행해
+    // 일정 간격의 프레임 드랍이 났다. 돔·직사광은 아래에서 계속 움직이고 환경맵만 끝에서 확정한다.
+    this.apply(done);
     if (done) this.dur = 0;
   }
 
@@ -208,12 +222,16 @@ export class TimeOfDayController {
     this.sky.moon.color.setHex(c.light.color);
     this.sky.hemi.color.setHex(c.ambient.hemiSky);
     this.sky.hemi.groundColor.setHex(c.ambient.hemiGround);
+    // 셰이더 uniform 복사뿐이라 싸다 — 하늘색 자체는 60 fps 로 이어져야 한다.
+    this.sky.setSkyColors(c.sky);
     if (bakeSky) {
-      this.sky.setSkyColors(c.sky);
       this.sky.updateSun();   // 하늘 굽기(PMREM)가 여기 들어 있다
     } else {
-      this.sky.moon.intensity = c.light.intensity;
-      this.sky.hemi.intensity = c.ambient.hemi;
+      if (this.sky.updateLighting) this.sky.updateLighting();
+      else {
+        this.sky.moon.intensity = c.light.intensity;
+        this.sky.hemi.intensity = c.ambient.hemi;
+      }
       this.scene.environmentIntensity = c.ambient.env;
     }
     // ④ 안개

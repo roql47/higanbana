@@ -12,23 +12,23 @@ export const CHARACTER: CharacterModelOptions = {
 /**
  * 아마미야 미오 — 《피안화》 주인공.
  *
- * **Tripo 웹 스튜디오에서 생성 + 리깅까지 끝낸 GLB** 를 받아서 쓴다(OpenAPI 리깅 아님).
- * 원본 `assets/tripo/mio-web-hi/model_url.glb` — 1,985,298 tris · 4096 텍스처 3장 · **41본 리깅 포함**.
+ * 사용자가 교체한 세일러 교복 모델을 +Z→+X로 회전 베이크한 뒤 Tripo biped v1.0으로 리깅했다.
+ * 정규화본 `assets/tripo/mio-school-v3/source-x.glb` — 53,284 verts · 텍스처 3장 · 정적 A포즈.
+ * 리그 `assets/tripo/mio-school-v3/rig/model_url.glb` — **41본**, 발끝 기준 정면 +X 검증.
  *
- *   node scripts/build-character.ts --base assets/tripo/mio-web-hi/model_url.glb \
- *     --clips <clips dir> --out public/models/mio.glb --tex 4096 --quality 92 --simplify 0.06
+ *   node scripts/build-character.ts --base assets/tripo/mio-school-v3/rig/model_url.glb \
+ *     --clips assets/tripo/final-tripo/anim --out public/models/mio.glb --tex 4096 --quality 92
  *
- * **애니 클립은 사지 않았다.** 본 이름 41개가 `character.glb` 와 완전히 일치하고 rest 포즈도
- * 충분히 가까워서, 기존 클립 GLB 를 그대로 붙이면 정상 재생된다(리타겟 크레딧 0).
+ * 본 이름 41개가 `character.glb` 와 일치한다. 기존 11개 클립을 회전 + Root/Hip 이동만 적용해
+ * 실렌더 검증했고 idle/walk/run에서 팔·치마·가방 스킨이 무너지지 않아 추가 리타겟은 생략했다.
  *
- * > 함정 기록 — 같은 모델의 **저폴리 내보내기(22,217 tris)** 를 OpenAPI 로 직접 리깅했더니
- * > `L_Clavicle` rest 가 기준보다 **95° 틀어져서**(172.8° → 77.5°) run 처럼 팔이 크게 벌어지는
- * > 클립이 통째로 무너졌다. 유료 리타겟으로도 못 고쳤다. 웹 스튜디오 리깅은 15° 차이라 문제없다.
- * > **리깅된 채로 받을 수 있으면 그걸 쓴다.**
+ * 원본은 정면 +Z였으므로 리깅 전에 Y +90°를 정점에 베이크했다. 이를 생략하면 이동 방향과
+ * 팔다리 운동축이 90° 어긋난다.
  */
 export const MIO: CharacterModelOptions = {
   url: '/models/mio.glb',
   clips: {},
   targetHeight: 1.62, // 16세. 위 1.7 보다 낮게 — ACT 19 에서 사요(12세)와 키 대비가 단서다
   yawOffset: -Math.PI / 2, // character.glb 와 같은 규약(정면 +X)
+  constrainLocomotionArms: true, // 리그 간 rest 차이로 생기는 팔 과외전·머리 위 스윙 제한
 };

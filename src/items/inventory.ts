@@ -36,6 +36,23 @@ export class Inventory {
 
   has(itemId: string) { return this.slots.some((s) => s.itemId === itemId) || this.mainhand === itemId; }
 
+  /** 소모·봉납·강탈로 가방에서 사라지는 물건. 무기 슬롯까지 같은 계약으로 처리한다. */
+  remove(itemId: string, count = 1): boolean {
+    if (count <= 0) return false;
+    let left = count;
+    for (const s of this.slots) {
+      if (s.itemId !== itemId) continue;
+      const take = Math.min(left, s.count);
+      s.count -= take; left -= take;
+      if (s.count <= 0) { s.itemId = null; s.count = 0; }
+      if (left <= 0) break;
+    }
+    if (left > 0 && this.mainhand === itemId) { this.mainhand = null; left--; this.emit('equip'); }
+    if (left === count) return false;
+    this.emit('change');
+    return true;
+  }
+
   /** 격자 슬롯 → 주무기. 기존 무기는 격자로 내려감 */
   equip(slotIndex: number) {
     const s = this.slots[slotIndex];

@@ -3,8 +3,10 @@ node_modules/
 dist/
 .DS_Store
 *.blend1
+artifacts/
+tmp/
 assets/tripo/
 assets/audio/cache/
 
-# 더빙 캐시 (재생성 가능)
-scripts/voice/.stamps-*.json
+# 티저 녹화 산출물 (webm/mp4/검수 프레임) — src/teaser/run.ts 가 만든다
+dev/teaser/

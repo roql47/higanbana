@@ -985,5 +985,368 @@
    "source": "https://opengameart.org/content/25-cc0-mud-sfx",
    "files": []
   }
+ ],
+ "breath/heavy": [
+  {
+   "key": "breath/heavy",
+   "provider": "wikimedia",
+   "title": "Heavy breathing 2.ogg",
+   "author": "ezwa",
+   "license": "Public domain",
+   "source": "https://commons.wikimedia.org/wiki/File%3AHeavy_breathing_2.ogg",
+   "files": []
+  }
+ ],
+ "amb/wind": [
+  {
+   "key": "amb/wind",
+   "provider": "url",
+   "title": "Mild wind background noise",
+   "author": "bashar3a",
+   "license": "CC0",
+   "source": "https://opengameart.org/content/mild-wind-background-noise",
+   "files": []
+  }
+ ],
+ "matsuri/taiko": [
+  {
+   "key": "matsuri/taiko",
+   "provider": "wikimedia",
+   "title": "Traditional-taikodrum-may2011.ogv",
+   "author": "Nesnad",
+   "license": "CC BY 3.0",
+   "source": "https://commons.wikimedia.org/wiki/File%3ATraditional-taikodrum-may2011.ogv",
+   "files": []
+  }
+ ],
+ "matsuri/suzu": [
+  {
+   "key": "matsuri/suzu",
+   "provider": "wikimedia",
+   "title": "Sleigh bells.wav",
+   "author": "The Midnite Wolf",
+   "license": "CC0",
+   "source": "https://commons.wikimedia.org/wiki/File%3ASleigh_bells.wav",
+   "files": []
+  }
+ ],
+ "water/drip": [
+  {
+   "key": "water/drip",
+   "provider": "url",
+   "title": "Dripping water loop",
+   "author": "qubodup",
+   "license": "CC0",
+   "source": "https://opengameart.org/content/dripping-water-loop",
+   "files": []
+  }
+ ],
+ "quake/rumble": [
+  {
+   "key": "quake/rumble",
+   "provider": "url",
+   "title": "Low rumbling",
+   "author": "musheran",
+   "license": "CC0",
+   "source": "https://opengameart.org/content/low-rumbling",
+   "files": []
+  }
+ ],
+ "amb/thunder": [
+  {
+   "key": "amb/thunder",
+   "provider": "wikimedia",
+   "title": "Rain and thunder (1).ogg",
+   "author": "ezwa",
+   "license": "Public domain",
+   "source": "https://commons.wikimedia.org/wiki/File%3ARain_and_thunder_(1).ogg",
+   "files": []
+  }
+ ],
+ "yuri/hum": [
+  {
+   "key": "yuri/hum",
+   "provider": "url",
+   "title": "Ghostly Humming",
+   "author": "Nocturnal_Vanguard (AuraVoice)",
+   "license": "CC0 1.0",
+   "source": "https://opengameart.org/content/ghostly-humming",
+   "files": []
+  }
+ ],
+ "well/water-rise": [
+  {
+   "key": "well/water-rise",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — heavy well splash — 0.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/water-rise",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — heavy well splash — 1.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/water-rise",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — heavy well splash — 2.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/water-rise",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — heavy well splash — 3.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/water-rise",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — heavy well splash — 4.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  }
+ ],
+ "well/wade": [
+  {
+   "key": "well/wade",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — well wade — 0.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/wade",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — well wade — 1.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/wade",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — well wade — 2.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/wade",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — well wade — 3.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/wade",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — well wade — 4.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  }
+ ],
+ "well/pebble": [
+  {
+   "key": "well/pebble",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — pebble plop — 0.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/pebble",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — pebble plop — 1.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/pebble",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — pebble plop — 2.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/pebble",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — pebble plop — 3.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/pebble",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — pebble plop — 4.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  }
+ ],
+ "well/submerge": [
+  {
+   "key": "well/submerge",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — submerge — 0.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/submerge",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — submerge — 1.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/submerge",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — submerge — 2.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/submerge",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — submerge — 3.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  },
+  {
+   "key": "well/submerge",
+   "provider": "zip",
+   "title": "Footsteps on different surfaces — submerge — 4.ogg",
+   "author": "EminYILDIRIM · swuing (Freesound) · mastered by congusbongus",
+   "license": "CC BY 3.0",
+   "source": "https://opengameart.org/content/footsteps-on-different-surfaces",
+   "files": []
+  }
+ ],
+ "well/rope": [
+  {
+   "key": "well/rope",
+   "provider": "kenney",
+   "title": "rpg-audio — creak1.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "well/rope",
+   "provider": "kenney",
+   "title": "rpg-audio — creak2.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "well/rope",
+   "provider": "kenney",
+   "title": "rpg-audio — creak3.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  }
+ ],
+ "well/wet-grab": [
+  {
+   "key": "well/wet-grab",
+   "provider": "kenney",
+   "title": "rpg-audio — cloth1.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "well/wet-grab",
+   "provider": "kenney",
+   "title": "rpg-audio — cloth2.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "well/wet-grab",
+   "provider": "kenney",
+   "title": "rpg-audio — cloth3.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "well/wet-grab",
+   "provider": "kenney",
+   "title": "rpg-audio — cloth4.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  }
+ ],
+ "well/coin": [
+  {
+   "key": "well/coin",
+   "provider": "kenney",
+   "title": "rpg-audio — handleCoins.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  },
+  {
+   "key": "well/coin",
+   "provider": "kenney",
+   "title": "rpg-audio — handleCoins2.ogg",
+   "author": "Kenney (kenney.nl)",
+   "license": "CC0 1.0",
+   "source": "https://kenney.nl/assets/rpg-audio",
+   "files": []
+  }
  ]
 }

@@ -50,6 +50,54 @@ function canvasTexture(cv: HTMLCanvasElement, srgb: boolean) {
   return t;
 }
 
+const fileTextureCache = new Map<string, THREE.Texture>();
+/** 디스크 PBR도 민가 전체가 한 벌만 공유한다. 집 수가 늘어도 텍스처 메모리는 늘지 않는다. */
+function fileTexture(url: string, srgb: boolean) {
+  let t = fileTextureCache.get(url);
+  if (!t) {
+    t = new THREE.TextureLoader().load(url);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.anisotropy = 4;
+    fileTextureCache.set(url, t);
+  }
+  return t;
+}
+
+function filePbr(opts: {
+  name: string;
+  albedo: string;
+  normal: string;
+  arm: string;
+  color?: number;
+  normalScale?: number;
+  ao?: number;
+  tileScale?: number;
+}) {
+  const arm = fileTexture(opts.arm, false);
+  const albedo = fileTexture(opts.albedo, true);
+  const normal = fileTexture(opts.normal, false);
+  arm.channel = 0;
+  // 기존 256px 절차 맵의 선 밀도에 맞춰 둔 UV를 그대로 쓰되, 실제 1K 표면은 반복만 낮춘다.
+  // 집 지오메트리를 다시 펼치지 않아도 널 폭과 큰 얼룩의 실제 크기가 맞는다.
+  const tileScale = opts.tileScale ?? 1;
+  for (const t of [albedo, normal, arm]) t.repeat.setScalar(tileScale);
+  const mat = new THREE.MeshStandardMaterial({
+    map: albedo,
+    normalMap: normal,
+    normalScale: new THREE.Vector2(opts.normalScale ?? 0.6, opts.normalScale ?? 0.6),
+    aoMap: arm,
+    aoMapIntensity: opts.ao ?? 0.75,
+    roughnessMap: arm,
+    roughness: 1,
+    metalness: 0,
+    color: opts.color ?? 0xffffff,
+    vertexColors: true,
+  });
+  mat.name = opts.name;
+  return mat;
+}
+
 /** 알베도 휘도 → 높이(그레이). 어두운 선 = 파인 홈이라는 가정 (invert 면 반대) */
 function lumaHeight(src: HTMLCanvasElement, invert = false) {
   const w = src.width, h = src.height;
@@ -451,17 +499,46 @@ export function makeHouseMaterials(): HouseMaterials {
     );
   };
 
+  // 일반 민가의 외피만 1K 파일 PBR로 올린다. 실내 소품·다다미·장지는 작은 절차 맵을 유지한다.
+  // 나무 세 재질은 같은 3장을 공유하므로 재질 표현은 달라도 GPU 텍스처는 한 벌뿐이다.
+  const cedarAlbedo = '/textures/minka/weathered-cedar-diff-1k.webp';
+  const cedarNormal = '/textures/minka/weathered-cedar-nor-gl-1k.webp';
+  const cedarArm = '/textures/minka/weathered-cedar-arm-512.webp';
+  const plank = filePbr({ name: 'minka-weathered-plank', albedo: cedarAlbedo, normal: cedarNormal, arm: cedarArm, color: 0xeadfd2, normalScale: 0.52, ao: 0.72, tileScale: 0.28 });
+  const plankDark = filePbr({ name: 'minka-weathered-plank-dark', albedo: cedarAlbedo, normal: cedarNormal, arm: cedarArm, color: 0xa99d90, normalScale: 0.48, ao: 0.76, tileScale: 0.28 });
+  const timber = filePbr({ name: 'minka-weathered-timber', albedo: cedarAlbedo, normal: cedarNormal, arm: cedarArm, color: 0xc5b7a7, normalScale: 0.65, ao: 0.78, tileScale: 0.28 });
+  const mud = filePbr({
+    name: 'minka-aged-mud-plaster',
+    albedo: '/textures/minka/aged-mud-plaster-diff-1k.webp',
+    normal: '/textures/minka/aged-mud-plaster-nor-gl-1k.webp',
+    arm: '/textures/minka/aged-mud-plaster-arm-512.webp',
+    color: 0xd8cdbd,
+    normalScale: 0.48,
+    ao: 0.68,
+    tileScale: 0.4,
+  });
+  const thatch = filePbr({
+    name: 'minka-kaya-thatch',
+    albedo: '/textures/minka/kaya-thatch-diff-1k.webp',
+    normal: '/textures/minka/kaya-thatch-nor-gl-1k.webp',
+    arm: '/textures/minka/kaya-thatch-arm-512.webp',
+    color: 0xf4f0e9,
+    normalScale: 0.72,
+    ao: 0.82,
+    tileScale: 0.6,
+  });
+
   cached = {
     dirt: pbr({ albedo: makeCanvas(S, S, dirtDraw), rough: 0.97, spread: 0.05, ao: 0.75, cavity: 0.40, nrm: 1.8 }),
-    plank: pbr({ albedo: makeCanvas(S, S, plankDraw([75, 58, 40], '#2a1f15')), rough: 0.74, spread: 0.26, cavity: 0.45, nrm: 2.6 }),
-    plankDark: pbr({ albedo: makeCanvas(S, S, plankDraw([43, 33, 26], '#151009', 4)), rough: 0.88, spread: 0.16, cavity: 0.40, nrm: 2.2 }),
+    plank,
+    plankDark,
     tatami: pbr({
       albedo: makeCanvas(128, 256, tatamiAlbedo), height: makeCanvas(128, 256, tatamiHeight),
       rough: 0.93, spread: 0.12, ao: 0.6, cavity: 0.30, nrm: 1.9,
     }),
-    mud: pbr({ albedo: makeCanvas(S, S, mudDraw), rough: 0.97, spread: 0.06, ao: 0.8, cavity: 0.45, nrm: 2.4 }),
-    timber: pbr({ albedo: makeCanvas(S, S, timberDraw), rough: 0.78, spread: 0.22, cavity: 0.45, nrm: 2.8 }),
-    thatch: pbr({ albedo: makeCanvas(S, S, thatchDraw), rough: 1.0, spread: 0.04, ao: 0.85, cavity: 0.5, nrm: 3.4 }),
+    mud,
+    timber,
+    thatch,
     shojiMat,
     fusuma: pbr({ albedo: makeCanvas(S, S, fusumaDraw), rough: 0.95, spread: 0.1, cavity: 0.3, nrm: 1.6, side: THREE.DoubleSide }),
   };

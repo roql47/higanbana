@@ -1,4 +1,4 @@
-import { makePhoto, modelPhotoFront } from './photo';
+import { makePhoto, modelPhotoFront, photoStoryVersion } from './photo';
 import { L } from '@/core/i18n';
 
 /**
@@ -28,8 +28,8 @@ export class PhotoViewer {
   private backEl: HTMLCanvasElement;
   private open = false;
   private flipped = false;
-  /** 지금 띄워 둔 훼손도 — 같은 값이면 다시 굽지 않는다 */
-  private drawn = -1;
+  /** 지금 띄워 둔 훼손도+뒷면 상태 — 둘 다 같을 때만 다시 굽지 않는다 */
+  private drawn = '';
   onClose?: () => void;
 
   constructor() {
@@ -61,7 +61,8 @@ export class PhotoViewer {
 
   /** @param damaged 1 = 얼룩(기본) · 0 = 온전한 사진(ACT 30) */
   show(damaged = 1) {
-    if (this.drawn !== damaged) {
+    const drawKey = `${damaged}:${photoStoryVersion()}`;
+    if (this.drawn !== drawKey) {
       const { front, back } = makePhoto({ damaged });
       /**
        * 앞면은 **모델에서 딴 원판**을 먼저 쓴다(`captureModelPhoto`).
@@ -74,7 +75,7 @@ export class PhotoViewer {
        */
       blit(modelPhotoFront(damaged) ?? (front.image as HTMLCanvasElement), this.frontEl);
       blit(back.image as HTMLCanvasElement, this.backEl);
-      this.drawn = damaged;
+      this.drawn = drawKey;
     }
     this.flipped = false;
     this.card.classList.remove('flipped');

@@ -1,6 +1,12 @@
 import * as THREE from 'three';
+import { settings } from '@/core/settings';
+import { createSpatialInstancedMeshes, fogCullDistance, updatePairedChunkLodVisibility } from '@/world/instancing';
+import { makeAxialBillboardMaterial, makeBillboardPlane, makeHiganbanaBillboardTexture } from '@/world/billboard';
 import type { VillageGround } from './ground';
 import { Simplex2D } from '../noise';
+
+/** 이 거리 안의 청크는 입체 꽃잎, 바깥은 2삼각형 카드. 청크 경계까지의 거리로 판정한다. */
+const BILLBOARD_LOD_DIST = 14;
 
 /**
  * 피안화(彼岸花) — 이 게임의 이름이자 시그니처 색.
@@ -24,21 +30,29 @@ export interface HiganbanaOpts {
    * ACT 1 의 그림이 *끝없이 이어지는 피안화 길* 이라 참배로 남단이 여기에 해당한다.
    */
   corridor?: { s0: number; s1: number };
+  /** 건물·평상·생활 소품처럼 꽃이 뚫고 나오면 안 되는 월드 좌표. */
+  reject?: (x: number, z: number) => boolean;
 }
 
 export class Higanbana {
-  readonly mesh: THREE.InstancedMesh;
+  readonly group = new THREE.Group();
+  readonly meshes: THREE.InstancedMesh[];
   readonly count: number;
   /** 군락 중심·반경 (안전지대 판정) */
   readonly cluster: { x: number; z: number; r: number };
   private uniforms = { uTime: { value: 0 } };
+  private nearMeshes: THREE.InstancedMesh[];
+  private farMeshes: THREE.InstancedMesh[];
+  private reject: ((x: number, z: number) => boolean) | null;
 
   constructor(scene: THREE.Scene, ground: VillageGround, opts: HiganbanaOpts = {}) {
+    this.group.name = 'higanbana';
     // FLOWER_FIELD(배미 하나를 비운 자리) 중앙 — 맵이 바뀌면 밖에서 준다
     this.cluster = opts.cluster ?? { x: -18.5, z: 42.2, r: 5.0 };
+    this.reject = opts.reject ?? null;
     const tunnel = opts.tunnel ?? [44, 101];
     const corr = opts.corridor ?? null;
-    const geo = makeFlower();
+    const geo = makeHiganbanaFlower();
     // 정점색이 확산·발광을 모두 이끈다: 줄기(어두운 녹색)는 안 빛나고 꽃술 끝(밝은 분홍)이 가장 빛난다
     const mat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
@@ -73,6 +87,7 @@ export class Higanbana {
     const mats: THREE.Matrix4[] = [];
     const dummy = new THREE.Object3D();
     const place = (x: number, z: number, sMin = 0.8, sMax = 1.15) => {
+      if (this.reject?.(x, z)) return;
       const y = ground.heightAt(x, z);
       if (ground.paddyMask(x, z) > 0.05) return; // 논 안에는 안 핀다
       dummy.position.set(x, y - 0.02, z);
@@ -126,24 +141,49 @@ export class Higanbana {
       n++;
     }
 
-    const mesh = new THREE.InstancedMesh(geo, mat, mats.length);
-    mats.forEach((m, i) => mesh.setMatrixAt(i, m));
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
-    mesh.frustumCulled = false;
-    mesh.name = 'higanbana';
     this.count = mats.length;
-    this.mesh = mesh;
-    scene.add(mesh);
+    const instances = mats.map((matrix) => ({ matrix }));
+    this.nearMeshes = createSpatialInstancedMeshes(
+      this.group,
+      geo,
+      mat,
+      instances,
+      { cellSize: 18, name: 'higanbana-near', boundsPadding: 0.12 },
+    ).meshes;
+    const farGeo = makeBillboardPlane(0.56, 0.62);
+    const farMat = makeAxialBillboardMaterial(makeHiganbanaBillboardTexture(), {
+      alphaTest: 0.2,
+      color: 0xffe4e5,
+      sway: { time: this.uniforms.uTime, amplitude: 0.025, speed: 1.4 },
+    });
+    this.farMeshes = createSpatialInstancedMeshes(
+      this.group,
+      farGeo,
+      farMat,
+      instances,
+      { cellSize: 18, name: 'higanbana-far', boundsPadding: 0.08 },
+    ).meshes;
+    // 첫 update 전에 두 LOD가 한 프레임 겹쳐 보이지 않게 한다.
+    this.farMeshes.forEach((mesh) => { mesh.visible = false; });
+    this.meshes = [...this.nearMeshes, ...this.farMeshes];
+    scene.add(this.group);
   }
 
   inCluster(p: THREE.Vector3) {
     const dx = p.x - this.cluster.x, dz = p.z - this.cluster.z;
-    return dx * dx + dz * dz < this.cluster.r * this.cluster.r;
+    return dx * dx + dz * dz < this.cluster.r * this.cluster.r && !this.reject?.(p.x, p.z);
   }
 
-  update(dt: number) { this.uniforms.uTime.value += dt; }
+  update(dt: number, center?: THREE.Vector3, maxDistance = fogCullDistance(settings.night.fogDensity)) {
+    this.uniforms.uTime.value += dt;
+    if (center) updatePairedChunkLodVisibility(
+      this.nearMeshes,
+      this.farMeshes,
+      center,
+      BILLBOARD_LOD_DIST,
+      maxDistance,
+    );
+  }
 }
 
 /** 0..1 부드럽게 (smoothstep) */
@@ -154,9 +194,9 @@ const smooth = (t: number) => { const x = Math.min(1, Math.max(0, t)); return x 
  *   잎 없는 꽃대 하나 → 끝에 작은 꽃 5송이가 우산형(산형화서) →
  *   꽃마다 뒤로 강하게 말리는 꽃잎 6장 + 꽃잎보다 훨씬 길게 활처럼 뻗는 수술 6가닥.
  * 정점색: 줄기 어두운 녹색(발광 X) → 꽃잎 심홍→진홍 → 수술 밝은 분홍, 꽃밥(끝점)이 제일 밝다.
- * 약 550 tri — InstancedMesh 하나라 323그루여도 드로우콜 1.
+ * 약 550 tri — 공간 청크별 InstancedMesh 라 화면에 들어온 꽃밭만 드로우콜이 생긴다.
  */
-function makeFlower(): THREE.BufferGeometry {
+export function makeHiganbanaFlower(): THREE.BufferGeometry {
   const pos: number[] = [], col: number[] = [], idx: number[] = [];
   const A = new THREE.Vector3(), B = new THREE.Vector3(), D = new THREE.Vector3();
   const P = new THREE.Vector3(), SIDE = new THREE.Vector3(), N = new THREE.Vector3();

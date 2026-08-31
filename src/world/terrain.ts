@@ -160,10 +160,16 @@ export async function loadTerrainTextures(renderer: THREE.WebGLRenderer): Promis
     if (srgb) t.colorSpace = THREE.SRGBColorSpace;
     return t;
   });
+  /**
+   * 지형 텍스처는 **1K 로 충분하다** (2026-08-23 실측). 이 타일은 지형 전체에 수십 번 반복되고
+   * 기본 렌더 해상도가 50 % 라 2K 는 픽셀당 훨씬 촘촘한 텍셀을 읽는 낭비였다 —
+   * 다운로드 3.2 MB → 1.0 MB, VRAM 약 4 배 절약. 반복 패턴은 `onBeforeCompile` 의
+   * 두 스케일 혼합(안티타일링)이 이미 깨고 있어서 해상도를 낮춰도 티가 나지 않는다.
+   */
   const [map, normalMap, armMap] = await Promise.all([
-    load('/textures/grass/aerial_grass_rock_diff_2k.webp', true),
-    load('/textures/grass/aerial_grass_rock_nor_gl_2k.webp', false),
-    load('/textures/grass/aerial_grass_rock_arm_2k.webp', false),
+    load('/textures/grass/aerial_grass_rock_diff_1k.webp', true),
+    load('/textures/grass/aerial_grass_rock_nor_gl_1k.webp', false),
+    load('/textures/grass/aerial_grass_rock_arm_1k.webp', false),
   ]);
   return { map, normalMap, armMap };
 }

@@ -16,6 +16,7 @@ export const settings = {
     jumpHeight: 1.6, // m
     coyoteTime: 0.12, // s
     jumpBuffer: 0.12, // s
+    jumpLandLock: 0.22, // s — 내 점프 착지 뒤 재점프 잠금. 연타 버니홉 입력은 이 동안 버린다
     jumpCutMultiplier: 0.45, // 점프 키를 일찍 떼면 상승 속도에 곱함
     airControl: 0.55, // 공중에서 목표 속도 반영 비율
     leanAmount: 0.10, // rad — 가속 방향으로 기울이는 양
@@ -26,17 +27,6 @@ export const settings = {
     walkRunThreshold: 2.6, // m/s — 이 이상이면 run 클립
     walkClipSpeed: 1.19, // 클립이 timeScale 1 에서 표현하는 이동 속도 (2026-08-20 재측정 — final-v3 리그)
     runClipSpeed: 3.42,
-    // 발목 본 높이(루트 기준)가 이 미만으로 내려오면 접지 이벤트.
-    // 2026-08-22 재측정: 클립의 position 트랙을 버리면서(`character/model.ts` `addClip`) 다리가
-    // **미오 제 길이**를 되찾아 발목이 통째로 올라왔다 — walk 최소 0.083 → **0.115**, run 0.17 → **0.202**.
-    // 옛 문턱(0.12 / 0.24)은 여유가 5 mm / 10 mm 밖에 안 남아 발소리가 들쭉날쭉했다.
-    //
-    // 값은 여유로 정하지 않고 **한 걸음에 정확히 한 번 걸리는 구간**을 찾아 잡았다. 인게임 6 초
-    // 정속 주행에서 좌·우 교차 횟수를 문턱별로 센 결과(발이 착지 뒤 한 번 더 살짝 내려앉는다):
-    //   walk — 0.125·0.13·0.135 에서 [6, 6] · 0.14 [9, 7] · 0.15 [12, 7]  → 0.13
-    //   run  — 0.24·0.25·0.26 에서 [10, 10] · 0.22 [10, 0](오른발 최소 0.230) · 0.27 [10, 11] → 0.25
-    footContactWalk: 0.13, // (walk 클립 최소 0.115, 최대 0.312 · 정상 구간 0.125~0.135)
-    footContactRun: 0.25, // (run 클립 최소 L 0.202 / R 0.230 · 정상 구간 0.24~0.26)
     idleVariationMin: 7, // s — idle 지속 후 look_around 등 변주까지 최소/최대 대기
     idleVariationMax: 14,
     fadeIdleWalk: 0.25,
@@ -77,11 +67,12 @@ export const settings = {
      * 머물렀고, 그게 「구부정하다」는 리포트의 정체다(사용자, 2026-08-21).
      * 보정 1 rad ≈ 57° 로 거의 1:1 이므로 목표 각도에서 바로 역산했다.
      * 검증 후: idle −1.5° · walk −2.2° · run ≈ 0° · look_around −4.4°.
+     * 2026-08-24 v3 모델 교체 뒤 시각 검수에서 턱이 다시 조금 내려가 보여 상태별로 2~3° 더 든다.
      */
-    headPitchIdle: 0.30,
-    headPitchWalk: 0.32,
-    headPitchRun: 0.60,
-    headPitchAir: 0.28,
+    headPitchIdle: 0.35,
+    headPitchWalk: 0.37,
+    headPitchRun: 0.64,
+    headPitchAir: 0.32,
     /**
      * 보정량 중 **목 전체**가 담당하는 비율, 나머지는 Head.
      * (목 몫은 다시 목 관절 수로 나뉜다 — 이 리그는 NeckTwist01·02 두 마디다)
@@ -93,11 +84,10 @@ export const settings = {
      */
     neckShare: 0.6,
     /**
-     * 손목 롤 보정(rad) — 이 리그는 손이 팔뚝 축으로 **180° 돌아가** 나왔다(손바닥이 뒤를 본다).
-     * 믹서 뒤에 손 본 로컬 Y 로 곱해 바로잡는다(`character/model.ts`).
-     * 리그를 다시 뽑아 고치면 0 으로 두면 된다.
+     * 손목 롤 보정(rad). 새 세일러 교복 미오는 2026-08-24 다시 리깅했다. 리그 간 rest 차이는
+     * 남지만 idle·walk·run·jump·sword_combo 렌더에서 손바닥 뒤집힘이 없어 추가 롤은 쓰지 않는다.
      */
-    handRoll: Math.PI,
+    handRoll: 0,
     /**
      * 어깨선 수평 보정(rad) — 클립(`character.glb` 리그)과 실제 모델(`mio.glb`)의 rest 차이로
      * 생기는 **상시 왼쪽 어깨 처짐**을 편다. 쇄골에 걸리므로 머리·척추는 움직이지 않는다.
@@ -113,22 +103,18 @@ export const settings = {
      */
     torsoRoll: -0.133,
     /**
-     * 머리 좌우 기울기 보정(rad, − 가 오른쪽 기울기를 편다) — 고개가 상시 **오른쪽 어깨 쪽**으로
-     * 기울어 있었다(사용자 지적, 2026-08-21).
-     *
-     * 클립별 원본(보정 0, 위상 맞춘 5 초 평균 · − 가 오른쪽):
-     *   idle −6.5 · walk −5.4 · run −7.1 · look_around −2.6 · standing_relax −2.8 (평균 −4.9°)
-     * 다섯 클립이 전부 같은 방향이면 연기가 아니라 편향이다. 민감도 ≈ 57°/rad →
-     * 4.9 / 57.3 ≈ **−0.085**. 검증: idle −1.6 · walk −0.5 · run −2.1 · look_around +2.2 ·
-     * standing_relax +2.1 (최대 잔차 2.2° — 눈에 띄는 문턱 아래).
-     *
-     * 축은 `torsoRoll` 과 같은 이유로 **컨트롤러 yaw 에서 구한 전방**이고,
-     * `neckShare` 비율로 목·머리에 나눠 걸린다(`character/model.ts`). 0 이면 보정 없음.
+     * 말린 어깨 보정(rad). 양 쇄골을 월드 수직축 기준으로 반대 방향 회전시켜 어깨를 뒤로 연다.
+     * 머리만 젖혀 거북목을 감추는 대신 가슴·어깨 실루엣 자체를 펴기 위한 v3 리그 보정이다.
      */
-    headRoll: -0.085,
+    shoulderBack: 0.08,
+    /**
+     * 머리 좌우 기울기 보정(rad). v2 리그의 오른쪽 기울기를 펴던 −0.085는 v3에서 오히려
+     * 고개를 왼쪽으로 꺾었다. 새 리그의 무보정 정면이 수평이므로 추가 롤을 쓰지 않는다.
+     */
+    headRoll: 0,
     // 상체 숙임 보정 (rad, + 가 펴줌) — run 클립이 상체를 많이 숙임
-    spinePitchIdle: 0.0,
-    spinePitchWalk: 0.06,
+    spinePitchIdle: 0.05,
+    spinePitchWalk: 0.09,
     spinePitchRun: 0.32,
     spinePitchAir: 0.05,
   },
@@ -148,8 +134,6 @@ export const settings = {
     combat: 0.7,
     matsuri: 0.5,
     heartbeat: 0.6,
-    /** 대사 낭독(더빙) — 자막보다 목소리가 묻히면 안 되므로 효과음보다 높게 */
-    voice: 0.95,
     /** 리버브 센드 전역 배율 (0 = 잔향 끔). 존별 절대량은 audio/space.ts 의 ZONES.wet */
     reverb: 1.0,
     /** 벽 오클루전 세기 (0 = 벽이 소리를 안 막음 — 예전 동작) */
@@ -165,7 +149,7 @@ export const settings = {
     envIntensity: 0.42,
     /**
      * 달빛 방향광 그림자. **오래 꺼져 있었고, 그래서 밤 야외에 그림자가 통째로 없었다** —
-     * 초칭(반경 13 m) 밖은 전부 납작했다. 실측 비용 +3.7 ms/frame(1440×900, high, M4 Pro)이라
+     * 초칭(현재 반경 21 m) 밖은 전부 납작했다. 실측 비용 +3.7 ms/frame(1440×900, high, M4 Pro)이라
      * 품질 프리셋 high·ultra 에서만 켠다(`core/quality.ts` moonShadow). 여기서 끄면 즉시 예전 상태.
      */
     moonShadow: true,
@@ -176,10 +160,10 @@ export const settings = {
     /** 0=끔 1=약 2=강 */
     level: 2,
     color: 0xffb063,
-    rangeLow: 4.5,
-    rangeHigh: 13,
-    intensityLow: 0.85, // 사거리는 rangeHigh 로 고정 — 밝기로만 '약' 을 표현 (셰이더 재컴파일 방지)
-    intensityHigh: 4.2, // decay 1.5 기준 (근접 포화 방지 — 2026-08-19)
+    rangeLow: 5.2,
+    rangeHigh: 21, // 강 단계에서 길과 건물 윤곽이 12~16 m 앞까지 실제로 읽히도록 확장
+    intensityLow: 0.95, // 사거리는 rangeHigh 로 고정 — 밝기로만 '약' 을 표현 (셰이더 재컴파일 방지)
+    intensityHigh: 8.2, // 최대 밝기 체감 보강 — 근거리만 태우지 않고 중거리 조도를 확보
     /** 감지 배율(H2 에서 senses 가 읽는다) — 끔/약/강 */
     detectionMul: [0.6, 1.4, 3.0],
     flicker: 0.14, // 0..1 불꽃 흔들림 세기
@@ -222,7 +206,6 @@ export const settings = {
     loseSightTime: 3, // s — 시야가 이 시간 끊기면 추격 포기
     mercyTime: 1.2, // s — 발견 직후 가속 금지
     grabDistance: 1.15, // m
-    stunTime: 6, // s — 소금 피격 정지 (기획 3.5)
     crouchDetection: 0.7, // 웅크림 감지 배율
     noiseCrouch: 1.5, // m — 웅크림 발소리 소음 반경
     noiseWalk: 4, // m — 걷기 발소리 소음 반경
@@ -265,6 +248,9 @@ export const settings = {
     followLag: 12, // 1/s — 피벗 위치 추적 감쇠
     zoomLag: 10,
     baseFov: 58,
+    /** 미오의 게임 플레이 1인칭 눈높이/화각. 스토리 과거 시점의 아역 리그와는 별개다. */
+    firstPersonEyeHeight: 1.52,
+    firstPersonFov: 65,
     runFovBoost: 6,
     fovLag: 6,
     collisionRadius: 0.25,
@@ -283,6 +269,10 @@ export const settings = {
     waypoint: true,
     /** 팻말 가까이 가면 그 문구를 화면에 띄운다 */
     signRead: true,
+    /** 자막·목표·상호작용 표식을 함께 키우는 접근성 배율 (0.8~1.3) */
+    scale: 1,
+    /** 반투명 HUD의 배경·테두리·문자 대비를 강화한다 */
+    highContrast: false,
     /**
      * 창 비율 고정(선택). 켜면 렌더 영역을 `aspect` 로 묶고 남는 자리를 검게 둔다 —
      * 세로로 긴 창에서 화면이 늘어나는 게 싫다는 요청(2026-08-22, 「창크기 고정 → 선택사항」).
@@ -315,6 +305,12 @@ export const settings = {
     // 프레임 상한(0 = 무제한). 상한이 없으면 120 Hz 화면에서 120 fps 를 그리느라 GPU 가 계속 100% 로 붙고,
     // 그게 그대로 노트북 발열이 된다. 60 이면 남는 시간에 GPU 가 쉰다 (2026-08-20 발열 피드백)
     maxFps: 60,
+    /**
+     * 수동 렌더 해상도 배율(축 기준 0.5~1) — Esc 메뉴 슬라이더. 화질 프리셋의 픽셀 예산 위에
+     * 곱해진다: 프리셋(그림자·AO·소품)은 그대로 두고 해상도만 내리고 싶은 기기의 마지막 손잡이.
+     * 저장/복원은 core/quality.ts (`3dm.renderscale`).
+     */
+    resolutionScale: 1,     // 기본 100 % — 부팅 시 loadRenderScale() 이 저장값으로 덮는다
     showColliders: false,
   },
 };

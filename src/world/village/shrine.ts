@@ -74,33 +74,52 @@ export class Shrine {
     collide(cx, hz0, HW / 2 + 0.3, (FL + H) / 2, HD / 2 + 0.3); // 배전 전체 블록 (계단은 별도)
     // 계단은 플레이어가 오를 필요 없음(봉납은 아래서) → 블록에 포함
 
-    // ---------- 본전(本殿): 배전 뒤, 더 높은 단 위, 작고 높다 ----------
+    /**
+     * ---------- 본전(本殿): 배전 뒤, 더 높은 단 위, 작고 높다 ----------
+     *
+     * ⚠️ 본전은 **자기 자리 지형 높이**를 따로 잰다. 경내 전체를 `gy`(경내 중심에서 잰 값)
+     * 하나로 지으면, 뒤로 갈수록 오르는 산자락에 본전이 파묻힌다 — 실제로 그랬다
+     * (2026-08-26 실측: 본전 자리 지형 11.49 m vs gy 9.41 m → 석단 1.4 m 가 통째로 땅속).
+     * 초즈야·신목이 이미 `ground.heightAt` 을 각자 부르고 있었고, 본전만 빠져 있었다.
+     *
+     * 석단은 그 높이차만큼 **옹벽을 겸한다**: 바닥은 경내 바닥(gy)에 닿고 윗면은 본전 자리
+     * 지형 + 1.4 m 다. 산중턱 신사의 석축이 실제로 하는 일이고, 덕분에 앞면이 뜨지 않는다.
+     */
     const bz = hz0 - HD / 2 - 3.2;
-    box(4, 1.4, 3, cx, gy + 0.7, bz, mStone);                              // 석단
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(0.2, 3.2, 0.2, cx + sx * 1.5, gy + 1.4 + 1.6, bz + sz * 1.1, mVerm);
-    box(3.0, 2.6, 2.2, cx, gy + 1.4 + 1.5, bz, mWhite);
+    const bGround = ground.heightAt(cx, bz);
+    const baseH = 1.4 + Math.max(0, bGround - gy);
+    const bTop = gy + baseH;                                               // 석단 윗면
+    box(4, baseH, 3, cx, gy + baseH / 2, bz, mStone);                      // 석단 겸 석축
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(0.2, 3.2, 0.2, cx + sx * 1.5, bTop + 1.6, bz + sz * 1.1, mVerm);
+    box(3.0, 2.6, 2.2, cx, bTop + 1.5, bz, mWhite);
     {
-      const rw = 2.6, rd = 1.9, base = gy + 1.4 + 3.0, peak = base + 1.9;
+      const rw = 2.6, rd = 1.9, base = bTop + 3.0, peak = base + 1.9;
       const v = [[-rw, base, -rd], [rw, base, -rd], [rw, base, rd], [-rw, base, rd], [-rw + 0.2, peak, 0], [rw - 0.2, peak, 0]].flat();
       parts.push({ geo: roofGeo(v, cx, bz), mat: mDark });
     }
     // 콜라이더는 **몸통만** 잡는다(석단 위는 걸어 올라갈 수 있어야 한다) — 예전엔 석단까지
     // 한 덩어리로 막아서 본전에 다가갈 수조차 없었다. ACT 17 에서 여기로 들어간다
-    collide(cx, bz, 1.5, 2.1, 1.1, gy + 1.4);
+    collide(cx, bz, 1.5, 2.1, 1.1, bTop);
     // 석단 옆·뒤는 막아 둔다(정면 계단으로만 오른다)
     for (const [ox, oz, hx, hz] of [[-1.75, 0, 0.25, 1.5], [1.75, 0, 0.25, 1.5], [0, -1.4, 2, 0.1]] as [number, number, number, number][]) {
-      collide(cx + ox, bz + oz, hx, 0.7, hz);
+      collide(cx + ox, bz + oz, hx, baseH / 2, hz);
     }
-    // 석단 정면 계단 4 단 — 오토스텝 한계가 0.35 m(`settings.physics`)라 정확히 그만큼씩 오른다
-    for (let i = 0; i < 4; i++) {
-      const h = 0.35 * (i + 1), z = bz + 1.5 + 0.21 + (3 - i) * 0.42;
+    /**
+     * 석단 정면 계단 — 오토스텝 한계가 0.35 m(`settings.physics`)라 정확히 그만큼씩 오른다.
+     * 단 수는 석단 높이에서 나온다: 예전엔 4 단으로 고정해 놓고 석단만 높아지면 마지막 단과
+     * 윗면 사이에 오를 수 없는 턱이 생겼다.
+     */
+    const steps = Math.max(1, Math.ceil(baseH / 0.35));
+    for (let i = 0; i < steps; i++) {
+      const h = (baseH / steps) * (i + 1), z = bz + 1.5 + 0.21 + (steps - 1 - i) * 0.42;
       box(2.4, h, 0.42, cx, gy + h / 2, z, mStone);
       collide(cx, z, 1.2, h / 2, 0.21);
     }
-    // 옥담(玉垣): 본전 둘레 낮은 울타리
+    // 옥담(玉垣): 본전 둘레 낮은 울타리. 산자락을 따라가므로 기둥마다 제 발밑을 잰다
     for (const [w, d, ox, oz] of [[6, 0.08, 0, -2.2], [0.08, 4.4, -3, 0], [0.08, 4.4, 3, 0]] as [number, number, number, number][]) {
-      box(w, 0.9, d, cx + ox, gy + 0.45, bz + oz, mVerm);
-      collide(cx + ox, bz + oz, Math.max(w, 0.1) / 2, 0.45, Math.max(d, 0.1) / 2);
+      const fy = ground.heightAt(cx + ox, bz + oz);
+      box(w, 0.9, d, cx + ox, fy + 0.45, bz + oz, mVerm);
+      collide(cx + ox, bz + oz, Math.max(w, 0.1) / 2, 0.45, Math.max(d, 0.1) / 2, fy);
     }
 
     // ---------- 초즈야(手水舎): 경내 동쪽, 네 기둥 + 지붕 + 석조 수반 ----------

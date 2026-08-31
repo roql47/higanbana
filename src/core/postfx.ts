@@ -17,13 +17,60 @@ import { N8AOPostPass } from 'n8ao';
 import { settings } from './settings';
 import type { QualityProfile } from './quality';
 
+export interface PostFxSupport {
+  /** RGBA16F 렌더타깃을 실제로 완성할 수 있는가. 확장 이름만 보지 않고 FBO까지 만든 결과다. */
+  halfFloatColorBuffer: boolean;
+}
+
+/**
+ * 브라우저가 말하는 확장 목록과 실제 드라이버 동작이 다른 경우가 있어 2×2 FBO를 직접 확인한다.
+ * 실패하면 후처리는 RGBA8로 내려가고, 내부에 HalfFloat 타깃을 만드는 N8AO는 생성하지 않는다.
+ */
+export function probePostFxSupport(renderer: THREE.WebGLRenderer): PostFxSupport {
+  const gl = renderer.getContext();
+  if (!gl.getExtension('EXT_color_buffer_float')) return { halfFloatColorBuffer: false };
+
+  const previous = renderer.getRenderTarget();
+  const target = new THREE.WebGLRenderTarget(2, 2, {
+    type: THREE.HalfFloatType,
+    format: THREE.RGBAFormat,
+    depthBuffer: false,
+    stencilBuffer: false,
+  });
+  let complete = false;
+  try {
+    renderer.setRenderTarget(target);
+    complete = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  } catch {
+    complete = false;
+  } finally {
+    renderer.setRenderTarget(previous);
+    target.dispose();
+  }
+  return { halfFloatColorBuffer: complete };
+}
+
+interface PostFxOptions {
+  support?: PostFxSupport;
+  /** URL `?gpu=safe` 진단·복구 경로. 지원 GPU에서도 RGBA8 + AO off를 강제한다. */
+  forceCompatibility?: boolean;
+}
+
 /**
  * 후처리 체인: Render → N8AO(SSAO) → [Bloom, ToneMapping(ACES), Vignette, SMAA]
  * 톤매핑은 여기서만 수행 (renderer.toneMapping = NoToneMapping).
  */
-export function createPostFX(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, quality?: QualityProfile) {
+export function createPostFX(
+  renderer: THREE.WebGLRenderer,
+  scene: THREE.Scene,
+  camera: THREE.PerspectiveCamera,
+  quality?: QualityProfile,
+  options: PostFxOptions = {},
+) {
+  const support = options.support ?? probePostFxSupport(renderer);
+  const hdrTargets = support.halfFloatColorBuffer && !options.forceCompatibility;
   const composer = new EffectComposer(renderer, {
-    frameBufferType: THREE.HalfFloatType,
+    frameBufferType: hdrTargets ? THREE.HalfFloatType : THREE.UnsignedByteType,
     multisampling: 0,
   });
 
@@ -31,16 +78,21 @@ export function createPostFX(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
   composer.addPass(renderPass);
 
   const w = window.innerWidth, h = window.innerHeight;
-  const ao = new N8AOPostPass(scene, camera, w, h);
-  ao.configuration.aoRadius = settings.render.aoRadius;
-  ao.configuration.intensity = settings.render.aoIntensity;
-  ao.configuration.distanceFalloff = 1.0;
-  ao.configuration.screenSpaceRadius = false;
-  ao.configuration.halfRes = quality?.aoHalfRes ?? false;
-  ao.configuration.gammaCorrection = false; // 톤매핑/색공간 변환은 뒤에서
-  ao.setQualityMode(quality && quality.ao !== 'off' ? quality.ao : 'Medium');
+  // N8AO 자체가 HalfFloatType 누적 타깃을 만들기 때문에 RGBA8 호환 경로에서는 인스턴스도 만들지 않는다.
+  const ao = hdrTargets ? new N8AOPostPass(scene, camera, w, h) : null;
+  if (ao) {
+    ao.configuration.aoRadius = settings.render.aoRadius;
+    ao.configuration.intensity = settings.render.aoIntensity;
+    ao.configuration.distanceFalloff = 1.0;
+    ao.configuration.screenSpaceRadius = false;
+    ao.configuration.halfRes = quality?.aoHalfRes ?? false;
+    ao.configuration.gammaCorrection = false; // 톤매핑/색공간 변환은 뒤에서
+    ao.setQualityMode(quality && quality.ao !== 'off' ? quality.ao : 'Medium');
+  } else {
+    console.warn('[gpu] Half-float 렌더타깃 미지원/안전 모드 — RGBA8 후처리, AO off');
+  }
   /** 품질 프리셋이 AO 를 허용하는가 (low·medium 은 'off') */
-  let aoAllowed = quality?.ao !== 'off';
+  let aoAllowed = !!ao && quality?.ao !== 'off';
 
   const bloom = new BloomEffect({
     mipmapBlur: true,
@@ -48,7 +100,8 @@ export function createPostFX(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
     luminanceSmoothing: 0.2,
     intensity: settings.render.bloomIntensity,
     radius: 0.7,
-    levels: 6,
+    // 4단계면 현재 내부 해상도에서 초롱의 넓은 헤일로는 남으면서, 왕복 블러 패스는 11→7회다.
+    levels: 4,
   });
 
   const toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
@@ -79,6 +132,7 @@ export function createPostFX(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
    * 끌 때는 패스 자체를 뺀다 — 비용도 그쪽이 정직하다.
    */
   function setAO(on: boolean) {
+    if (!ao) return;
     const has = composer.passes.includes(ao);
     if (on === has) return;
     if (on) { composer.removePass(effectPass); composer.addPass(ao); composer.addPass(effectPass); }
@@ -87,8 +141,10 @@ export function createPostFX(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
 
   /** Tweakpane 등에서 값이 바뀌었을 때 호출 */
   function applySettings() {
-    ao.configuration.aoRadius = settings.render.aoRadius;
-    ao.configuration.intensity = settings.render.aoIntensity;
+    if (ao) {
+      ao.configuration.aoRadius = settings.render.aoRadius;
+      ao.configuration.intensity = settings.render.aoIntensity;
+    }
     setAO(aoAllowed && settings.render.aoIntensity > 0);
     bloom.intensity = settings.render.bloomIntensity;
     bloom.luminanceMaterial.threshold = settings.render.bloomThreshold;
@@ -103,9 +159,9 @@ export function createPostFX(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
 
   /** 런타임 품질 변경 (AO on/off·해상도) */
   function applyQuality(q: QualityProfile) {
-    aoAllowed = q.ao !== 'off';
+    aoAllowed = !!ao && q.ao !== 'off';
     const wantAO = aoAllowed && settings.render.aoIntensity > 0;
-    if (aoAllowed) { ao.configuration.halfRes = q.aoHalfRes; ao.setQualityMode(q.ao as 'Low' | 'Medium' | 'High'); }
+    if (ao && aoAllowed) { ao.configuration.halfRes = q.aoHalfRes; ao.setQualityMode(q.ao as 'Low' | 'Medium' | 'High'); }
     setAO(wantAO);
   }
 

@@ -66,6 +66,7 @@ export function createTweaks(hooks: TweakHooks, visible = true) {
   mv.addBinding(m, 'jumpCutMultiplier', { min: 0.1, max: 1, step: 0.05 });
   mv.addBinding(m, 'coyoteTime', { min: 0, max: 0.3, step: 0.01 });
   mv.addBinding(m, 'jumpBuffer', { min: 0, max: 0.3, step: 0.01 });
+  mv.addBinding(m, 'jumpLandLock', { min: 0, max: 0.5, step: 0.01 });
   mv.addBinding(m, 'leanAmount', { min: 0, max: 0.3, step: 0.01 });
   mv.addBinding(m, 'squashOnLand', { min: 0, max: 0.5, step: 0.01 });
 
@@ -91,8 +92,6 @@ export function createTweaks(hooks: TweakHooks, visible = true) {
   an.addBinding(A, 'fadeWalkRun', { min: 0.05, max: 0.6, step: 0.01 });
   an.addBinding(A, 'fadeLand', { min: 0.05, max: 0.6, step: 0.01 });
   an.addBinding(A, 'landSquash', { min: 0, max: 0.2, step: 0.005 });
-  an.addBinding(A, 'footContactWalk', { min: 0.05, max: 0.3, step: 0.005 });
-  an.addBinding(A, 'footContactRun', { min: 0.1, max: 0.4, step: 0.005 });
 
   const ch = pane.addFolder({ title: 'Character', expanded: false });
   const C = settings.character;
@@ -105,6 +104,8 @@ export function createTweaks(hooks: TweakHooks, visible = true) {
   ch.addBinding(C, 'headPitchRun', { min: -0.3, max: 0.8, step: 0.01 });
   ch.addBinding(C, 'headPitchAir', { min: -0.3, max: 0.6, step: 0.01 });
   ch.addBinding(C, 'neckShare', { min: 0, max: 1, step: 0.05 });
+  ch.addBinding(C, 'shoulderBack', { min: -0.2, max: 0.25, step: 0.01 });
+  ch.addBinding(C, 'headRoll', { min: -0.2, max: 0.2, step: 0.005 });
   ch.addBinding(C, 'spinePitchIdle', { min: -0.3, max: 0.5, step: 0.01 });
   ch.addBinding(C, 'spinePitchWalk', { min: -0.3, max: 0.5, step: 0.01 });
   ch.addBinding(C, 'spinePitchRun', { min: -0.3, max: 0.6, step: 0.01 });

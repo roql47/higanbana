@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Props } from '@/world/props';
 import { normalize } from './village/landmarks';
+import { textCanvas } from './higasato/kit';
 
 /**
  * 버스 창밖 — **실제 3D 풍경이 흘러간다** (ACT 2a).
@@ -56,6 +57,7 @@ export class BusOutside {
     this.buildRoadside();
     this.buildTrees();
     this.buildFarmland();
+    this.buildRoadsideDetail();
     this.buildRidges();
   }
 
@@ -277,6 +279,67 @@ export class BusOutside {
       g.position.set(side * (26 + this.rng() * 14), ROAD_Y, 0);
       g.rotation.y = this.rng() * 6.28;
       this.add(g, -SPAN / 2 + this.rng() * SPAN, 1);
+    }
+  }
+
+  /** 창가 시선 높이에서 스쳐 가는 작은 정보들 — 반사 말뚝·낡은 마을 표지·옹벽. */
+  private buildRoadsideDetail() {
+    const white = new THREE.MeshStandardMaterial({ color: 0xd4d0c2, roughness: 0.9 });
+    const red = new THREE.MeshStandardMaterial({ color: 0x8f2d24, roughness: 0.7, emissive: 0x280402, emissiveIntensity: 0.22 });
+    for (let i = 0; i < 18; i++) {
+      const side = i % 2 ? -1 : 1;
+      const g = new THREE.Group();
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.88, 0.09), white);
+      post.position.y = 0.44;
+      const reflector = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.13, 0.075), red);
+      reflector.position.set(-side * 0.052, 0.68, 0);
+      g.add(post, reflector);
+      g.position.set(side * (4.85 + this.rng() * 0.25), ROAD_Y, 0);
+      this.add(g, -SPAN / 2 + i * (SPAN / 18), 1);
+    }
+
+    const signTex = textCanvas(512, 220, (ctx) => {
+      ctx.fillStyle = '#eee7cf'; ctx.fillRect(0, 0, 512, 220);
+      ctx.strokeStyle = '#315246'; ctx.lineWidth = 18; ctx.strokeRect(9, 9, 494, 202);
+      ctx.fillStyle = '#283a35'; ctx.textAlign = 'center';
+      ctx.font = '700 62px serif'; ctx.fillText('彼ヶ里　12 km', 256, 94);
+      ctx.font = '500 38px serif'; ctx.fillText('落石注意', 256, 166);
+      ctx.fillStyle = 'rgba(70,55,40,0.13)';
+      for (let i = 0; i < 26; i++) ctx.fillRect((i * 71) % 500, (i * 39) % 210, 18 + (i % 4) * 8, 3);
+    });
+    const signM = new THREE.MeshStandardMaterial({ map: signTex, roughness: 0.94, side: THREE.DoubleSide });
+    for (const [z, side] of [[-42, -1], [34, 1]] as const) {
+      const g = new THREE.Group();
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 2.1, 8), white);
+      pole.position.y = 1.05;
+      const board = new THREE.Mesh(new THREE.PlaneGeometry(1.65, 0.72), signM);
+      board.position.y = 2.05;
+      board.rotation.y = side > 0 ? -0.55 : Math.PI + 0.55;
+      g.add(pole, board);
+      g.position.set(side * 5.7, ROAD_Y, 0);
+      this.add(g, z, 1);
+    }
+
+    // 산 쪽에 짧게 나타났다 사라지는 자연석 옹벽. 반복 벽 대신 구간을 비워 리듬을 만든다.
+    const stoneTex = textCanvas(512, 256, (ctx) => {
+      ctx.fillStyle = '#625f56'; ctx.fillRect(0, 0, 512, 256);
+      const rnd = seeded(6102);
+      for (let row = 0; row < 5; row++) {
+        const yy = row * 52;
+        for (let x = -30 + (row % 2) * 34; x < 520; x += 66 + rnd() * 34) {
+          const w = 58 + rnd() * 35, h = 43 + rnd() * 9;
+          ctx.fillStyle = `rgb(${78 + rnd() * 24},${80 + rnd() * 22},${73 + rnd() * 18})`;
+          ctx.fillRect(x + 3, yy + 3, w - 6, h - 6);
+          ctx.strokeStyle = 'rgba(27,28,25,0.55)'; ctx.lineWidth = 4; ctx.strokeRect(x, yy, w, h);
+        }
+      }
+    });
+    stoneTex.wrapS = THREE.RepeatWrapping; stoneTex.repeat.set(2.5, 1);
+    const stoneM = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 1 });
+    for (const z of [-54, -8, 46]) {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(0.65, 2.2, 13), stoneM);
+      wall.position.set(7.0, ROAD_Y + 1.05, 0);
+      this.add(wall, z, 1);
     }
   }
 

@@ -1,6 +1,6 @@
 {
  "version": 1,
- "generated": "2026-08-20T11:49:17.605Z",
+ "generated": "2026-08-29T07:04:38.679Z",
  "sounds": {
   "amb/bonsho": {
    "files": [
@@ -87,6 +87,21 @@
    "license": "CC BY 2.1 jp",
    "durations": [
     13
+   ]
+  },
+  "amb/thunder": {
+   "files": [
+    "amb/thunder/0.mp3",
+    "amb/thunder/1.mp3",
+    "amb/thunder/2.mp3"
+   ],
+   "gain": 0.85,
+   "loop": false,
+   "license": "Public domain",
+   "durations": [
+    6.4,
+    5.4,
+    5.8
    ]
   },
   "chochin/toggle": {
@@ -388,6 +403,51 @@
     17.4
    ]
   },
+  "matsuri/suzu": {
+   "files": [
+    "matsuri/suzu/0.mp3",
+    "matsuri/suzu/1.mp3",
+    "matsuri/suzu/2.mp3",
+    "matsuri/suzu/3.mp3"
+   ],
+   "gain": 0.7,
+   "loop": false,
+   "license": "CC0",
+   "durations": [
+    0.618,
+    1.222,
+    0.927,
+    0.73
+   ]
+  },
+  "matsuri/taiko": {
+   "files": [
+    "matsuri/taiko/0.mp3",
+    "matsuri/taiko/1.mp3",
+    "matsuri/taiko/2.mp3",
+    "matsuri/taiko/3.mp3"
+   ],
+   "gain": 0.9,
+   "loop": false,
+   "license": "CC BY 3.0",
+   "durations": [
+    0.31,
+    0.355,
+    0.421,
+    0.34
+   ]
+  },
+  "quake/rumble": {
+   "files": [
+    "quake/rumble/0.mp3"
+   ],
+   "gain": 0.8,
+   "loop": false,
+   "license": "CC0",
+   "durations": [
+    4.457
+   ]
+  },
   "throw/whoosh": {
    "files": [
     "throw/whoosh/0.mp3",
@@ -403,6 +463,140 @@
     0.079,
     0.118,
     0.123
+   ]
+  },
+  "water/drip": {
+   "files": [
+    "water/drip/0.mp3",
+    "water/drip/1.mp3",
+    "water/drip/2.mp3",
+    "water/drip/3.mp3"
+   ],
+   "gain": 0.55,
+   "loop": false,
+   "license": "CC0",
+   "durations": [
+    1.015,
+    0.677,
+    0.839,
+    0.941
+   ]
+  },
+  "well/coin": {
+   "files": [
+    "well/coin/0.mp3",
+    "well/coin/1.mp3"
+   ],
+   "gain": 0.8,
+   "loop": false,
+   "license": "CC0 1.0",
+   "durations": [
+    0.82,
+    0.316
+   ]
+  },
+  "well/pebble": {
+   "files": [
+    "well/pebble/0.mp3",
+    "well/pebble/1.mp3",
+    "well/pebble/2.mp3",
+    "well/pebble/3.mp3",
+    "well/pebble/4.mp3"
+   ],
+   "gain": 0.92,
+   "loop": false,
+   "license": "CC BY 3.0",
+   "durations": [
+    0.162,
+    0.162,
+    0.159,
+    0.14,
+    0.146
+   ]
+  },
+  "well/rope": {
+   "files": [
+    "well/rope/0.mp3",
+    "well/rope/1.mp3",
+    "well/rope/2.mp3"
+   ],
+   "gain": 0.72,
+   "loop": false,
+   "license": "CC0 1.0",
+   "durations": [
+    0.88,
+    1.124,
+    0.43
+   ]
+  },
+  "well/submerge": {
+   "files": [
+    "well/submerge/0.mp3",
+    "well/submerge/1.mp3",
+    "well/submerge/2.mp3",
+    "well/submerge/3.mp3"
+   ],
+   "gain": 0.9,
+   "loop": false,
+   "license": "CC BY 3.0",
+   "durations": [
+    0.536,
+    0.536,
+    0.523,
+    0.461
+   ]
+  },
+  "well/wade": {
+   "files": [
+    "well/wade/0.mp3",
+    "well/wade/1.mp3",
+    "well/wade/2.mp3",
+    "well/wade/3.mp3",
+    "well/wade/4.mp3"
+   ],
+   "gain": 0.78,
+   "loop": false,
+   "license": "CC BY 3.0",
+   "durations": [
+    0.327,
+    0.327,
+    0.319,
+    0.281,
+    0.293
+   ]
+  },
+  "well/water-rise": {
+   "files": [
+    "well/water-rise/0.mp3",
+    "well/water-rise/1.mp3",
+    "well/water-rise/2.mp3",
+    "well/water-rise/3.mp3"
+   ],
+   "gain": 0.9,
+   "loop": false,
+   "license": "CC BY 3.0",
+   "durations": [
+    0.432,
+    0.432,
+    0.422,
+    0.372
+   ]
+  },
+  "well/wet-grab": {
+   "files": [
+    "well/wet-grab/0.mp3",
+    "well/wet-grab/1.mp3",
+    "well/wet-grab/2.mp3",
+    "well/wet-grab/3.mp3"
+   ],
+   "gain": 0.74,
+   "loop": false,
+   "license": "CC0 1.0",
+   "durations": [
+    0.839,
+    0.477,
+    0.638,
+    0.495
    ]
   },
   "yokai/breath": {
@@ -500,6 +694,33 @@
     3.742,
     3.665,
     1.927
+   ]
+  },
+  "yuri/hum": {
+   "files": [
+    "yuri/hum/0.mp3",
+    "yuri/hum/1.mp3",
+    "yuri/hum/2.mp3",
+    "yuri/hum/3.mp3",
+    "yuri/hum/4.mp3",
+    "yuri/hum/5.mp3",
+    "yuri/hum/6.mp3",
+    "yuri/hum/7.mp3",
+    "yuri/hum/8.mp3"
+   ],
+   "gain": 0.85,
+   "loop": false,
+   "license": "CC0 1.0",
+   "durations": [
+    1.896,
+    1.687,
+    1.994,
+    1.298,
+    2.89,
+    1.795,
+    1.886,
+    1.689,
+    1.993
    ]
   }
  }

@@ -33,9 +33,15 @@ export interface OfferingDef {
 const GROUPS: OfferingId[][] = [['suzu'], ['kushi'], ['coins'], ['geta', 'kagami'], ['fuda']];
 
 export interface RulesEvents {
+  /** 지역 조사 퍼즐을 마치기 전 공물 획득을 막는다. 생략하면 즉시 획득 가능. */
+  canPickup?: (o: OfferingDef) => boolean;
+  /** 잠긴 공물과 상호작용했을 때 조사 방향을 알려준다. */
+  onPickupBlocked?: (o: OfferingDef) => void;
   onPickup?: (o: OfferingDef, carriedCount: number) => void;
   /** slotIndex: 받침대 번호 (0-기준, 봉납 순) */
   onOffer?: (o: OfferingDef, offeredCount: number, slotIndex: number) => void;
+  /** 사망·리셋으로 운반품이 원래 자리로 돌아갔을 때. */
+  onDrop?: (o: OfferingDef) => void;
   /** 봉인패를 받침대에 놓으려 함 — ACT 17 트리거. 1회만 */
   onFudaRefused?: () => void;
   onPrompt?: (text: string | null) => void;
@@ -82,6 +88,12 @@ export class Rules {
   get offered() { return this.offeredSet.size; }
   get total() { return this.offerings.length; } // 7 — sayo 포함
   get carrying() { return this.carried.length > 0; }
+  /** 현재 E 프롬프트가 가리키는 월드 좌표 — 공물 또는 봉납 받침대. */
+  get targetPosition(): THREE.Vector3 | null {
+    if (this.nearPickup) return this.pickups.get(this.nearPickup)?.position ?? null;
+    if (this.carried.length > 0) return this.altar;
+    return null;
+  }
 
   /** 지금 주울 수 있는 공물 (게이팅 ∧ 미획득) */
   available(): OfferingId[] {
@@ -117,6 +129,58 @@ export class Rules {
   begin() {
     if (this.started) return;
     this.started = true;
+    this.refresh();
+    this.onChange?.();
+  }
+
+  /**
+   * 지역 보스 QA 진입용 선행 상태. 정규 플레이 저장에는 쓰지 않는다.
+   * 이미 열린 픽업을 함께 치워야 `?at=school|well`에서 앞 단계 공물이 겹쳐 남지 않는다.
+   */
+  seedOfferedForQa(ids: OfferingId[]) {
+    this.started = true;
+    for (const id of ids) {
+      const pickup = this.pickups.get(id);
+      pickup?.removeFromParent();
+      this.pickups.delete(id);
+      this.glowMats.delete(id);
+      const light = this.pickupLights.get(id);
+      if (light) light.intensity = 0.001;
+      const carried = this.carried.indexOf(id);
+      if (carried >= 0) this.carried.splice(carried, 1);
+      this.offeredSet.add(id);
+    }
+    this.refresh();
+    this.onChange?.();
+  }
+
+  /**
+   * 체크포인트 복원. 이벤트를 재생하지 않고 공물 규칙만 같은 상태로 만든다.
+   * 이전 버전 세이브의 잘못된 id·중복 값은 여기서 버린다.
+   */
+  restoreProgress(
+    offered: readonly string[],
+    carried: readonly string[],
+    opts: { started?: boolean; fudaRefused?: boolean } = {},
+  ) {
+    for (const [, g] of this.pickups) g.removeFromParent();
+    this.pickups.clear();
+    this.glowMats.clear();
+    this.offeredSet.clear();
+    this.carried.length = 0;
+    for (const [, l] of this.pickupLights) l.intensity = 0.001;
+
+    const valid = new Set(this.offerings.map((o) => o.id));
+    for (const raw of offered) {
+      const id = raw as OfferingId;
+      if (id !== 'sayo' && valid.has(id)) this.offeredSet.add(id);
+    }
+    for (const raw of carried) {
+      const id = raw as OfferingId;
+      if (id !== 'sayo' && valid.has(id) && !this.offeredSet.has(id) && !this.carried.includes(id)) this.carried.push(id);
+    }
+    this.started = opts.started ?? (this.offeredSet.size > 0 || this.carried.length > 0);
+    this.fudaRefused = !!opts.fudaRefused;
     this.refresh();
     this.onChange?.();
   }
@@ -165,8 +229,12 @@ export class Rules {
 
   private spawnPickup(o: OfferingDef) {
     const g = new THREE.Group();
-    const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.16, 12), new THREE.MeshStandardMaterial({ color: 0x3a2f25, roughness: 0.9 }));
-    pedestal.position.y = 0.08; pedestal.castShadow = true; g.add(pedestal);
+    // 머리빗은 피아노 건반 위에 직접 놓인다. 공통 받침대를 넣으면 피아노 위에 작은 제단이 생긴다.
+    const onSurface = o.id === 'kushi';
+    if (!onSurface) {
+      const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.16, 12), new THREE.MeshStandardMaterial({ color: 0x3a2f25, roughness: 0.9 }));
+      pedestal.position.y = 0.08; pedestal.castShadow = true; g.add(pedestal);
+    }
     // 자리표시자 — 모델이 도착할 때까지, 혹은 없을 때 그대로 남는다
     const mat = new THREE.MeshStandardMaterial({ color: o.color, emissive: new THREE.Color(o.color), emissiveIntensity: 1.4, roughness: 0.4, metalness: 0.1 });
     const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.12, 2), mat);
@@ -184,7 +252,8 @@ export class Rules {
       if (!proto || this.pickups.get(o.id) !== g) return;
       const item = proto.clone(true);
       item.name = 'item';
-      item.position.y = 0.17;
+      item.position.y = onSurface ? 0.008 : 0.17;
+      if (onSurface) item.rotation.y = -0.28;
       item.traverse((c) => { const m = c as THREE.Mesh; if (m.isMesh) m.castShadow = true; });
       g.add(item);
       orb.visible = false;
@@ -199,7 +268,7 @@ export class Rules {
       const item = g.getObjectByName('item');
       if (item) {
         // 실물은 떠 있지 않는다 — 아주 느리게만 돈다(놓인 물건을 한 바퀴 보여주는 정도)
-        item.rotation.y += dt * 0.35;
+        if (id !== 'kushi') item.rotation.y += dt * 0.35;
       } else {
         const orb = g.getObjectByName('orb');
         if (orb) { orb.position.y = 0.5 + bob; orb.rotation.y += dt * 0.8; }
@@ -217,7 +286,10 @@ export class Rules {
       if (g.position.distanceTo(playerPos) < 1.9) {
         this.nearPickup = id;
         const def = this.offerings.find((o) => o.id === id)!;
-        prompt = L(`[E] ${def.name} — 줍는다`, `[E] ${def.name} — 拾う`);
+        const open = this.events.canPickup?.(def) ?? true;
+        prompt = open
+          ? L(`[E] ${def.name} — 줍는다`, `[E] ${def.name} — 拾う`)
+          : L(`[E] ${def.name} — 봉인을 조사한다`, `[E] ${def.name} — 封を調べる`);
         break;
       }
     }
@@ -238,6 +310,11 @@ export class Rules {
     // 줍기
     if (this.nearPickup) {
       const id = this.nearPickup;
+      const def = this.offerings.find((o) => o.id === id)!;
+      if (!(this.events.canPickup?.(def) ?? true)) {
+        this.events.onPickupBlocked?.(def);
+        return true;
+      }
       const g = this.pickups.get(id)!;
       g.removeFromParent(); // 메시만 — 라이트는 상주
       const l = this.pickupLights.get(id);
@@ -246,7 +323,6 @@ export class Rules {
       this.glowMats.delete(id);
       this.carried.push(id);
       this.nearPickup = null;
-      const def = this.offerings.find((o) => o.id === id)!;
       this.events.onPickup?.(def, this.carried.length);
       this.onChange?.();
       return true;
@@ -280,6 +356,7 @@ export class Rules {
     for (const id of [...this.carried]) {
       const def = this.offerings.find((o) => o.id === id)!;
       if (def.pos) this.spawnPickup(def);
+      this.events.onDrop?.(def);
     }
     this.carried.length = 0;
     this.onChange?.();
@@ -287,6 +364,10 @@ export class Rules {
 
   /** 완전 리셋 (R) */
   reset() {
+    for (const id of this.carried) {
+      const def = this.offerings.find((o) => o.id === id);
+      if (def) this.events.onDrop?.(def);
+    }
     for (const [, g] of this.pickups) g.removeFromParent();
     this.pickups.clear();
     this.glowMats.clear();

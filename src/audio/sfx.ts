@@ -1,6 +1,5 @@
 import { settings } from '@/core/settings';
-import { SampleBank, type Voice } from './bank';
-import { lang } from '@/core/i18n';
+import { SampleBank } from './bank';
 import { AudioSpace, SpatialSource } from './space';
 /**
  * `AudioParam.exponentialRampToValueAtTime(0)` 은 **RangeError 를 던진다** — 지수 램프는 0 에 닿을 수 없다.
@@ -52,43 +51,9 @@ export class Sfx {
   private _space: AudioSpace | null = null;
   /** 샘플 뱅크 (다른 오디오 모듈도 같이 쓴다) */
   readonly bank = new SampleBank();
-  /**
-   * 더빙 뱅크 — **같은 `SampleBank` 를 매니페스트만 달리해 한 벌 더** 쓴다.
-   *
-   * 선로드·디코딩·`has()` 폴백·variation 이 전부 이미 있어서 새로 만들 것이 없다.
-   * 언어마다 폴더가 갈리므로(`voice/ko/`, `voice/ja/`) 언어 선택이 곧 목소리 선택이 된다.
-   * 파일이 없으면 `has()` 가 false → 자막만 나온다(`story/dialogue.ts` 의 `id` 주석).
-   * (이름이 `voiceBank` 인 건 `voice()` 가 이미 있어서다 — 그쪽은 대사가 아니라 프로시저럴 웅얼거림)
-   */
-  readonly voiceBank = new SampleBank(import.meta.env.BASE_URL + `voice/${lang()}/manifest.json`);
-  /** 지금 말하고 있는 줄 — 다음 줄이 시작되거나 스킵되면 끊는다 */
-  private lineVoice: Voice | null = null;
 
   /** 샘플 네트워크 선로드 — 로딩 화면에서 GLB 와 같이 받는다 */
-  preload() { return Promise.all([this.bank.prefetch(), this.voiceBank.prefetch()]).then(() => {}); }
-
-  /**
-   * 대사 한 줄을 낭독한다. **재생됐으면 그 길이(초), 없으면 null** —
-   * `story/dialogue.ts` 가 이 값으로 자막 표시 시간을 정한다.
-   *
-   * 잔향 버스가 아니라 **dry 마스터**로 낸다. 대사는 방의 울림보다 알아듣는 게 먼저고,
-   * 존이 바뀔 때마다(실내↔야외) 같은 목소리가 다르게 들리면 인물이 흔들린다.
-   */
-  speakLine(key: string): number | null {
-    if (!this.ready() || !this.voiceBank.has(key)) return null;
-    this.stopLine();
-    const buf = this.voiceBank.buffer(key);
-    const v = this.voiceBank.play(key, { gain: settings.audio.voice, dest: this.dryOut ?? undefined });
-    if (!v) return null;
-    this.lineVoice = v;
-    return buf ? buf.duration : null;
-  }
-
-  /** 낭독 중단 (스킵·가로채기). 뚝 끊으면 딸깍거려서 아주 짧게 페이드한다 */
-  stopLine() {
-    this.lineVoice?.stop(0.06);
-    this.lineVoice = null;
-  }
+  preload() { return this.bank.prefetch(); }
 
   unlock() {
     if (this.ctx) { if (this.ctx.state === 'suspended') void this.ctx.resume().then(() => this.startAmbient()); else this.startAmbient(); return; }
@@ -112,7 +77,6 @@ export class Sfx {
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     void this.bank.attach(this.ctx, this.bus); // 샘플의 기본 출력도 효과음 버스 = 잔향을 탄다
-    void this.voiceBank.attach(this.ctx, this.master); // 대사는 dry — `speakLine` 주석 참고
     if (this.ctx.state === 'running') this.startAmbient();
     else void this.ctx.resume().then(() => this.startAmbient());
   }
@@ -289,7 +253,7 @@ export class Sfx {
    * 디젤은 두 겹이다: **폭발 주기**(저역 톱니, 아이들링 ≈ 12 Hz 근처의 거친 음)와
    * **차체 울림**(로우패스 노이즈). 하나만 쓰면 모터보트나 바람이 된다.
    */
-  busEngine(on: boolean) {
+  busEngine(on: boolean, immediate = false) {
     if (on) {
       if (!this.ready() || this.busNodes) return;
       const ctx = this.ctx!;
@@ -319,8 +283,12 @@ export class Sfx {
     } else if (this.busNodes) {
       const ctx = this.ctx!, n = this.busNodes;
       this.busNodes = null;
-      n.gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.2);
-      setTimeout(() => n.stop(), 1400);
+      n.gain.gain.cancelScheduledValues(ctx.currentTime);
+      // 하차 컷 전환처럼 이미 버스가 화면에서 사라진 경우에는 꼬리를 남기지 않는다.
+      // 일반 감속은 1.2초 페이드로 유지해 엔진이 스위치처럼 끊기는 느낌을 피한다.
+      n.gain.gain.setValueAtTime(Math.max(0.0001, n.gain.gain.value), ctx.currentTime);
+      n.gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + (immediate ? 0.035 : 1.2));
+      setTimeout(() => n.stop(), immediate ? 60 : 1400);
     }
   }
 
@@ -355,6 +323,14 @@ export class Sfx {
     this.thump(70, 0.2, v * 0.35);
   }
 
+  /** 휴대폰 화면을 누르는 아주 작은 유리·진동 피드백 — 버스 엔진 아래에서도 손끝은 들려야 한다 */
+  phoneTap() {
+    if (!this.ready()) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime;
+    this.tap(t0, 920, 3.4, 0.045, 0.055, 'bandpass');
+    this.thump(58, 0.055, 0.035);
+  }
+
   /** 범종 — 낮은 부분음 + 맥놀이(86/86.6 Hz 쌍) + 타격 노이즈. 종은 성대가 아니라 쇠가 운다 */
   bell(gain = 0.6, far = 0) {
     if (!this.ready()) return;
@@ -371,6 +347,8 @@ export class Sfx {
       lp.connect(dl).connect(dg).connect(this.out!);
       dst = lp;
     }
+    // 실물 범종(`amb/bonsho` 14초 여운) — 먼 종 가공(로우패스·골짜기 반향)은 위 체인이 그대로 한다
+    if (this.bank.play('amb/bonsho', { gain: gain * (far > 0 ? 0.85 : 1), dest: dst, rate: far > 0 ? 0.96 : 1 })) return;
     for (const [f, g, dur] of [[86, 1.0, 9], [86.6, 0.55, 9], [172, 0.4, 6], [258, 0.22, 4.5], [430, 0.1, 2.5]] as [number, number, number][]) {
       const o = ctx.createOscillator();
       o.type = 'sine'; o.frequency.value = f;
@@ -385,6 +363,32 @@ export class Sfx {
     if (far < 0.5) this.noiseBurst({ dur: 0.18, gain: gain * 0.3 * (1 - far * 2), type: 'bandpass', freq: 620, q: 2.5 });
   }
 
+  /**
+   * 이미 끝난 종의 **잔향만** 되살린다.
+   *
+   * ACT 1 의 종과 타이틀 사이에는 어린 미오의 세 문장이 있어 실제 종 파형은 이미 다 사라진다.
+   * 타이틀에서 종을 다시 치면 같은 사건이 두 번 일어난 것처럼 들리므로, 타격 노이즈와 고역을
+   * 전부 빼고 86 Hz 기본음·첫 배음만 아주 느린 어택으로 올렸다 지운다. 소리라기보다 기억에 가깝다.
+   */
+  bellAfterimage(gain = 0.22) {
+    if (!this.ready()) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 360; lp.Q.value = 0.35;
+    const tail = ctx.createGain();
+    tail.gain.setValueAtTime(0.0001, t0);
+    tail.gain.exponentialRampToValueAtTime(audible(gain * 0.18), t0 + 0.55);
+    tail.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.6);
+    tail.connect(lp).connect(this.out!);
+    for (const [f, level] of [[86, 1], [172, 0.26]] as [number, number][]) {
+      const o = ctx.createOscillator();
+      o.type = 'sine'; o.frequency.value = f;
+      const g = ctx.createGain(); g.gain.value = level;
+      o.connect(g).connect(tail);
+      o.start(t0); o.stop(t0 + 3.8);
+    }
+  }
+
   // ============ ACT 3~4 — 부름 · 문지르기 · 마을 방송 ============
 
   /**
@@ -392,6 +396,9 @@ export class Sfx {
    * 리스너(카메라)는 `ambience`/`matsuri` 가 매 프레임 갱신하므로 여기서는 위치만 얹으면 된다.
    */
   private panners = new Map<string, SpatialSource>();
+  /** 로쿠로쿠비 활주음 간격 — 프레임마다 샘플을 겹치지 않고 속도에 맞춰 옷자락·마루를 교대한다 */
+  private rokuroGlideT = 0;
+  private rokuroCreakFlip = false;
   private panAt(id: string, x: number, y: number, z: number, ref = 8, rolloff = 1, max = 400): AudioNode {
     const ctx = this.ctx!;
     let p = this.panners.get(id);
@@ -402,6 +409,46 @@ export class Sfx {
     p.panner.refDistance = ref; p.panner.rolloffFactor = rolloff; p.panner.maxDistance = max;
     p.setPosition(x, y, z);
     return p.input;
+  }
+
+  /** 프로시저럴 폴백도 샘플과 같은 3D 패너로 보내기 위한 공간 노이즈 버스트 */
+  private spatialNoise(dst: AudioNode, opts: {
+    dur: number; gain: number; type: BiquadFilterType; freq: number;
+    q?: number; freqEnd?: number; attack?: number; at?: number;
+  }) {
+    if (!this.ready() || !(opts.gain > INAUDIBLE)) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime + (opts.at ?? 0);
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise!; src.loop = true;
+    src.playbackRate.value = 0.75 + Math.random() * 0.45;
+    const f = ctx.createBiquadFilter();
+    f.type = opts.type; f.frequency.setValueAtTime(opts.freq, t0); f.Q.value = opts.q ?? 1;
+    if (opts.freqEnd) f.frequency.exponentialRampToValueAtTime(opts.freqEnd, t0 + opts.dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(audible(opts.gain), t0 + (opts.attack ?? 0.004));
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + opts.dur);
+    src.connect(f).connect(g).connect(dst);
+    src.start(t0); src.stop(t0 + opts.dur + 0.05);
+  }
+
+  /** 위치를 가진 저역/관절 공명. 로쿠로쿠비의 체급과 목 장력을 샘플 아래에서 받친다 */
+  private spatialTone(dst: AudioNode, opts: {
+    from: number; to: number; dur: number; gain: number;
+    type?: OscillatorType; attack?: number; at?: number;
+  }) {
+    if (!this.ready() || !(opts.gain > INAUDIBLE)) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime + (opts.at ?? 0);
+    const o = ctx.createOscillator(); o.type = opts.type ?? 'sine';
+    o.frequency.setValueAtTime(Math.max(20, opts.from), t0);
+    o.frequency.exponentialRampToValueAtTime(Math.max(20, opts.to), t0 + opts.dur);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; lp.Q.value = 2.2;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(audible(opts.gain), t0 + (opts.attack ?? 0.012));
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + opts.dur);
+    o.connect(lp).connect(g).connect(dst);
+    o.start(t0); o.stop(t0 + opts.dur + 0.05);
   }
 
   /** 모음 포먼트 — 이 셋이 없으면 사인 톤이지 사람 목소리가 아니다 */
@@ -558,6 +605,8 @@ export class Sfx {
     if (!this.ready()) return;
     const ctx = this.ctx!;
     const dst = this.panAt('furin', x, y, z, 4, 1.5, 55);
+    // 실물 풍경(`amb/furin` 6종) — 받아 두고 배선이 안 돼 있었다 (2026-08-23)
+    if (this.bank.play('amb/furin', { gain, dest: dst, rate: 0.97 + Math.random() * 0.07 })) return;
     const t0 = ctx.currentTime;
     const n = 2 + Math.floor(Math.random() * 2);
     for (let k = 0; k < n; k++) {
@@ -737,6 +786,26 @@ export class Sfx {
   }
 
   private ready() { return this.ctx && this.master && this.noise && this.ctx.state === 'running'; }
+
+  /** noiseBurst 의 출력 지정판 — 패너(위치 소리)나 웨트 버스로 보낼 때 */
+  private noiseBurstTo(dst: AudioNode, opts: { dur: number; gain: number; type: BiquadFilterType; freq: number; q?: number; freqEnd?: number; attack?: number }) {
+    if (!this.ready() || !(opts.gain > INAUDIBLE)) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise!;
+    src.loop = true;
+    src.playbackRate.value = 0.8 + Math.random() * 0.4;
+    const f = ctx.createBiquadFilter();
+    f.type = opts.type; f.frequency.setValueAtTime(opts.freq, t0); f.Q.value = opts.q ?? 1;
+    if (opts.freqEnd) f.frequency.exponentialRampToValueAtTime(opts.freqEnd, t0 + opts.dur);
+    const g = ctx.createGain();
+    const atk = opts.attack ?? 0.003;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(opts.gain, t0 + atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + opts.dur);
+    src.connect(f).connect(g).connect(dst);
+    src.start(t0); src.stop(t0 + opts.dur + 0.05);
+  }
 
   private noiseBurst(opts: { dur: number; gain: number; type: BiquadFilterType; freq: number; q?: number; freqEnd?: number; attack?: number }) {
     // 들리지 않을 세기면 만들지 않는다 — 지수 램프가 0 을 받으면 RangeError 다 (INAUDIBLE 주석)
@@ -989,6 +1058,220 @@ export class Sfx {
 
   // --- 규칙 이벤트 ---
   /** 공물 줍기: 맑은 종 한 번 */
+  /**
+   * **물이 일어선다** — 우물의 여자가 수면을 가르고 솟는 첨벙 (§5.3.3).
+   * 낮은 벌크(물 덩어리) + 밝은 스플래시 두 겹. gain 을 낮추면 잠기는 소리가 된다
+   */
+  waterRise(x: number, y: number, z: number, gain = 1.0) {
+    if (!this.ready()) return;
+    const ctx = this.ctx!;
+    const dst = this.panAt('wellwoman', x, y, z, 4, 1.2, 30);
+    // 실녹음이 몸집과 초동을 만들고, 합성 저역은 모델이 수면을 밀어 올리는 무게만 보탠다.
+    this.bank.play('well/water-rise', { gain: 0.78 * gain, dest: dst, rate: 0.9 + Math.random() * 0.12 });
+    this.noiseBurstTo(dst, { dur: 0.5, gain: 0.30 * gain, type: 'lowpass', q: 0.8, freq: 420, freqEnd: 180, attack: 0.03 });
+    this.noiseBurstTo(dst, { dur: 0.28, gain: 0.16 * gain, type: 'bandpass', q: 1.2, freq: 2600, freqEnd: 1400, attack: 0.008 });
+  }
+
+  /** 물을 가르는 걸음 — 그녀의 위치 방송. 우물 반향(§9.5 신규 그룹)이 짧은 딜레이 두 겹 */
+  waterLap(x: number, y: number, z: number, gain = 0.5) {
+    if (!this.ready()) return;
+    const ctx = this.ctx!;
+    const dst = this.panAt('wellwoman', x, y, z, 4, 1.2, 30);
+    const wet = ctx.createGain(); wet.gain.value = 1;
+    wet.connect(dst);
+    for (const [d, g] of [[0.09, 0.4], [0.21, 0.22]] as [number, number][]) {
+      const dl = ctx.createDelay(0.5); dl.delayTime.value = d;
+      const dg = ctx.createGain(); dg.gain.value = g;
+      wet.connect(dl).connect(dg).connect(dst);
+    }
+    this.bank.play('well/wade', { gain: 0.72 * gain, dest: wet, rate: 0.9 + Math.random() * 0.16 });
+    this.noiseBurstTo(wet, { dur: 0.22 + Math.random() * 0.1, gain: 0.20 * gain, type: 'bandpass', q: 1.0, freq: 900 + Math.random() * 500, freqEnd: 500, attack: 0.02 });
+  }
+
+  /** 조약돌의 착수점 자체가 AI 목표다. 실녹음도 같은 3D 패너에 놓아 눈을 감아도 방향을 읽을 수 있다. */
+  pebbleSplash(x: number, y: number, z: number, gain = 1) {
+    if (!this.ready()) return;
+    const dst = this.panAt('wellpebble', x, y, z, 2.8, 1.35, 28);
+    if (this.bank.play('well/pebble', { gain, dest: dst, rate: 0.92 + Math.random() * 0.18 })) return;
+    this.noiseBurstTo(dst, { dur: 0.2, gain: 0.26 * gain, type: 'bandpass', q: 1.15, freq: 1800, freqEnd: 700, attack: 0.004 });
+  }
+
+  /** 하강·상승의 세 매듭. 위치는 같은 밧줄이지만 높이가 달라져 기억의 깊이를 소리로 보존한다. */
+  wellRope(x: number, y: number, z: number, gain = 0.7) {
+    if (!this.ready()) return;
+    const dst = this.panAt('wellrope', x, y, z, 3.5, 1.05, 38);
+    if (this.bank.play('well/rope', { gain, dest: dst, rate: 0.9 + Math.random() * 0.16 })) return;
+    this.noiseBurstTo(dst, { dur: 0.42, gain: 0.16 * gain, type: 'bandpass', q: 3.2, freq: 760, freqEnd: 310, attack: 0.05 });
+  }
+
+  /** 얼굴 확인·밧줄 붙잡기처럼 젖은 옷과 손이 닿는 가까운 접촉음. */
+  wellWetGrab(x: number, y: number, z: number, gain = 0.8) {
+    if (!this.ready()) return;
+    const dst = this.panAt('wellgrab', x, y, z, 1.8, 1.25, 20);
+    if (this.bank.play('well/wet-grab', { gain, dest: dst, rate: 0.88 + Math.random() * 0.18 })) return;
+    this.noiseBurstTo(dst, { dur: 0.28, gain: 0.22 * gain, type: 'lowpass', q: 0.8, freq: 1200, freqEnd: 330, attack: 0.015 });
+  }
+
+  /** 우물 여자의 두 번째 접촉 — 작은 피격음이 아니라 몸 전체가 수면 아래로 사라지는 소리. */
+  wellSubmerge(x: number, y: number, z: number, gain = 1) {
+    if (!this.ready()) return;
+    const dst = this.panAt('wellsubmerge', x, y, z, 3.5, 1.0, 32);
+    this.bank.play('well/submerge', { gain, dest: dst, rate: 0.84 + Math.random() * 0.1 });
+    this.noiseBurstTo(dst, { dur: 0.7, gain: 0.27 * gain, type: 'lowpass', q: 0.7, freq: 520, freqEnd: 90, attack: 0.025 });
+  }
+
+  /** 동전 세 닢의 금속음을 일반 획득 종과 분리한다. 이 소리가 멎은 아이 울음의 빈자리를 채운다. */
+  wellCoins(x: number, y: number, z: number, gain = 0.9) {
+    if (!this.ready()) return;
+    const dst = this.panAt('wellcoins', x, y, z, 2.6, 1.0, 24);
+    if (this.bank.play('well/coin', { gain, dest: dst, rate: 0.94 + Math.random() * 0.1 })) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime;
+    [1320, 1710, 2180].forEach((f, i) => this.tap(t0 + i * 0.07, f, 4.5, 0.16, gain * (0.2 - i * 0.035), 'bandpass'));
+  }
+
+  /** 첫 번째 매듭의 병원 기억. 실제 심전도 샘플이 없으면 얇은 단음과 지속음으로 폴백한다. */
+  wellMonitor(x: number, y: number, z: number, gain = 0.65) {
+    if (!this.ready()) return;
+    const dst = this.panAt('wellmonitor', x, y, z, 4, 0.9, 45);
+    if (this.bank.play('well/monitor', { gain, dest: dst })) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = 960;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.12 * gain, t0 + 0.01);
+    g.gain.setValueAtTime(0.08 * gain, t0 + 0.22); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.7);
+    o.connect(g).connect(dst); o.start(t0); o.stop(t0 + 1.75);
+  }
+
+  /** ACT 10 끝의 가짜 하루가 마을 확성기로 이동했다는 전환음. */
+  wellSpeaker(x: number, y: number, z: number, gain = 0.7) {
+    if (!this.ready()) return;
+    const horn = this.hornChain(this.panAt('pa', x, y, z, 14, 0.8, 500));
+    if (this.bank.play('well/speaker', { gain, dest: horn, rate: 0.94 + Math.random() * 0.08 })) return;
+    this.paNoise(x, y, z, 0.48, gain * 0.75);
+  }
+
+  /** 물방울 — 높은 곳에서 떨어져 반향한다. 우물 바닥의 공기 */
+  wellDrip(x: number, y: number, z: number) {
+    if (!this.ready()) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime + 0.01;
+    const dst = this.panAt('welldrip', x, y, z, 5, 1.0, 30);
+    // 반향 두 겹 — 수직 샤프트가 돌려준다. 실물 방울(`water/drip`)이든 합성이든 같은 체인을 탄다
+    const wet = ctx.createGain(); wet.gain.value = 1;
+    wet.connect(dst);
+    for (const [d, g] of [[0.13, 0.35], [0.31, 0.18]] as [number, number][]) {
+      const dl = ctx.createDelay(0.6); dl.delayTime.value = d;
+      const dg = ctx.createGain(); dg.gain.value = g;
+      wet.connect(dl).connect(dg).connect(dst);
+    }
+    if (this.bank.play('water/drip', { gain: 0.85, dest: wet, rate: 0.94 + Math.random() * 0.14 })) return;
+    const o = ctx.createOscillator(); o.type = 'sine';
+    const f = 1900 + Math.random() * 900;
+    o.frequency.setValueAtTime(f, t0);
+    o.frequency.exponentialRampToValueAtTime(f * 0.55, t0 + 0.09);
+    const e = ctx.createGain();
+    e.gain.setValueAtTime(0.0001, t0);
+    e.gain.exponentialRampToValueAtTime(0.10, t0 + 0.004);
+    e.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
+    o.connect(e).connect(wet);
+    o.start(t0); o.stop(t0 + 0.15);
+  }
+
+  /**
+   * **책상 긁는 소리** — 유리의 접근 신호 (§5.3.2: 발소리 없음, 신호는 형광등과 이것뿐).
+   * 나무 다리가 마루를 끄는 소리: 저중역 노이즈가 느리게 시작해 뚝 끊긴다.
+   * 위치가 생명이다 — 어느 교실에서 났는지 들려야 「돌아볼까 말까」가 게임이 된다
+   */
+  deskScrape(x: number, y: number, z: number, gain = 0.6) {
+    if (!this.ready()) return;
+    const ctx = this.ctx!;
+    const dst = this.panAt('scrape', x, y, z, 5, 1.3, 40);
+    const dur = 0.5 + Math.random() * 0.5;
+    const src = ctx.createBufferSource();
+    const n = Math.floor(ctx.sampleRate * dur);
+    const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) ch[i] = (Math.random() * 2 - 1) * (i / n < 0.85 ? 1 : (1 - i / n) / 0.15);
+    src.buffer = buf;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.Q.value = 3.5;
+    bp.frequency.setValueAtTime(240 + Math.random() * 120, ctx.currentTime);
+    bp.frequency.linearRampToValueAtTime(180, ctx.currentTime + dur);
+    const e = ctx.createGain();
+    e.gain.setValueAtTime(0.0001, ctx.currentTime);
+    e.gain.exponentialRampToValueAtTime(gain * 0.22, ctx.currentTime + dur * 0.35);
+    e.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+    src.connect(bp).connect(e).connect(dst);
+    src.start(); src.stop(ctx.currentTime + dur + 0.05);
+  }
+
+  /** 유리의 흥얼거림 — 재생 중인 한 조각. 그녀가 얼면 이걸 접는다 */
+  private yuriHumVoice: { stop(fade?: number): void } | null = null;
+
+  /**
+   * **유리가 흥얼거린다** — 얼굴 없는 아이가 이동하는 동안에만 (§5.3.2 확장, 2026-08-27 사용자 채택 「잊어버린 노래」).
+   *
+   * 규칙은 하나다 — **그녀가 얼면 노래도 끊긴다.** 소리가 들려 돌아보면 정적, 등을 돌리면 아까보다
+   * 가까운 데서 다시. 플레이어는 「소리가 멈췄다 = 지금 내가 그녀를 보고 있다」를 스스로 배운다.
+   * 형광등 깜빡임(school.setFlicker)이 거리를, 이 소리가 **방향**을 알려준다.
+   *
+   * 거리·벽 처리는 여기서 하지 않는다 — 학교 존의 컨볼루션과 오클루전(space.ts)이
+   * 벽 너머 먹먹함까지 알아서 만든다. 샘플에 잔향을 굽지 않은 이유도 같다
+   */
+  yuriHum(x: number, y: number, z: number, gain = 0.5) {
+    if (!this.ready()) return;
+    const dst = this.panAt('yuriHum', x, y, z, 5, 1.4, 40);
+    this.yuriHumVoice = this.bank.play('yuri/hum', { gain, rate: 0.97 + Math.random() * 0.06, dest: dst });
+  }
+
+  /** 그녀가 얼었다(또는 사라졌다) — 노래도 멈춘다. 하드컷은 딸깍거리므로 0.18 s 로 접는다 */
+  yuriHumStop(fade = 0.18) {
+    this.yuriHumVoice?.stop(fade);
+    this.yuriHumVoice = null;
+  }
+
+  /**
+   * **방울이 운다** — 방울을 든 채 달리면 걸음마다 울린다 (금기 一 예습, §5.3.1).
+   * 神楽鈴: 작은 방울 여러 개가 겹쳐 쨍그랑 — 부분음 3개를 미세하게 어긋난 피치로.
+   * 플레이어 손의 소리라 패닝 없이 낸다. 로쿠로쿠비·파수꾼은 이 순간의 소음 이벤트로 듣는다.
+   */
+  suzuRing(gain = 0.5) {
+    if (!this.ready()) return;
+    // 실물 방울(`matsuri/suzu` — 작은 방울 여러 개) 우선. 살짝 높은 rate = 손목 방울의 가벼움
+    if (this.bank.play('matsuri/suzu', { gain: gain * 0.85, rate: 1.06 + Math.random() * 0.1 })) return;
+    const ctx = this.ctx!, t0 = ctx.currentTime;
+    for (const [f, g, d] of [[3620, 0.16, 0.34], [4780, 0.10, 0.26], [2960, 0.07, 0.22]] as [number, number, number][]) {
+      const o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.value = f * (0.99 + Math.random() * 0.02);
+      const e = ctx.createGain();
+      e.gain.setValueAtTime(0.0001, t0);
+      e.gain.exponentialRampToValueAtTime(gain * g, t0 + 0.004);
+      e.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+      o.connect(e).connect(this.out!); o.start(t0); o.stop(t0 + d + 0.05);
+    }
+  }
+
+  /**
+   * **땅 울림** — 봉납이 받아들여질 때 (ACT 7~, §1.2 봉납 1 「땅이 울렸다」).
+   * 초저역 스웰 + 낮은 노이즈. 소리라기보다 배에 오는 진동이어야 한다
+   */
+  rumble(dur = 2.4, gain = 0.5) {
+    if (!this.ready()) return;
+    // 실물 저역 텍스처(`quake/rumble`)를 **합성 위에 겹친다** — 대체가 아니라 레이어.
+    // 합성 사인이 몸통(진동감), 샘플이 표면(돌 갈리는 결)을 맡는다
+    this.bank.play('quake/rumble', { gain: gain * 0.9, rate: Math.min(1.25, Math.max(0.75, 2.4 / dur)) });
+    const ctx = this.ctx!, t0 = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(38, t0);
+    o.frequency.linearRampToValueAtTime(52, t0 + dur * 0.4);
+    o.frequency.linearRampToValueAtTime(34, t0 + dur);
+    const e = ctx.createGain();
+    e.gain.setValueAtTime(0.0001, t0);
+    e.gain.exponentialRampToValueAtTime(gain * 0.5, t0 + dur * 0.3);
+    e.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(e).connect(this.out!); o.start(t0); o.stop(t0 + dur + 0.1);
+    this.noiseBurst({ dur: dur * 0.8, gain: gain * 0.06, type: 'lowpass', q: 0.7, freq: 140, freqEnd: 90, attack: dur * 0.3 });
+  }
+
   pickup() {
     if (!this.ready()) return;
     const ctx = this.ctx!, t0 = ctx.currentTime;
@@ -1112,6 +1395,104 @@ export class Sfx {
     o.start(t0); vib.start(t0); o.stop(t0 + 1.7); vib.stop(t0 + 1.7);
   }
 
+  // --- 로쿠로쿠비: 몸통과 목을 분리한 공간 사운드 ---------------------------------
+
+  /** 정문을 막고 모습을 드러낼 때 — 낮춘 숨, 뒤틀리는 마루, 큰 몸의 저역 공명 */
+  rokuroWake(x: number, y: number, z: number) {
+    if (!this.ready()) return;
+    const s = settings.audio;
+    const dst = this.panAt('rokuro-body', x, y, z, 2.4, 1.15, 34);
+    const breath = this.bank.play('yokai/breath', {
+      gain: s.combat * 0.95, rate: 0.58, lp: 2100, dest: dst,
+    });
+    this.bank.play('foot/creak', {
+      gain: s.combat * 0.72, rate: 0.58, at: 0.06, lp: 1800, dest: dst,
+    });
+    if (!breath) this.spatialNoise(dst, {
+      dur: 1.05, gain: s.combat * 0.42, type: 'bandpass', freq: 1150, freqEnd: 360, q: 0.7, attack: 0.08,
+    });
+    this.spatialTone(dst, { from: 66, to: 42, dur: 1.15, gain: s.combat * 0.48, type: 'sawtooth', attack: 0.035 });
+    this.rokuroGlideT = 0.28;
+    this._space?.hush(0.28);
+  }
+
+  /** 활주하는 기모노와 체중에 눌리는 마루. 위치는 매 프레임 갱신하되 원샷은 일정 간격으로만 낸다 */
+  rokuroGlide(x: number, y: number, z: number, speed: number, dt: number) {
+    if (!this.ready()) return;
+    const dst = this.panAt('rokuro-body', x, y, z, 2.4, 1.15, 34);
+    if (speed < 0.08) {
+      this.rokuroGlideT = Math.min(this.rokuroGlideT, 0.14);
+      return;
+    }
+    this.rokuroGlideT -= dt;
+    if (this.rokuroGlideT > 0) return;
+    const s = settings.audio;
+    const k = Math.min(1, speed / 3.2);
+    this.rokuroGlideT = 0.7 - k * 0.28 + Math.random() * 0.14;
+    if (!this.bank.play('hide/cloth', {
+      gain: s.combat * (0.34 + k * 0.18), rate: 0.62 + k * 0.24 + Math.random() * 0.08, lp: 3200, dest: dst,
+    })) {
+      this.spatialNoise(dst, {
+        dur: 0.22 + k * 0.12, gain: s.combat * (0.2 + k * 0.16), type: 'bandpass',
+        freq: 850 + k * 650, freqEnd: 2600 + k * 900, q: 0.75, attack: 0.025,
+      });
+    }
+    this.rokuroCreakFlip = !this.rokuroCreakFlip;
+    if (this.rokuroCreakFlip || k > 0.82) {
+      this.bank.play('foot/creak', {
+        gain: s.combat * (0.25 + k * 0.22), rate: 0.58 + Math.random() * 0.22, at: 0.045, lp: 2100, dest: dst,
+      });
+    }
+  }
+
+  /** 공격 직전 목을 뒤로 감을 때 — 짧은 관절음이 위로 연달아 올라간다 */
+  rokuroCoil(x: number, y: number, z: number) {
+    if (!this.ready()) return;
+    const s = settings.audio;
+    const dst = this.panAt('rokuro-neck', x, y, z, 1.8, 1.25, 30);
+    for (let i = 0; i < 3; i++) {
+      this.bank.play('foot/creak', {
+        gain: s.combat * (0.46 - i * 0.07), rate: 0.5 + i * 0.17, at: i * 0.105, lp: 2400, dest: dst,
+      });
+      this.spatialNoise(dst, {
+        dur: 0.07, gain: s.combat * (0.16 + i * 0.03), type: 'bandpass',
+        freq: 520 + i * 430, q: 5.5, attack: 0.003, at: i * 0.105,
+      });
+    }
+    this.spatialTone(dst, { from: 58, to: 112, dur: 0.48, gain: s.combat * 0.32, type: 'sawtooth', attack: 0.04 });
+  }
+
+  /** 목이 채찍처럼 뻗는 순간 — 위치가 있는 저음 스윙과 고역 공기 가르기 */
+  rokuroLunge(x: number, y: number, z: number) {
+    if (!this.ready()) return;
+    const s = settings.audio;
+    const dst = this.panAt('rokuro-neck', x, y, z, 1.8, 1.25, 30);
+    this.bank.play('combat/swing', {
+      gain: s.combat * 1.05, rate: 0.67 + Math.random() * 0.08, lp: 4300, dest: dst,
+    });
+    this.spatialNoise(dst, {
+      dur: 0.31, gain: s.combat * 0.46, type: 'bandpass', freq: 430, freqEnd: 3600, q: 1.05, attack: 0.035,
+    });
+    this._space?.hush(0.16);
+  }
+
+  /** 머리끝이 닿아 방울을 낚아챌 때 — 타격보다 목의 둔중한 스냅이 먼저 들린다 */
+  rokuroCatch(x: number, y: number, z: number) {
+    if (!this.ready()) return;
+    const s = settings.audio;
+    const dst = this.panAt('rokuro-neck', x, y, z, 1.6, 1.2, 30);
+    this.bank.play('combat/hit', { gain: s.combat, rate: 0.72, lp: 2500, dest: dst });
+    this.bank.play('yokai/breath', { gain: s.combat * 0.68, rate: 0.72, at: 0.055, lp: 1900, dest: dst });
+    this.spatialTone(dst, { from: 54, to: 28, dur: 0.42, gain: s.combat * 0.68, attack: 0.004 });
+    this.spatialNoise(dst, { dur: 0.12, gain: s.combat * 0.42, type: 'lowpass', freq: 520, q: 0.8, attack: 0.003 });
+    this.rokuroGlideT = 0.3;
+  }
+
+  /** 추격 종료·재시도 때 남아 있는 활주 타이머만 리셋한다 */
+  rokuroEnd() {
+    this.rokuroGlideT = 0;
+  }
+
   jump() {
     const s = settings.audio;
     if (this.bank.play('foot/jump', { gain: s.jump * 0.9, rate: 1.1 + Math.random() * 0.2 })) return;
@@ -1127,26 +1508,7 @@ export class Sfx {
     this.noiseBurst({ dur: 0.12 + k * 0.08, gain: s.land * (0.3 + 0.5 * k), type: 'lowpass', freq: 900, q: 0.8, attack: 0.004 });
   }
 
-  // --- H3 규칙용 (다른 세션이 호출부를 연결한다): 던지기·소금·은신·숨소리. 샘플 우선 + 합성 폴백 ---
-  /** 던지기 — 휘익 */
-  throw() {
-    const s = settings.audio;
-    if (this.bank.play('throw/whoosh', { gain: s.combat * 0.8, rate: 1.1 + Math.random() * 0.2 }) || this.bank.play('combat/swing', { gain: s.combat * 0.6, rate: 1.25 + Math.random() * 0.2 })) return;
-    this.noiseBurst({ dur: 0.2, gain: s.combat * 0.45, type: 'bandpass', freq: 500, freqEnd: 2200, q: 1.2, attack: 0.03 });
-  }
-  /** 던진 돌이 떨어짐 — 표면 발소리를 낮고 짧게 + 둔탁한 썸프. 요괴를 부르는 소음의 소리 */
-  stoneLand(surface: Surface = 'dirt') {
-    const s = settings.audio;
-    const key = `foot/${surface}`;
-    if (this.bank.has(key)) {
-      this.bank.play(key, { gain: s.combat * 0.9, rate: 0.75 + Math.random() * 0.1 });
-      if (surface !== 'water') this.bank.play(key, { gain: s.combat * 0.4, rate: 0.9 + Math.random() * 0.15, at: 0.09 + Math.random() * 0.05 }); // 튕김
-      this.thump(surface === 'wood' ? 140 : 70, 0.12, s.combat * 0.45);
-      return;
-    }
-    this.thump(surface === 'wood' ? 140 : 70, 0.14, s.combat * 0.7);
-    this.noiseBurst({ dur: 0.1, gain: s.combat * 0.5, type: surface === 'water' ? 'bandpass' : 'lowpass', freq: surface === 'water' ? 1800 : 1100, q: 0.8, attack: 0.003 });
-  }
+  // --- H3 규칙용: 은신·숨소리. 샘플 우선 + 합성 폴백 ---
   /**
    * 까마귀가 놀라 날아오름 — 까악 + 날갯짓.
    *
@@ -1239,16 +1601,6 @@ export class Sfx {
     }
   }
 
-  /** 소금이 닿음 — 치익 하는 고역 + 짧은 불꽃 */
-  saltHit() {
-    if (!this.ready()) return;
-    const s = settings.audio;
-    if (!this.bank.play('salt/hit', { gain: s.combat, rate: 0.95 + Math.random() * 0.1 })) {
-      this.noiseBurst({ dur: 0.5, gain: s.combat * 0.55, type: 'highpass', freq: 3500, attack: 0.01 });
-      this.noiseBurst({ dur: 0.25, gain: s.combat * 0.3, type: 'bandpass', freq: 1400, freqEnd: 600, q: 1.5, attack: 0.02 });
-    }
-    this.thump(90, 0.18, s.combat * 0.35);
-  }
   /** 은신 들어감 — 옷자락 + 나무 삐걱 */
   hideIn() {
     const s = settings.audio;
@@ -1356,6 +1708,8 @@ export class Sfx {
     const ctx = this.ctx!, t0 = ctx.currentTime;
     const near = 1 - Math.min(1, Math.max(0, dist));
     const vol = gain * settings.audio.combat * (0.35 + near * 0.65);
+    // 실물 천둥(`amb/thunder` — 빗속 원거리 우르릉 3종). 가까운 낙뢰일수록 살짝 빠르고 밝게
+    if (this.bank.play('amb/thunder', { gain: vol, rate: 0.9 + near * 0.18 })) return;
     // ① 크랙 — 가까운 낙뢰에만 있다
     if (near > 0.35) {
       this.noiseBurst({ dur: 0.28, gain: vol * 0.55 * near, type: 'highpass', freq: 1800, freqEnd: 420, q: 0.5, attack: 0.004 });

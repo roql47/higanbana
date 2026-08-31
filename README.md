@@ -39,7 +39,7 @@ npm run audio:search -- "taiko hit" --max-dur 3     # Freesound 검색 (.env 에
 
 ## 조작
 - 캔버스 클릭 → 포인터락(마우스 시점). 드래그 → 오빗. `Esc` 해제
-- `W A S D` 이동(기본 걷기) · `Shift` 달리기 · **`Q` 초칭 밝기(끔·약·강)** · 휠 줌
+- `W A S D` 이동(기본 걷기) · `Shift` 달리기 · `P` 1인칭/3인칭 전환 · **`Q` 초칭 밝기(끔·약·강)** · 휠 줌
 - `R` 리셋 · `M` 음소거 · `F` 전체화면 · `H` 튜닝 패널(dev/?debug)
 - `?scene=sandbox` 에서는 v0.8 조작 그대로 (Shift 걷기 · Space 점프 · 좌클릭/J 공격 · Tab 인벤토리 · E 줍기)
 

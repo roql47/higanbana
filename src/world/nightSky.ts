@@ -11,7 +11,7 @@ import { DEG } from '@/core/math';
  * 초칭(점광)이 유일한 그림자 광원이라 반경 13 m 밖은 완전히 납작했다.
  *
  * 켜면서 세 가지를 낮은 쪽으로 잡았다 — **이건 타협이 아니라 달빛의 성질이다**:
- *   · 해상도는 낮의 절반(상한 2048). 달 그림자는 원래 흐리다. 선명하면 오히려 낮처럼 보인다
+ *   · 해상도는 낮의 절반(상한 1536). 달 그림자는 원래 흐리다. 선명하면 오히려 낮처럼 보인다
  *   · 프러스텀은 0.75 배로 조인다. 밤안개가 55 m 에서 시야를 닫으므로 먼 그림자는 어차피 안 보이고,
  *     좁힐수록 낮은 해상도에서도 텍셀 밀도가 산다
  *   · `shadow.radius` 를 크게 — 실제 달의 겉보기 반경(≈0.26°)이 만드는 반그림자
@@ -93,7 +93,9 @@ export function createNightSky(renderer: THREE.WebGLRenderer, scene: THREE.Scene
 
   // 달빛: 방향광. shadowMapSize 0 이면 그림자 없음(low·medium 품질)
   const moon = new THREE.DirectionalLight(0xaec6ff, settings.night.moonIntensity);
-  const mapSize = shadowMapSize > 0 ? Math.min(2048, Math.max(512, shadowMapSize >> 1)) : 0;
+  // High(3072→1536)와 Ultra(4096→1536)를 같은 달 그림자 상한에 둔다.
+  // 달빛은 radius 6 PCF로 흐려서 2048의 추가 텍셀은 화면 차이보다 대역폭 비용이 컸다.
+  const mapSize = shadowMapSize > 0 ? Math.min(1536, Math.max(512, shadowMapSize >> 1)) : 0;
   moon.castShadow = mapSize > 0;
   if (mapSize > 0) {
     moon.shadow.mapSize.set(mapSize, mapSize);
@@ -129,7 +131,11 @@ export function createNightSky(renderer: THREE.WebGLRenderer, scene: THREE.Scene
   const moonDir = new THREE.Vector3();
   /** 그림자 프러스텀 반경(m) — 밤안개가 시야를 닫으므로 낮보다 좁게 */
   const shadowScale = 0.75;
-  function updateSun() {
+  /**
+   * 달 방향·직사광만 갱신한다. 시간대 보간은 매 프레임 이 경로를 쓰고,
+   * 동기 GPU 작업인 PMREM 재생성은 전환 마지막 프레임으로 미룬다.
+   */
+  function updateLighting() {
     const el = settings.night.moonElevation * DEG;
     const az = settings.night.moonAzimuth * DEG;
     moonDir.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
@@ -140,6 +146,9 @@ export function createNightSky(renderer: THREE.WebGLRenderer, scene: THREE.Scene
     moon.target.position.set(0, 0, 0);
     moon.target.updateMatrixWorld();
     hemi.intensity = settings.night.hemiIntensity;
+  }
+  function updateSun() {
+    updateLighting();
     envRT?.dispose();
     envRT = pmrem.fromScene(bakeScene, 0.02, 0.1, 4000); // sigma 0.1 은 샘플 한계를 넘어 경고가 난다
     scene.environment = envRT.texture;
@@ -168,11 +177,31 @@ export function createNightSky(renderer: THREE.WebGLRenderer, scene: THREE.Scene
     moon.target.updateMatrixWorld();
   }
 
-  /** 그림자맵 해상도 런타임 변경. 0 이면 달빛 그림자를 끈다 (품질 하향) */
+  /**
+   * 그림자맵 해상도 런타임 변경. 0 이면 달빛 그림자를 끈다 (품질 하향)
+   *
+   * ⚠️ `castShadow` 토글은 `NUM_DIR_LIGHT_SHADOWS` 를 바꿔 **씬의 모든 재질을 재컴파일**시킨다.
+   * 초칭(`light/chochin.ts`)이 그토록 피하는 그 비용인데, 여기서는 알고도 감수한다 —
+   * 켜 둔 채 강도만 0으로 두면 방향광 PCF 샘플링 비용을 **매 픽셀 영구히** 내는데, 이 스위치를
+   * 쓰는 기기는 바로 그 비용을 감당 못 하는 쪽이다. 재컴파일은 품질 변경 순간 1회고 그 순간은
+   * 이미 토스트로 알린다(`main.ts applyQualityLive`).
+   */
   function setShadowMapSize(size: number) {
-    const want = size > 0 ? Math.min(2048, Math.max(512, size >> 1)) : 0;
+    const want = size > 0 ? Math.min(1536, Math.max(512, size >> 1)) : 0;
     moon.castShadow = want > 0;
-    if (want === 0 || moon.shadow.mapSize.width === want) return;
+    if (want === 0) {
+      // 끄면서 맵을 놔두면 1536² 깊이 텍스처와 FBO 가 세션 내내 GPU 에 남는다.
+      // 다시 켤 때는 아래 `needsUpdate` 가 굽게 하므로 버려도 안전하다.
+      moon.shadow.map?.dispose();
+      moon.shadow.map = null;
+      return;
+    }
+    // `map === null` 인 채로 `castShadow` 가 켜져 있는 상태는 절대 프레임을 넘기면 안 된다
+    // (초칭에서 겪은 sampler 불일치 — `light/chochin.ts syncShadowWork()` 주석 참고).
+    // 지금은 `shadow.autoUpdate` 가 true 라 어차피 다음 패스에서 구워지지만, 위 주석대로
+    // 여기에 스로틀을 넣었다 뺀 전적이 있어 명시적으로 요청해 둔다.
+    moon.shadow.needsUpdate = true;
+    if (moon.shadow.mapSize.width === want) return;
     moon.shadow.map?.dispose();
     moon.shadow.map = null;
     moon.shadow.mapSize.set(want, want);
@@ -195,5 +224,5 @@ export function createNightSky(renderer: THREE.WebGLRenderer, scene: THREE.Scene
     bakeMat.uniforms['uGround']!.value.copy(uniforms['uGround']!.value);
   }
 
-  return { dome, sun: moon, moon, hemi, sunDir: moonDir, updateSun, follow, setShadowMapSize, setSkyColors };
+  return { dome, sun: moon, moon, hemi, sunDir: moonDir, updateLighting, updateSun, follow, setShadowMapSize, setSkyColors };
 }

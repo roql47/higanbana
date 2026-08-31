@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Props } from '@/world/props';
+import { settings } from '@/core/settings';
+import { fogCullDistance } from '@/world/instancing';
 import { toFloatGeometry } from '@/core/geom';
 import type { Perch } from './trees';
 import type { Sfx } from '@/audio/sfx';
@@ -89,7 +91,6 @@ export class Crows {
   private root = new THREE.Object3D();
   private jointL = new THREE.Object3D();
   private jointR = new THREE.Object3D();
-  private hidden = new THREE.Matrix4().makeTranslation(0, -800, 0);
 
   readonly group = new THREE.Group();
 
@@ -120,7 +121,8 @@ export class Crows {
       const im = new THREE.InstancedMesh(geo, mat, n);
       im.castShadow = false;
       im.receiveShadow = true;
-      im.frustumCulled = false;   // 인스턴스가 맵 전역에 흩어져 있어 공통 바운딩이 의미 없다
+      im.frustumCulled = true;
+      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       this.group.add(im);
       return im;
     };
@@ -169,7 +171,7 @@ export class Crows {
     }
     this.burst = 0;
 
-    this.write();
+    this.write(player);
   }
 
   // ---------------------------------------------------------------- 개체
@@ -305,17 +307,14 @@ export class Crows {
 
   // ---------------------------------------------------------------- 행렬
 
-  private write() {
+  private write(player: THREE.Vector3) {
     const root = this.root, jl = this.jointL, jr = this.jointR;
-    for (let i = 0; i < this.crows.length; i++) {
-      const c = this.crows[i]!;
-      if (c.state === 'gone') {
-        this.mPerch.setMatrixAt(i, this.hidden);
-        this.mBody.setMatrixAt(i, this.hidden);
-        this.mWingL.setMatrixAt(i, this.hidden);
-        this.mWingR.setMatrixAt(i, this.hidden);
-        continue;
-      }
+    let perchedCount = 0, flyingCount = 0;
+    const maxDistance = fogCullDistance(settings.night.fogDensity);
+    const maxDistanceSq = maxDistance * maxDistance;
+    for (const c of this.crows) {
+      // 안개에 완전히 섞인 개체는 배열 뒤로 숨기는 대신 draw count 에서 아예 제외한다.
+      if (c.state === 'gone' || c.pos.distanceToSquared(player) > maxDistanceSq) continue;
       root.position.copy(c.pos);
       root.rotation.set(c.pitch, c.yaw, c.roll, 'YXZ');
       root.updateMatrixWorld(true);
@@ -324,13 +323,9 @@ export class Crows {
       // 그 순간은 몸이 튀어오르고 날개가 벌어지는 중이라 전환이 안 보인다
       const flying = c.state !== 'perch' && !(c.state === 'takeoff' && c.t < 0.12);
       if (!flying) {
-        this.mPerch.setMatrixAt(i, root.matrixWorld);
-        this.mBody.setMatrixAt(i, this.hidden);
-        this.mWingL.setMatrixAt(i, this.hidden);
-        this.mWingR.setMatrixAt(i, this.hidden);
+        this.mPerch.setMatrixAt(perchedCount++, root.matrixWorld);
         continue;
       }
-      this.mPerch.setMatrixAt(i, this.hidden);
 
       // 날개: 이륙 직후엔 접힘에서 풀리고, 비행 중엔 활공을 섞어 퍼덕인다
       const open = c.state === 'takeoff' ? THREE.MathUtils.clamp((c.t - 0.12) / 0.22, 0, 1) : 1;
@@ -341,11 +336,19 @@ export class Crows {
       jr.rotation.set(0, sweep, flap);
       jl.rotation.set(0, -sweep, -flap);
       root.updateMatrixWorld(true);
-      this.mBody.setMatrixAt(i, root.matrixWorld);
-      this.mWingL.setMatrixAt(i, jl.matrixWorld);
-      this.mWingR.setMatrixAt(i, jr.matrixWorld);
+      this.mBody.setMatrixAt(flyingCount, root.matrixWorld);
+      this.mWingL.setMatrixAt(flyingCount, jl.matrixWorld);
+      this.mWingR.setMatrixAt(flyingCount, jr.matrixWorld);
+      flyingCount++;
     }
-    for (const m of [this.mPerch, this.mBody, this.mWingL, this.mWingR]) m.instanceMatrix.needsUpdate = true;
+    this.mPerch.count = perchedCount;
+    this.mBody.count = flyingCount;
+    this.mWingL.count = flyingCount;
+    this.mWingR.count = flyingCount;
+    for (const m of [this.mPerch, this.mBody, this.mWingL, this.mWingR]) {
+      m.instanceMatrix.needsUpdate = true;
+      if (m.count > 0) m.computeBoundingSphere();
+    }
   }
 }
 

@@ -49,6 +49,7 @@ export interface SourceSpec {
   fadeIn?: number;              // 초 (원샷 기본 0)
   fadeOut?: number;             // 초 (원샷 기본 0.006 — 잘라낸 구간이 울림 중간이면 길게)
   rate?: number;                // 재생속도 배율 (피치도 같이 변함) — 0.9 = 10% 느리고 낮게
+  pitch?: number;               // 음정만 배율 (속도 유지) — 1.3 = 5반음 위. 목소리 나이를 옮길 때
   hp?: number;                  // 하이패스 Hz
   lp?: number;                  // 로우패스 Hz
   note?: string;
@@ -181,12 +182,9 @@ export const SOUNDS: SoundDef[] = [
       KENNEY_RPG(['cloth1', 'cloth2', 'cloth3']),
     ],
   },
-  {
-    key: 'breath/heavy', kind: 'oneshot', gain: 0.6, note: '스태미나 바닥 — 헐떡이는 숨 한 번(들숨+날숨)',
-    sources: [
-      { provider: 'freesound', query: 'heavy breathing exhausted single breath', filter: 'tag:breathing', pick: 4, minDur: 0.5, maxDur: 3 },
-    ],
-  },
+  // breath/heavy 는 **키째 제거** (2026-08-23 사용자 피드백 「헐떡임 소리 제거」).
+  // Commons PD 슬라이스를 넣어 봤으나 기각 — 스태미나 신호는 sfx 의 조용한 합성 호흡이 담당한다.
+  // 되살리려면 sfx.breath() 의 bank-first 배선이 그대로 있으니 키만 다시 정의하면 된다.
 
   // ───────────────────────── 여름밤 앰비언스 ─────────────────────────
   {
@@ -216,12 +214,10 @@ export const SOUNDS: SoundDef[] = [
       { provider: 'wikimedia', wmTitle: 'File:Nature sounds ambience in a Dordogne pond.ogg', loop: { start: 3, end: 54, xfade: 4 }, hp: 150 },
     ],
   },
-  {
-    key: 'amb/wind', kind: 'loop', gain: 0.3, note: '밤바람 — 삼나무 숲을 스치는 잔잔한 바람. 샘플이 없으면 Sfx 의 합성 바람(더 조용함). Commons "Howling wind" 는 하울링이 너무 세서 뺐다 (2026-08-19 피드백)',
-    sources: [
-      { provider: 'freesound', query: 'wind trees night gentle', filter: 'tag:wind', pick: 1, minDur: 30, maxDur: 300, loop: { start: 2, end: 60, xfade: 5 }, lp: 1800 },
-    ],
-  },
+  // amb/wind 는 **키째 제거** (2026-08-23 사용자 피드백 「바람 소리 제거」 — 샘플 기각 두 번째:
+  // 2026-08-19 Commons "Howling wind" 하울링 과다 → 2026-08-23 OGA "mild wind" 도 기각).
+  // 바람은 앞으로 샘플을 시도하지 않는다 — Sfx 의 조용한 합성 바람이 최종이다.
+  // (ambience.ts 의 'amb/wind' 참조는 뱅크에 키가 없으면 자동으로 건너뛴다)
   {
     key: 'amb/furin', kind: 'oneshot', gain: 0.5, mono: true, note: '풍경(風鈴) — 폐가 툇마루에서 가끔',
     sources: [
@@ -259,12 +255,18 @@ export const SOUNDS: SoundDef[] = [
   {
     key: 'matsuri/taiko', kind: 'oneshot', gain: 0.9, note: '태고 단타 — 추격 중 빠른 북',
     sources: [
+      // Commons CC BY 3.0 태고 연주(6.5초 연타)에서 타격 4개를 자른다 — 온셋은 피크 분석으로 실측,
+      // 다음 타 블리드는 fadeOut 이 자른다. 추격 단타 용도라 짧게 끊기는 게 오히려 맞다 (2026-08-23)
+      { provider: 'wikimedia', wmTitle: 'File:Traditional-taikodrum-may2011.ogv', slices: [[0.26, 0.56], [0.78, 1.13], [1.40, 1.83], [2.36, 2.71]], fadeOut: 0.05, hp: 55 },
       { provider: 'freesound', query: 'taiko drum hit single', filter: 'tag:taiko', pick: 4, minDur: 0.2, maxDur: 3 },
     ],
   },
   {
-    key: 'matsuri/suzu', kind: 'oneshot', gain: 0.7, note: '스즈(방울) — 16 m 이내',
+    key: 'matsuri/suzu', kind: 'oneshot', gain: 0.7, note: '스즈(방울) — 16 m 이내. 공물 방울(suzuRing)도 이 키를 쓴다',
     sources: [
+      // Commons CC0 썰매 방울 — 작은 방울 여러 개가 짤랑이는 소리 = 스즈·방울 장식과 같은 계열.
+      // 흔든 버스트 4개를 실측 온셋으로 자른다 (2026-08-23)
+      { provider: 'wikimedia', wmTitle: 'File:Sleigh bells.wav', slices: [[0.55, 1.2], [1.15, 2.4], [2.95, 3.9], [4.45, 5.2]], fadeOut: 0.12, hp: 600 },
       { provider: 'freesound', query: 'suzu bell shinto', pick: 3, minDur: 0.3, maxDur: 4 },
       { provider: 'freesound', query: 'kagura suzu bells', pick: 3, minDur: 0.3, maxDur: 4 },
     ],
@@ -274,6 +276,102 @@ export const SOUNDS: SoundDef[] = [
     sources: [
       { provider: 'freesound', query: 'geta wooden sandals footsteps', pick: 4, minDur: 0.1, maxDur: 1.5 },
       { provider: 'freesound', query: 'wooden clogs footsteps', pick: 4, minDur: 0.1, maxDur: 1.5 },
+    ],
+  },
+
+  // ───────────────────────── 우물·봉납·하늘 (2026-08-23 보충) ─────────────────────────
+  {
+    key: 'water/drip', kind: 'oneshot', gain: 0.55, mono: true, note: '물방울 — 우물 지하의 공기 (wellDrip 이 반향 체인에 얹는다)',
+    sources: [
+      // OGA CC0 dripping loop 에서 방울 4개를 실측 온셋으로 자른다
+      { provider: 'url', url: 'https://opengameart.org/sites/default/files/atmo.mp3', title: 'Dripping water loop', license: 'CC0', author: 'qubodup', source: 'https://opengameart.org/content/dripping-water-loop', slices: [[1.15, 2.2], [4.58, 5.3], [6.42, 7.3], [9.0, 10.0]], fadeOut: 0.1, hp: 300 },
+    ],
+  },
+  {
+    key: 'well/water-rise', kind: 'oneshot', gain: 0.9, mono: true, max: 4,
+    note: '우물 여자 출현 — 사람 크기의 물기둥이 솟는 무거운 첨벙',
+    sources: [
+      { provider: 'freesound', query: 'large body emerge water splash', filter: 'tag:splash', pick: 4, minDur: 0.45, maxDur: 3.2, hp: 55, lp: 6200, fadeOut: 0.3 },
+      { provider: 'freesound', query: 'heavy water splash single', filter: 'tag:water', pick: 4, minDur: 0.4, maxDur: 3.2, hp: 55, lp: 6200, fadeOut: 0.3 },
+      { provider: 'zip', url: OGA_FOOTSTEPS, files: ['footsteps/water/*.ogg'], license: 'CC BY 3.0', author: 'EminYILDIRIM · swuing (Freesound) · mastered by congusbongus', source: OGA_FOOTSTEPS_PAGE, title: 'Footsteps on different surfaces — heavy well splash', rate: 0.62, lp: 4200, fadeOut: 0.45 },
+    ],
+  },
+  {
+    key: 'well/wade', kind: 'oneshot', gain: 0.78, mono: true, max: 6,
+    note: '우물 여자 위치 방송 — 얕은 물을 한 걸음씩 가르는 소리',
+    sources: [
+      { provider: 'freesound', query: 'slow wading shallow water single step', filter: 'tag:water', pick: 6, minDur: 0.2, maxDur: 1.5, hp: 90, lp: 5200, fadeOut: 0.12 },
+      { provider: 'freesound', query: 'water footstep splash single', filter: 'tag:footstep', pick: 6, minDur: 0.18, maxDur: 1.4, hp: 90, lp: 5200, fadeOut: 0.12 },
+      { provider: 'zip', url: OGA_FOOTSTEPS, files: ['footsteps/water/*.ogg'], license: 'CC BY 3.0', author: 'EminYILDIRIM · swuing (Freesound) · mastered by congusbongus', source: OGA_FOOTSTEPS_PAGE, title: 'Footsteps on different surfaces — well wade', rate: 0.82, lp: 5000, fadeOut: 0.16 },
+    ],
+  },
+  {
+    key: 'well/pebble', kind: 'oneshot', gain: 0.92, mono: true, max: 5,
+    note: '조약돌 착수 — 방향을 오인시킬 만큼 어택이 또렷한 작은 첨벙',
+    sources: [
+      { provider: 'freesound', query: 'small stone pebble thrown into water plop', filter: 'tag:water', pick: 5, minDur: 0.18, maxDur: 2.0, hp: 180, lp: 7000, fadeOut: 0.25 },
+      { provider: 'zip', url: OGA_FOOTSTEPS, files: ['footsteps/water/*.ogg'], license: 'CC BY 3.0', author: 'EminYILDIRIM · swuing (Freesound) · mastered by congusbongus', source: OGA_FOOTSTEPS_PAGE, title: 'Footsteps on different surfaces — pebble plop', rate: 1.65, hp: 240, fadeOut: 0.2 },
+    ],
+  },
+  {
+    key: 'well/rope', kind: 'oneshot', gain: 0.72, mono: true, max: 5,
+    note: '젖은 구조 밧줄 마찰·장력 — 하강과 상승 매듭 통과',
+    sources: [
+      { provider: 'freesound', query: 'hemp rope strain creak pull', filter: 'tag:rope', pick: 5, minDur: 0.3, maxDur: 2.4, hp: 80, lp: 4800, fadeOut: 0.2 },
+      { ...KENNEY_RPG(['creak1', 'creak2', 'creak3']), rate: 0.68, lp: 3600, fadeOut: 0.28 },
+    ],
+  },
+  {
+    key: 'well/wet-grab', kind: 'oneshot', gain: 0.74, mono: true, max: 4,
+    note: '젖은 손과 소매가 피부·밧줄을 움켜쥐는 접촉음',
+    sources: [
+      { provider: 'freesound', query: 'wet cloth slap squelch short', pick: 4, minDur: 0.18, maxDur: 1.5, hp: 90, lp: 5200, fadeOut: 0.16 },
+      { ...KENNEY_RPG(['cloth1', 'cloth2', 'cloth3', 'cloth4']), rate: 0.72, lp: 4200, fadeOut: 0.18 },
+    ],
+  },
+  {
+    key: 'well/submerge', kind: 'oneshot', gain: 0.9, mono: true, max: 4,
+    note: '두 번째 접촉 — 몸이 물속으로 끌려 들어가는 큰 첨벙',
+    sources: [
+      { provider: 'freesound', query: 'body fall into water splash submerge', filter: 'tag:splash', pick: 4, minDur: 0.55, maxDur: 4.0, hp: 45, lp: 5500, fadeOut: 0.55 },
+      { provider: 'zip', url: OGA_FOOTSTEPS, files: ['footsteps/water/*.ogg'], license: 'CC BY 3.0', author: 'EminYILDIRIM · swuing (Freesound) · mastered by congusbongus', source: OGA_FOOTSTEPS_PAGE, title: 'Footsteps on different surfaces — submerge', rate: 0.5, lp: 3600, fadeOut: 0.65 },
+    ],
+  },
+  {
+    key: 'well/coin', kind: 'oneshot', gain: 0.8, mono: true, max: 4,
+    note: '젖은 옛 동전 세 닢이 손바닥에서 서로 부딪힘',
+    sources: [
+      { provider: 'freesound', query: 'three old coins clink in hand', filter: 'tag:coin', pick: 4, minDur: 0.2, maxDur: 1.8, hp: 380, lp: 9000, fadeOut: 0.3 },
+      { provider: 'freesound', query: 'small coins jingle short', filter: 'tag:coins', pick: 4, minDur: 0.2, maxDur: 1.8, hp: 380, lp: 9000, fadeOut: 0.3 },
+      { ...KENNEY_RPG(['handleCoins', 'handleCoins2']), rate: 0.88, hp: 320, fadeOut: 0.3 },
+    ],
+  },
+  {
+    key: 'well/monitor', kind: 'oneshot', gain: 0.62, mono: true, max: 2,
+    note: '첫 매듭 병원 기억 — 심전도 단음 뒤 길게 이어지는 정지음',
+    sources: [
+      { provider: 'freesound', query: 'hospital heart monitor flatline beep', filter: 'tag:beep', pick: 2, minDur: 1.0, maxDur: 6.0, hp: 350, lp: 4200, fadeOut: 0.4 },
+    ],
+  },
+  {
+    key: 'well/speaker', kind: 'oneshot', gain: 0.58, mono: true, max: 3,
+    note: '우물 밖 마을 스피커가 켜질 때의 낡은 앰프 팝·무전 노이즈',
+    sources: [
+      { provider: 'freesound', query: 'old radio speaker static burst click', filter: 'tag:static', pick: 3, minDur: 0.2, maxDur: 2.5, hp: 220, lp: 4800, fadeOut: 0.28 },
+    ],
+  },
+  {
+    key: 'quake/rumble', kind: 'oneshot', gain: 0.8, mono: true, note: '봉납 지진 — 합성 저역 사인 위에 얹는 실물 텍스처(rumble 이 겹쳐 재생)',
+    sources: [
+      { provider: 'url', url: 'https://opengameart.org/sites/default/files/low-rumbling-176033.mp3', title: 'Low rumbling', license: 'CC0', author: 'musheran', source: 'https://opengameart.org/content/low-rumbling', trim: [0, 4.5], fadeIn: 0.15, fadeOut: 0.9, lp: 320 },
+    ],
+  },
+  {
+    key: 'amb/thunder', kind: 'oneshot', gain: 0.85, mono: true, note: 'ACT 1 천둥 — 빗속에서 멀리 우르릉. 스토리보드 「천둥은 한참 뒤에 온다」의 그 소리',
+    sources: [
+      // Commons PD 「Rain and thunder (1)」 60초에서 우르릉 3구간 (피크 실측 4s·11s·47s 부근)
+      { provider: 'wikimedia', wmTitle: 'File:Rain and thunder (1).ogg', slices: [[3.2, 9.6], [10.4, 15.8], [46.6, 52.4]], fadeIn: 0.06, fadeOut: 1.4, hp: 45 },
+      { provider: 'wikimedia', wmTitle: 'File:Rain and thunder.ogg', trim: [2, 9], fadeIn: 0.06, fadeOut: 1.2, hp: 45 },
     ],
   },
 
@@ -307,6 +405,29 @@ export const SOUNDS: SoundDef[] = [
       { provider: 'zip', url: `${OGA}/25-CC0-mud-sfx.zip`, files: ['mud_02.ogg', 'mud_03.ogg', 'mud_04.ogg', 'mud_07.ogg', 'mud_17.ogg', 'mud_18.ogg', 'mud_19.ogg', 'mud_20.ogg'], license: CC0, author: 'rubberduck', source: ogaPage('25-cc0-mud-sfx'), title: '25 CC0 mud sfx',
         rate: 0.72, fadeOut: 0.12 },
       { provider: 'freesound', query: 'mud squelch thick', filter: 'tag:mud', pick: 3, minDur: 0.5, maxDur: 4 },
+    ],
+  },
+  {
+    /**
+     * **유리가 움직일 때** (ACT 8~9, 폐교) — 얼굴 없는 아이가 혼자 흥얼거리는 소리.
+     *
+     * 원본은 성인 여성 허밍(F0 190 Hz)이라 그대로 쓰면 아이가 아니다. 두 가지로 아이를 만든다:
+     *  ① 원본에서 **이미 음이 높은 구간만** 골라 딴다(211~222 Hz) — 크게 올릴수록 리샘플 티가 난다
+     *  ② `pitch` 1.30 = 5반음 위, **속도는 유지**(250~258 Hz = 8~10세). `rate` 로 올리면 노래가 같이
+     *     빨라져서 사람이 아니게 된다
+     *
+     * 단편으로 자른 게 핵심이다 — 몇 마디 하다 멈추고 다시 시작하는데 앞과 이어지지 않는다.
+     * **노래를 기억 못 하는 아이** = 이름을 잃은 것과 같은 증상 (사용자 채택: 「잊어버린 노래」).
+     *
+     * 잔향은 굽지 않는다. 학교 존의 컨볼루션과 오클루전(space.ts)이 벽 너머 먹먹함까지 알아서 만든다 —
+     * 여기서 구우면 이중으로 울린다
+     */
+    key: 'yuri/hum', kind: 'oneshot', gain: 0.85, max: 9, note: '유리 — 폐교에서 아이가 혼자 흥얼거린다 (이동 중)',
+    sources: [
+      { provider: 'url', url: `${OGA}/ghostly_humming.ogg`, license: CC0, author: 'Nocturnal_Vanguard (AuraVoice)', source: ogaPage('ghostly-humming'), title: 'Ghostly Humming',
+        // F0 실측이 높은 구간에서만: 0.6~4.5·5.5~8.4(211 Hz) · 19.7~22.1·33.4~36.7(222) · 23.0~25.2(216) · 37.5~40.2·49.7~53.5(211)
+        slices: [[33.4, 35.3], [19.7, 21.4], [0.6, 2.6], [23.0, 24.3], [5.5, 8.4], [37.5, 39.3], [49.7, 51.6], [1.5, 3.2], [34.5, 36.5]],
+        pitch: 1.30, hp: 150, lp: 4500, fadeIn: 0.18, fadeOut: 0.35 },
     ],
   },
   {

@@ -6,7 +6,7 @@
     <meta name="description" content="사람 없는 여름밤 마츠리. 초칭 하나를 들고 신사로. — 誰もいない夏祭りの夜。提灯ひとつで神社へ。" />
     <meta name="theme-color" content="#0a0f1a" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏮</text></svg>" />
-    <title>히간바나 · 彼岸花</title>
+    <title>피안화 - 꺼지지 않는 등불 · 彼岸花</title>
     <!--
       퀘스트 보이스 서체 (PLAN-STORY §4.1): 명조 = 히간누시, 손글씨 = 사요.
       한국어판과 일본어판이 서체가 다르다 — 명조·손글씨를 두 언어분 다 받아 두고
@@ -26,25 +26,127 @@
       나중에 바꾸면 그것들만 옛 언어로 남는다 (src/boot.ts 참고).
       한 번 고르면 저장되고 이 화면은 다시 안 나온다.
     -->
-    <div id="lang-gate" class="lang-gate" hidden>
+    <div id="lang-gate" class="lang-gate title-surface" hidden>
+      <div class="title-grain" aria-hidden="true"></div>
       <div class="lang-inner">
-        <div class="lang-mark">彼岸花</div>
-        <div class="lang-ask">언어 · 言語</div>
+        <div class="lang-brand" aria-label="彼岸花 Higanbana">
+          <div class="lang-mark">彼岸花</div>
+          <div class="lang-roman">HIGANBANA</div>
+        </div>
+        <div class="lang-ask">SELECT LANGUAGE</div>
         <div class="lang-buttons">
-          <button type="button" data-lang="ko">한국어</button>
-          <button type="button" data-lang="ja">日本語</button>
+          <button type="button" data-lang="ko"><span>한국어</span><small>KOREAN</small></button>
+          <button type="button" data-lang="ja"><span>日本語</span><small>JAPANESE</small></button>
         </div>
       </div>
+      <div class="title-corner title-corner-tl" aria-hidden="true"></div>
+      <div class="title-corner title-corner-br" aria-hidden="true"></div>
     </div>
 
-    <div id="loading">
+    <div id="loading" class="title-surface">
+      <div class="title-grain" aria-hidden="true"></div>
       <div class="loading-inner">
         <div class="loading-title" id="loading-title"></div>
-        <div class="loading-sub" id="loading-sub"></div>
-        <div class="loading-bar"><div class="loading-fill" id="loading-fill"></div></div>
-        <div class="loading-pct" id="loading-pct">0%</div>
-        <button class="start-btn" id="start-btn" hidden></button>
+        <div class="loading-roman" id="loading-tagline"></div>
+        <div class="loading-chapter" id="loading-chapter"></div>
+        <div class="title-menu">
+          <div class="title-actions" id="title-actions" hidden>
+            <button class="title-action brush-menu-btn start-btn" id="start-btn" type="button" hidden>
+              <span class="title-action-art-stack title-art-start" aria-hidden="true">
+                <img class="title-action-art title-action-art-base" src="./src/assets/title-menu-game-start-brush-v3.png" alt="" />
+                <span class="title-action-wipe"></span>
+                <img class="title-action-art title-action-art-reveal" src="./src/assets/title-menu-game-start-brush-v3.png" alt="" />
+              </span>
+              <span class="title-action-label"></span>
+            </button>
+            <button class="title-action brush-menu-btn continue-btn" id="continue-btn" type="button">
+              <span class="title-action-art-stack title-art-continue" aria-hidden="true">
+                <img class="title-action-art title-action-art-base" src="./src/assets/title-menu-continue-brush-v1.png" alt="" />
+                <span class="title-action-wipe"></span>
+                <img class="title-action-art title-action-art-reveal" src="./src/assets/title-menu-continue-brush-v1.png" alt="" />
+              </span>
+              <span class="title-action-label"></span>
+            </button>
+            <button class="title-action brush-menu-btn" id="title-settings-btn" type="button">
+              <span class="title-action-art-stack title-art-settings" aria-hidden="true">
+                <img class="title-action-art title-action-art-base" src="./src/assets/title-menu-settings-brush-v1.png" alt="" />
+                <span class="title-action-wipe"></span>
+                <img class="title-action-art title-action-art-reveal" src="./src/assets/title-menu-settings-brush-v1.png" alt="" />
+              </span>
+              <span class="title-action-label"></span>
+            </button>
+            <button class="title-action brush-menu-btn" id="title-credits-btn" type="button">
+              <span class="title-action-art-stack title-art-credits" aria-hidden="true">
+                <img class="title-action-art title-action-art-base" src="./src/assets/title-menu-credits-brush-v1.png" alt="" />
+                <span class="title-action-wipe"></span>
+                <img class="title-action-art title-action-art-reveal" src="./src/assets/title-menu-credits-brush-v1.png" alt="" />
+              </span>
+              <span class="title-action-label"></span>
+            </button>
+          </div>
+          <div class="title-language" id="title-language" hidden>
+            <span id="title-language-label"></span>
+            <button type="button" data-lang="ko">한국어</button>
+            <button type="button" data-lang="ja">日本語</button>
+          </div>
+        </div>
+        <div class="loading-state">
+          <div class="loading-status-row">
+            <span class="loading-sub" id="loading-sub"></span>
+            <span class="loading-pct" id="loading-pct">0%</span>
+          </div>
+          <div class="loading-bar"><div class="loading-fill" id="loading-fill"></div></div>
+        </div>
       </div>
+      <div class="title-footer">
+        <span id="title-build"></span>
+        <span id="title-headphones"></span>
+      </div>
+
+      <div class="title-modal mobile-render-warning" id="mobile-render-warning" role="dialog" aria-modal="true"
+        aria-labelledby="mobile-render-warning-heading" aria-describedby="mobile-render-warning-copy mobile-render-warning-note" hidden>
+        <section class="title-modal-card mobile-render-warning-card">
+          <div class="mobile-render-warning-symbol" aria-hidden="true">
+            <span></span>
+          </div>
+          <div class="title-modal-kicker">DEVICE NOTICE</div>
+          <h2 id="mobile-render-warning-heading"></h2>
+          <p class="mobile-render-warning-copy" id="mobile-render-warning-copy"></p>
+          <p class="mobile-render-warning-note" id="mobile-render-warning-note"></p>
+          <button class="title-modal-button mobile-render-warning-confirm" id="mobile-render-warning-confirm" type="button"></button>
+        </section>
+      </div>
+
+      <div class="title-modal" id="title-settings" role="dialog" aria-modal="true" aria-labelledby="title-settings-heading" hidden>
+        <section class="title-modal-card">
+          <button class="title-modal-close" type="button" data-title-close aria-label="Close">×</button>
+          <div class="title-modal-kicker">OPTIONS</div>
+          <h2 id="title-settings-heading"></h2>
+          <div class="title-setting-row">
+            <label for="title-volume" id="title-volume-label"></label>
+            <div class="title-volume-control">
+              <input id="title-volume" type="range" min="0" max="1" step="0.01" value="0.42" />
+              <output id="title-volume-value" for="title-volume">42</output>
+            </div>
+          </div>
+          <button class="title-modal-button" id="title-fullscreen" type="button"></button>
+          <p class="title-modal-note" id="title-settings-note"></p>
+        </section>
+      </div>
+
+      <div class="title-modal" id="title-credits" role="dialog" aria-modal="true" aria-labelledby="title-credits-heading" hidden>
+        <section class="title-modal-card title-credits-card">
+          <button class="title-modal-close" type="button" data-title-close aria-label="Close">×</button>
+          <div class="title-modal-kicker">CREDITS</div>
+          <h2 id="title-credits-heading"></h2>
+          <div class="title-credit-title" id="title-credit-game"></div>
+          <dl class="title-credit-list" id="title-credit-list"></dl>
+          <p class="title-modal-note" id="title-credits-note"></p>
+        </section>
+      </div>
+
+      <div class="title-corner title-corner-tl" aria-hidden="true"></div>
+      <div class="title-corner title-corner-br" aria-hidden="true"></div>
     </div>
     <div id="hud">
       <div id="hint" class="hint">

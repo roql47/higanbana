@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { preferGpuCompressedModel } from '@/core/gltf';
 import { Props } from '@/world/props';
 import { normalize } from './village/landmarks';
 import { textCanvas } from './higasato/kit';
@@ -68,14 +69,20 @@ export class Bus {
   private straps: { g: THREE.Group; phase: number }[] = [];
   private wheelPrim: THREE.Mesh;
   private driverPrim: THREE.Mesh[] = [];
+  private driverModel: THREE.Object3D | null = null;
+  private driverLook = 0;
+  private driverLookTarget = 0;
   private wheelGlb: THREE.Object3D | null = null;
   private doorZ0 = 0;
+  /** 창에 비치는 형광등·하늘 반사. 차체 롤과 함께 아주 조금 숨 쉬게 한다 */
+  private glassReflectionMat: THREE.MeshBasicMaterial;
   /**
    * 실내 설비 — 요금함·정리권 발권기·운임 표시기·대시보드.
    * 시골버스에서 **기사 주변이 비어 있으면** 그건 버스가 아니라 좌석이 놓인 방이다.
    * 자리표시자를 세워 두고 `load()` 가 GLB 로 갈아끼운다 (좌석·손잡이와 같은 방식).
    */
-  private fixtures: { g: THREE.Group; url: string; h: number }[] = [];
+  private fixtures: { g: THREE.Group; url: string; h: number; width?: number }[] = [];
+  private disposed = false;
 
   constructor(scene: THREE.Scene, opts: BusOpts = {}) {
     this.group.position.copy(opts.origin ?? new THREE.Vector3(0, 300, 0));
@@ -130,7 +137,26 @@ export class Bus {
       t.repeat.set(Math.max(1, Math.round(len / 0.62)), 1);
       return new THREE.MeshStandardMaterial({ map: t, roughness: 0.9, metalness: 0 });
     };
-    const mCeil = mat(0xcac4b6, 0.9);   // 누렇게 뜬 크림색 천장
+    const mCeil = new THREE.MeshStandardMaterial({
+      map: textCanvas(512, 1024, (c2) => {
+        const base = c2.createLinearGradient(0, 0, 512, 0);
+        base.addColorStop(0, '#a9a394'); base.addColorStop(0.12, '#c5beae');
+        base.addColorStop(0.5, '#d0c9b9'); base.addColorStop(0.88, '#c5beae'); base.addColorStop(1, '#a9a394');
+        c2.fillStyle = base; c2.fillRect(0, 0, 512, 1024);
+        // 천장 패널 이음매와 오래 밴 먼지. 선명하면 타일처럼 보여 아주 약하게만 둔다
+        for (let y = 0; y < 1024; y += 190) {
+          c2.fillStyle = 'rgba(65,58,48,0.12)'; c2.fillRect(0, y, 512, 2);
+          c2.fillStyle = 'rgba(255,250,226,0.10)'; c2.fillRect(0, y + 2, 512, 1);
+        }
+        for (let i = 0; i < 34; i++) {
+          const x = Math.random() * 512, y = Math.random() * 1024, r = 6 + Math.random() * 28;
+          const stain = c2.createRadialGradient(x, y, 0, x, y, r);
+          stain.addColorStop(0, 'rgba(91,74,50,0.055)'); stain.addColorStop(1, 'rgba(91,74,50,0)');
+          c2.fillStyle = stain; c2.fillRect(x - r, y - r, r * 2, r * 2);
+        }
+      }),
+      roughness: 0.94, metalness: 0,
+    });   // 누렇게 뜬 크림색 천장
     const mSeat = mat(0x2f4a52, 0.85);       // 시골버스 특유의 청록 시트
     const mSeatBack = mat(0x263d44, 0.85);
     const mMetal = mat(0x6d7278, 0.4);
@@ -147,10 +173,33 @@ export class Bus {
     // --- 바닥·천장·앞뒤 ---
     box(HALF_W * 2, T, LEN, 0, -T / 2, 0, mFloor);
     box(HALF_W * 2, T, LEN, 0, CEIL + T / 2, 0, mCeil);
-    // 천장 형광등 두 줄 — 시골버스 실내의 문법. 라이트는 안 켠다(대낮), 발광 재질만
+    // 천장 형광등 두 줄 — 시골버스 실내의 문법. 라이트는 안 켠다(대낮), 발광 재질만.
+    // 밝은 막대 하나가 아니라 **누렇게 뜬 하우징 안의 관**으로 두 층을 나눈다.
     {
-      const mLamp = new THREE.MeshStandardMaterial({ color: 0xf2ecd8, emissive: 0xfff3d8, emissiveIntensity: 0.85, roughness: 0.4 });
-      for (const sideL of [-1, 1]) box(0.10, 0.03, LEN - 2.0, sideL * 0.34, CEIL - 0.015, -0.2, mLamp);
+      const housing = mat(0xaaa394, 0.8);
+      const mLamp = new THREE.MeshStandardMaterial({ color: 0xded7c2, emissive: 0xffefc8, emissiveIntensity: 0.46, roughness: 0.62 });
+      for (const sideL of [-1, 1]) {
+        box(0.15, 0.035, LEN - 2.0, sideL * 0.34, CEIL - 0.012, -0.2, housing);
+        box(0.078, 0.018, LEN - 2.12, sideL * 0.34, CEIL - 0.037, -0.2, mLamp);
+      }
+    }
+    // ⛔ 창 위에 붙였던 광고·노선도 띠(山間線 彼ヶ里方面 / 安全運転 / …)는 걷어냈다
+    //    (사용자 리포트 2026-08-26 「버스 옆면에 글씨 써 있는 게 어색하다」).
+    //    좌석에서 보면 4.9 m 짜리 띠가 비스듬히 눕는데, 글자가 그 각도에서 늘어지며
+    //    읽히지도 않는 채로 시선만 끌었다. 생활 흔적은 손잡이·환풍구·시트 얼룩이 맡는다.
+    {
+      // 낡은 천장 환풍구 두 개. 판만 있는 천장보다 차체의 두께와 연식이 읽힌다.
+      const ventM = mat(0x77766f, 0.78);
+      for (const z of [-1.9, 1.0]) {
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.025, 0.28), ventM);
+        frame.position.set(0, CEIL - 0.045, z);
+        this.cabin.add(frame);
+        for (let i = -2; i <= 2; i++) {
+          const slat = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.018, 0.22), mDark);
+          slat.position.set(i * 0.065, CEIL - 0.064, z);
+          this.cabin.add(slat);
+        }
+      }
     }
     box(HALF_W * 2, CEIL, T, 0, CEIL / 2, -LEN / 2, mBody);            // 뒷벽
 
@@ -272,13 +321,13 @@ export class Bus {
     this.driverPrim = [shoulders, headBack];
 
     // --- 실내 설비 (자리표시자 → load() 가 GLB 로 교체) ---
-    const mkFixture = (url: string, h: number, x: number, y: number, z: number, yaw: number, prim: THREE.Mesh[]) => {
+    const mkFixture = (url: string, h: number, x: number, y: number, z: number, yaw: number, prim: THREE.Mesh[], width?: number) => {
       const g = new THREE.Group();
       g.position.set(x, y, z);
       g.rotation.y = yaw;
       for (const m of prim) g.add(m);
       this.cabin.add(g);
-      this.fixtures.push({ g, url, h });
+      this.fixtures.push({ g, url, h, width });
     };
     const mBeige = mat(0xb9b2a0, 0.86);
     // 요금함 — 하차문 옆, 기사의 왼쪽. 내릴 때 반드시 지나치는 자리다
@@ -292,9 +341,9 @@ export class Bus {
       (() => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.26, 0.14), mBeige); m.position.y = 1.0; return m; })(),
     ]);
     // 운임 표시기 — 앞유리 위, 승객을 향한다. 정류장마다 숫자가 바뀌는 그 판
-    mkFixture('/models/props/bus-faredisplay.glb', 0.3, -0.12, CEIL - 0.3, LEN / 2 - 0.22, Math.PI, [
+    mkFixture('/models/props/bus-faredisplay-v2.glb', 0.36, -0.12, CEIL - 0.38, LEN / 2 - 0.25, Math.PI, [
       (() => { const m = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.28, 0.07), mDark); return m; })(),
-    ]);
+    ], 1.12);
     // 대시보드 — 기사 앞. 핸들만 있고 계기판이 없으면 운전석이 아니다
     mkFixture('/models/props/bus-dash.glb', 0.5, 0.62, 0.62, LEN / 2 - 0.3, 0, [
       (() => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.34, 0.3), mBeige); return m; })(),
@@ -308,11 +357,24 @@ export class Bus {
     this.mirror.set(0.26, CEIL - 0.42, LEN / 2 - 1.05);
     // 거울 = 검은 판이 아니다. 테두리(플라스틱) + **비치는 면**(금속성 유리) + 천장에 매단 팔.
     // 검은 박스 하나로 두면 앞유리 위에 빈 간판이 붙어 있는 것으로 보인다(실제로 그랬다)
-    const mirrorBody = box(0.54, 0.20, 0.035, this.mirror.x, this.mirror.y, this.mirror.z, mDark);
+    // 2026-08-26: 거울을 키웠다. 좌석(z −1.02)에서 거울(z 2.65)까지 3.7 m 라, 0.54 × 0.20 은
+    // 기본 화각 66° 에서 **세로 15 px** 이었다 — 그 안의 눈이 읽힐 리가 없었다(사용자 리포트).
+    // 일본 버스의 車内ミラー는 통로 전체를 보는 물건이라 실제로도 이만큼 넓다.
+    const mirrorBody = box(0.70, 0.26, 0.04, this.mirror.x, this.mirror.y, this.mirror.z, mDark);
     mirrorBody.rotation.y = 0.2;
     {
-      const glassM = new THREE.MeshStandardMaterial({ color: 0x39424a, roughness: 0.10, metalness: 0.9 });
-      const face = new THREE.Mesh(new THREE.PlaneGeometry(0.48, 0.15), glassM);
+      const mirrorMap = textCanvas(512, 160, (ctx) => {
+        const g = ctx.createLinearGradient(0, 0, 0, 160);
+        g.addColorStop(0, '#73818a'); g.addColorStop(0.22, '#323b42');
+        g.addColorStop(0.56, '#14191e'); g.addColorStop(1, '#252c31');
+        ctx.fillStyle = g; ctx.fillRect(0, 0, 512, 160);
+        // 뒤쪽 창과 형광등이 흐릿하게 비친 흔적 — 눈이 나오기 전에도 거울이어야 한다
+        ctx.fillStyle = 'rgba(221,218,195,0.12)'; ctx.fillRect(36, 18, 170, 10);
+        ctx.fillStyle = 'rgba(183,201,210,0.10)'; ctx.fillRect(314, 30, 154, 42);
+        ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.fillRect(0, 124, 512, 36);
+      });
+      const glassM = new THREE.MeshStandardMaterial({ map: mirrorMap, color: 0x9aa5aa, roughness: 0.16, metalness: 0.72 });
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(0.64, 0.20), glassM);
       face.position.set(this.mirror.x, this.mirror.y, this.mirror.z - 0.02);
       face.rotation.y = Math.PI + 0.2;
       this.cabin.add(face);
@@ -324,9 +386,13 @@ export class Bus {
     }
     this.eyeMat = new THREE.MeshBasicMaterial({
       map: textCanvas(256, 96, (ctx) => {
-        ctx.fillStyle = '#0a0b0d'; ctx.fillRect(0, 0, 256, 96);
+        ctx.clearRect(0, 0, 256, 96);
+        // 얼굴은 보여주지 않되, 눈 주위 그림자가 거울 표면에 아주 조금 잠긴다
+        const shade = ctx.createRadialGradient(128, 50, 12, 128, 50, 112);
+        shade.addColorStop(0, 'rgba(5,6,7,0.48)'); shade.addColorStop(0.68, 'rgba(5,6,7,0.22)'); shade.addColorStop(1, 'rgba(5,6,7,0)');
+        ctx.fillStyle = shade; ctx.fillRect(0, 0, 256, 96);
         for (const cx of [82, 174]) {
-          ctx.fillStyle = '#cfc4ae';
+          ctx.fillStyle = 'rgba(207,196,174,0.88)';
           ctx.beginPath(); ctx.ellipse(cx, 48, 27, 14, 0, 0, Math.PI * 2); ctx.fill();
           ctx.fillStyle = '#3a2c1e';
           ctx.beginPath(); ctx.arc(cx, 48, 11, 0, Math.PI * 2); ctx.fill();
@@ -339,9 +405,10 @@ export class Bus {
       }),
       transparent: true,
       opacity: 0,
-      depthTest: false,
+      depthTest: true,
+      depthWrite: false,
     });
-    this.eyes = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.135), this.eyeMat);
+    this.eyes = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.194), this.eyeMat);   // 3.2:1 — 렌더 비율
     this.eyes.position.set(this.mirror.x, this.mirror.y, this.mirror.z - 0.02);
     this.eyes.rotation.y = Math.PI + 0.2;
     this.eyes.renderOrder = 20;
@@ -379,9 +446,39 @@ export class Bus {
 
     // --- 창유리 --- 지금까지 창은 **뚫린 구멍**이었다. 유리가 있어야 먼지·반사가 생기고,
     // 무엇보다 「창밖」과 「창」이 분리된다. 아주 옅게 — 진하면 바깥이 안 보인다
+    const glassMap = textCanvas(512, 512, (ctx) => {
+      ctx.fillStyle = '#afc1c6'; ctx.fillRect(0, 0, 512, 512);
+      // 고무 몰딩 근처 먼지와 빗물이 말라 남은 세로 자국
+      const edge = ctx.createLinearGradient(0, 0, 512, 0);
+      edge.addColorStop(0, 'rgba(72,70,61,0.72)'); edge.addColorStop(0.08, 'rgba(72,70,61,0.08)');
+      edge.addColorStop(0.92, 'rgba(72,70,61,0.08)'); edge.addColorStop(1, 'rgba(72,70,61,0.72)');
+      ctx.fillStyle = edge; ctx.fillRect(0, 0, 512, 512);
+      ctx.strokeStyle = 'rgba(225,232,228,0.20)'; ctx.lineWidth = 3;
+      for (let i = 0; i < 12; i++) {
+        const x = 18 + Math.random() * 476;
+        ctx.beginPath(); ctx.moveTo(x, Math.random() * 90); ctx.bezierCurveTo(x - 5, 180, x + 8, 320, x - 2, 512); ctx.stroke();
+      }
+      for (let i = 0; i < 18; i++) {
+        const x = Math.random() * 512, y = Math.random() * 512, r = 3 + Math.random() * 8;
+        ctx.strokeStyle = 'rgba(88,80,66,0.20)'; ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+      }
+    });
     const glass = new THREE.MeshStandardMaterial({
-      color: 0xc2d0d6, roughness: 0.22, metalness: 0,
-      transparent: true, opacity: 0.13, depthWrite: false,
+      map: glassMap, color: 0xaebfc3, roughness: 0.28, metalness: 0,
+      transparent: true, opacity: 0.18, depthWrite: false,
+    });
+    const reflectionMap = textCanvas(512, 512, (ctx) => {
+      ctx.clearRect(0, 0, 512, 512);
+      const g = ctx.createLinearGradient(0, 0, 512, 512);
+      g.addColorStop(0.18, 'rgba(255,247,220,0)'); g.addColorStop(0.38, 'rgba(255,247,220,0.52)');
+      g.addColorStop(0.43, 'rgba(255,247,220,0.08)'); g.addColorStop(0.62, 'rgba(188,211,223,0.22)');
+      g.addColorStop(0.82, 'rgba(188,211,223,0)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, 512, 512);
+    });
+    this.glassReflectionMat = new THREE.MeshBasicMaterial({
+      map: reflectionMap, color: 0xe8e1cb, transparent: true, opacity: 0.13,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
     });
     for (const side of [-1, 1]) {
       const x = side * (HALF_W - T * 0.5);
@@ -393,6 +490,11 @@ export class Bus {
         pane.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
         pane.renderOrder = 3;
         this.cabin.add(pane);
+        const reflection = new THREE.Mesh(new THREE.PlaneGeometry(b2 - a2 - 0.08, WIN.h - 0.07), this.glassReflectionMat);
+        reflection.position.set(x - side * 0.006, WIN.y, (a2 + b2) / 2);
+        reflection.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+        reflection.renderOrder = 4;
+        this.cabin.add(reflection);
       }
     }
 
@@ -435,7 +537,7 @@ export class Bus {
   }
 
   /** 세트를 켠다 */
-  show(v: boolean) { this.group.visible = v; }
+  show(v: boolean) { if (!this.disposed) this.group.visible = v; }
 
   /**
    * Tripo GLB 로 소품을 갈아끼운다 — 좌석(운전석 포함)·손잡이·핸들.
@@ -443,7 +545,9 @@ export class Bus {
    */
   async load() {
     const loader = Props.loader();
-    void this.outside.load();   // 창밖은 따로 — 실내 소품 로드를 기다리게 하지 않는다
+    // 실내와 병렬로 읽되 load() 완료에는 포함한다. 그래야 타이틀 암전의 프리워밍이
+    // 창밖 Tripo 모델까지 실제로 한 번 그린 뒤 ACT 2로 넘어간다.
+    const outsideReady = this.outside.load();
     try {
       const [seatG, wheelG, strapG] = await Promise.all([
         loader.loadAsync('/models/props/bus-seat.glb'),
@@ -478,21 +582,48 @@ export class Bus {
     await Promise.allSettled(this.fixtures.map(async (f) => {
       const g = await loader.loadAsync(f.url);
       const o = normalize(g.scene, f.h);
+      if (f.width) {
+        const size = new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3());
+        o.scale.x *= f.width / Math.max(0.01, size.x);
+      }
       f.g.clear();
       f.g.add(o);
     }));
+
+    /**
+     * 백미러 속 눈 — `bus-driver-v2.glb` 를 **정면에서 다시 렌더**한 텍스처.
+     *   재현: `scripts/blender/render-driver-reflection.py` → `feather-reflection.mjs` (헤더에 명령)
+     *
+     * 처음 webp 는 기사를 **옆에서** 렌더한 그림이었다(2026-08-26 사용자 리포트
+     * 「기사 백미러가 옆모습으로 되어 있다」). 정면 픽셀이 애초에 없으니 어떤 UV 로 잘라도
+     * 옆얼굴만 나왔고, 「기사가 백미러로 **나를** 오래 바라본다」는 이 컷의 한 줄이 죽었다.
+     * 이제 눈 높이 띠로 **이미 잘라 구웠으므로 크롭(repeat/offset)이 없다** — 통짜로 쓴다.
+     * 가장자리 알파는 페더링돼 있어 얼굴이 거울 어둠에 잠긴다(하드 알파면 스티커로 보인다).
+     * opacity·응시는 기존 `setEyes` 연출이 그대로 몬다. 로드 실패 시 절차 눈으로 남는다.
+     */
+    try {
+      const reflection = await new THREE.TextureLoader().loadAsync('/textures/bus/driver-reflection.webp');
+      reflection.colorSpace = THREE.SRGBColorSpace;
+      reflection.wrapS = reflection.wrapT = THREE.ClampToEdgeWrapping;
+      this.eyeMat.map = reflection;
+      this.eyeMat.color.set(0xbcc9cf);   // 어두운 실내 · 어두운 거울. 이만큼은 올려야 얼굴이 산다
+      this.eyeMat.needsUpdate = true;
+    } catch (e) {
+      console.warn('[bus] 기사 백미러 텍스처 실패 → 절차 눈 유지', e);
+    }
 
     // 기사 — 따로 시도한다. 좌석·손잡이가 이미 왔는데 기사 하나 때문에 다 프리미티브면 아깝다.
     // "no chair, no steering wheel" 지시를 Tripo 가 무시하고 **시트+핸들까지 한 유닛**으로
     // 만들어 줬는데, 오히려 그게 낫다 — 유닛을 통째로 놓고 따로 꽂았던 운전석 의자·핸들을 숨긴다
     try {
-      const driverG = await Props.loader().loadAsync('/models/props/bus-driver.glb');
+      const driverG = await Props.loader().loadAsync(preferGpuCompressedModel('/models/props/bus-driver-v2.glb'));
       const driver = normalize(driverG.scene, 1.42);    // 모자 끝까지 (시트 포함 유닛)
       driver.position.set(0.62, 0, LEN / 2 - 1.05);
       // 유닛의 정면이 90° 틀어져 나온다(기사가 차창 왼쪽을 보고 앉아 있었다 — 사용자 리포트).
       // normalize 는 Tripo +X 를 +Z 로 돌리는데, 이 유닛은 +X 가 기사의 **옆모습**이었다
       driver.rotation.y = DRIVER_YAW;
       this.cabin.add(driver);
+      this.driverModel = driver;
       for (const m of this.driverPrim) m.visible = false;
       this.wheelPrim.visible = false;
       if (this.wheelGlb) this.wheelGlb.visible = false;
@@ -501,6 +632,7 @@ export class Bus {
     } catch (e) {
       console.warn('[bus] 기사 GLB 없음 → 실루엣 유지', e);
     }
+    await outsideReady;
   }
 
   /** 달리는 속도 (0 = 정차). 급정거가 아니라 **감속**이라 목표만 준다 */
@@ -517,6 +649,7 @@ export class Bus {
   setEyes(v: number, stare = false) {
     this.eyeMat.opacity = THREE.MathUtils.clamp(v, 0, 1);
     this.staring = stare;
+    this.driverLookTarget = THREE.MathUtils.clamp(v, 0, 1);
   }
 
   /** 미오의 자리(월드) — 흔들림이 반영된다 */
@@ -526,7 +659,7 @@ export class Bus {
   }
 
   update(dt: number) {
-    if (!this.group.visible) return;
+    if (this.disposed || !this.group.visible) return;
     this.t += dt;
     this.speed += (this.targetSpeed - this.speed) * (1 - Math.exp(-dt * 1.5));
 
@@ -542,6 +675,13 @@ export class Bus {
     const bump = Math.sin(this.t * 5.9) * Math.sin(this.t * 2.2) * 0.012 * road;
     this.cabin.rotation.set(pitch, 0, roll);
     this.cabin.position.set(0, bump, 0);
+    // 유리 반사는 차체와 완전히 고정돼 보이면 스티커 같다. 도로 요철에 따라 아주 약하게 밝기가 돈다
+    this.glassReflectionMat.opacity = 0.11 + road * 0.035 + Math.sin(this.t * 1.4) * 0.012;
+
+    // 거울 속 눈만 켜지는 것이 아니라 실제 기사도 아주 조금 어깨를 틀어 준다.
+    // 전신을 크게 돌리면 운전대를 놓는 동작처럼 보이므로 4도 안쪽으로 제한한다.
+    this.driverLook += (this.driverLookTarget - this.driverLook) * (1 - Math.exp(-dt * 2.2));
+    if (this.driverModel) this.driverModel.rotation.y = DRIVER_YAW - this.driverLook * 0.07;
 
     // 손잡이 — 매달린 것은 차체와 **반대로** 기운다(관성). 위상을 흩어 제각각 흔들리게
     for (const st of this.straps) {
@@ -560,6 +700,35 @@ export class Bus {
       if (this.blinkT < -0.11) this.blinkT = 2.6 + Math.random() * 2.4;
       this.eyes.scale.y = this.blinkT < 0 ? 0.12 : 1;
     } else this.eyes.scale.y = 1;
+  }
+
+  /**
+   * ACT 2 종료 뒤 버스는 다시 등장하지 않는다. 숨기기만 하면 GLB의 텍스처와 절차 캔버스가
+   * GPU에 계속 남으므로, 버스 전용 자원을 중복 없이 해제하고 씬에서도 제거한다.
+   */
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.group.visible = false;
+    this.group.removeFromParent();
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+    const textures = new Set<THREE.Texture>();
+    this.group.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      geometries.add(mesh.geometry);
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of mats) {
+        materials.add(mat);
+        for (const value of Object.values(mat)) {
+          if ((value as THREE.Texture | undefined)?.isTexture) textures.add(value as THREE.Texture);
+        }
+      }
+    });
+    for (const texture of textures) texture.dispose();
+    for (const material of materials) material.dispose();
+    for (const geometry of geometries) geometry.dispose();
   }
 }
 

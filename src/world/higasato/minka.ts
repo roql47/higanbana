@@ -3,6 +3,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { Physics } from '@/core/physics';
 import { makeHouseMaterials, type HouseMaterials } from '../village/houseMaterials';
 import { LANES, ROUTES, type HigasatoGround, type Path } from './ground';
+import { makeHiganbanaFlower } from '@/world/village/higanbana';
+import { makeLantern } from '@/light/chochin';
 
 /**
  * 민가(民家) — 골목에 늘어선 마을 집들.
@@ -63,14 +65,13 @@ export class Hamlet {
    * 한 처마에 등불이 둘이면 「하나를 떼어 든다」가 아니라 「둘 중 하나가 사라졌다」가 된다.
    * 물려받은 자리의 상시 등불은 `dropLantern()` 으로 걷는다.
    */
-  readonly lanternHosts = new Map<MinkaSpec, { body: THREE.Mesh; light: THREE.PointLight }>();
+  readonly lanternHosts = new Map<MinkaSpec, { body: THREE.Group; light: THREE.PointLight }>();
 
   /** 상시 등불을 걷는다 (그 자리에 획득용 초칭이 걸린다) */
   dropLantern(h: MinkaSpec) {
     const e = this.lanternHosts.get(h);
     if (!e) return null;
     this.group.remove(e.body, e.light);
-    e.body.geometry.dispose();
     e.light.dispose();
     const i = this.lights.indexOf(e.light);
     if (i >= 0) this.lights.splice(i, 1);
@@ -80,6 +81,12 @@ export class Hamlet {
   /** 처마 밑 등불 (몇 채만) */
   private lights: THREE.PointLight[] = [];
   private lanternMat: THREE.MeshStandardMaterial;
+  private corruptLanternMat: THREE.MeshStandardMaterial;
+  private breachFlowers: THREE.InstancedMesh;
+  private breachFlowerData: { x: number; y: number; z: number; yaw: number; scale: number }[] = [];
+  private breachDummy = new THREE.Object3D();
+  private breachStarted = Number.POSITIVE_INFINITY;
+  private storyStage = 0;
   private t = 0;
 
   constructor(scene: THREE.Scene, physics: Physics, ground: HigasatoGround, opts: { lanterns?: number } = {}) {
@@ -124,6 +131,9 @@ export class Hamlet {
     this.lanternMat = new THREE.MeshStandardMaterial({
       color: 0xf0d8a8, emissive: new THREE.Color(0xffb060), emissiveIntensity: 1.1, roughness: 0.9,
     });
+    this.corruptLanternMat = new THREE.MeshStandardMaterial({
+      color: 0x7a1115, emissive: new THREE.Color(0xff1018), emissiveIntensity: 1.35, roughness: 0.82,
+    });
     const want = opts.lanterns ?? 5;
     const step = Math.max(1, Math.floor(this.houses.length / want));
     for (let i = 0; i < this.houses.length && this.lights.length < want; i += step) {
@@ -131,8 +141,8 @@ export class Hamlet {
       const fx = Math.sin(h.yaw), fz = Math.cos(h.yaw);
       const gx = h.x + fx * (h.d / 2 + 0.35), gz = h.z + fz * (h.d / 2 + 0.35);
       const gy = ground.heightAt(h.x, h.z) + 2.25;
-      const body = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), this.lanternMat);
-      body.scale.set(1, 1.25, 1);
+      // 처마 등불도 플레이어가 떼어 드는 것과 같은 Tripo 초칭. 로드 전에는 절차 모델이 폴백한다.
+      const { paper: body } = makeLantern(0.34, this.lanternMat, [this.corruptLanternMat]);
       body.position.set(gx, gy, gz);
       this.group.add(body);
       const l = new THREE.PointLight(0xffb060, 1.25, 7.5, 2);
@@ -143,6 +153,30 @@ export class Hamlet {
       this.group.add(l);
     }
 
+    // ACT 11의 「벽과 다다미 사이」를 외부에서도 읽을 수 있도록, 민가 문지방과 벽 하단의
+    // 틈마다 피안화를 미리 심어 두고 세 번째 봉납 순간에만 자라게 한다.
+    for (let i = 0; i < Math.min(20, this.houses.length); i++) {
+      const h = this.houses[i]!;
+      const fx = Math.sin(h.yaw), fz = Math.cos(h.yaw);
+      const rx = Math.cos(h.yaw), rz = -Math.sin(h.yaw);
+      const side = ((i % 5) - 2) * 0.31;
+      // 툇마루는 정면으로 약 1.03 m 나온다. 예전 0.28 m 는 마루판 **안쪽**이라 꽃이
+      // 찻잔·게다와 같은 생활 소품을 뚫었다. 마루가 있는 집은 바깥 모서리의 흙 틈에 심는다.
+      const front = h.d / 2 + (h.engawa ? 1.18 : 0.28);
+      const x = h.x + fx * front + rx * side;
+      const z = h.z + fz * front + rz * side;
+      this.breachFlowerData.push({ x, y: ground.heightAt(x, z) - 0.03, z, yaw: h.yaw + i * 1.73, scale: 0.75 + (i % 4) * 0.08 });
+    }
+    this.breachFlowers = new THREE.InstancedMesh(
+      makeHiganbanaFlower(),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, emissive: new THREE.Color(0xff1f32), emissiveIntensity: 0.85, roughness: 0.66, side: THREE.DoubleSide }),
+      this.breachFlowerData.length,
+    );
+    this.breachFlowers.name = 'hamlet-breach-higanbana';
+    this.breachFlowers.frustumCulled = false;
+    this.group.add(this.breachFlowers);
+    this.updateBreachFlowers();
+
     this.group.name = 'hamlet';
     scene.add(this.group);
   }
@@ -151,9 +185,55 @@ export class Hamlet {
     this.t += dt;
     const f = 0.86 + 0.14 * Math.sin(this.t * 5.7) * Math.sin(this.t * 2.1);
     this.lanternMat.emissiveIntensity = 1.1 * f;
+    this.corruptLanternMat.emissiveIntensity = 1.35 * (0.82 + 0.18 * Math.sin(this.t * 7.1));
     for (let i = 0; i < this.lights.length; i++) {
       this.lights[i]!.intensity = 1.25 * (0.88 + 0.12 * Math.sin(this.t * 4.3 + i * 1.7));
     }
+    this.updateBreachFlowers();
+  }
+
+  /** 봉납 2: 일부 등불이 붉게 변함 / 봉납 3: 민가 틈에서 피안화가 자람. */
+  setStoryStage(stage: number) {
+    const prev = this.storyStage;
+    this.storyStage = Math.max(0, stage);
+    if (prev < 3 && this.storyStage >= 3) this.breachStarted = this.t;
+    if (this.storyStage < 3) this.breachStarted = Number.POSITIVE_INFINITY;
+    let i = 0;
+    for (const { body, light } of this.lanternHosts.values()) {
+      const corrupted = this.storyStage >= 3 || (this.storyStage >= 2 && i % 2 === 0);
+      body.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh) mesh.material = corrupted ? this.corruptLanternMat : this.lanternMat;
+      });
+      light.color.setHex(corrupted ? 0xff1820 : 0xffb060);
+      i++;
+    }
+    this.updateBreachFlowers();
+  }
+
+  private updateBreachFlowers() {
+    // 봉납 3 전에는 세로 스케일만 0.001인 꽃을 계속 제출하지 않는다. 완전히 숨기면
+    // 드로우콜뿐 아니라 20개 인스턴스 행렬 갱신도 사라지고, 성장 시작 프레임부터 다시 켜진다.
+    const active = Number.isFinite(this.breachStarted);
+    this.breachFlowers.visible = active;
+    if (!active) return;
+    for (let i = 0; i < this.breachFlowerData.length; i++) {
+      const d = this.breachFlowerData[i]!;
+      const elapsed = this.t - this.breachStarted - i * 0.055;
+      const u = Number.isFinite(elapsed) ? THREE.MathUtils.clamp(elapsed / 1.6, 0, 1) : 0;
+      const grow = u * u * (3 - 2 * u);
+      this.breachDummy.position.set(d.x, d.y, d.z);
+      this.breachDummy.rotation.set(0, d.yaw, 0);
+      this.breachDummy.scale.set(d.scale * (0.18 + 0.82 * grow), Math.max(0.001, d.scale * grow), d.scale * (0.18 + 0.82 * grow));
+      this.breachDummy.updateMatrix();
+      this.breachFlowers.setMatrixAt(i, this.breachDummy.matrix);
+    }
+    this.breachFlowers.instanceMatrix.needsUpdate = true;
+  }
+
+  /** 로딩 프리워밍 동안만 숨은 재질을 컴파일한다. 종료 시 실제 서사 상태로 되돌린다. */
+  setHiddenEffectPrewarm(on: boolean) {
+    this.breachFlowers.visible = on || Number.isFinite(this.breachStarted);
   }
 
   get count() { return this.houses.length; }
@@ -288,13 +368,20 @@ function buildMinka(m: MinkaSpec, tex: HouseMaterials, parts: Part[], physics: P
   /** 로컬 → 월드 변환을 적용해 등록 */
   const put = (g: THREE.BufferGeometry, mat: THREE.Material, su: number, sv: number, swap = false) => {
     projectUV(g, su, sv, swap);
-    grunge(g, FLOOR + WALL);
+    grunge(g, FLOOR + WALL, mat === tex.mud, m.seed);
     g.applyQuaternion(q);
     g.translate(m.x, gy, m.z);
     parts.push({ geo: g, mat });
   };
   const box = (w: number, h: number, d: number, x: number, y: number, z: number) => {
     const g = new THREE.BoxGeometry(w, h, d, segs(w), segs(h), segs(d));
+    g.translate(x, y, z);
+    return g;
+  };
+  // 처마·장지 살처럼 가는 모듈은 세분화하지 않는다. 집 수십 채에서 작은 박스를 잘게 나누면
+  // 버텍스만 늘고 실루엣은 같기 때문이다. 최종 메시 병합은 put()이 그대로 맡는다.
+  const simpleBox = (w: number, h: number, d: number, x: number, y: number, z: number) => {
+    const g = new THREE.BoxGeometry(w, h, d);
     g.translate(x, y, z);
     return g;
   };
@@ -331,9 +418,46 @@ function buildMinka(m: MinkaSpec, tex: HouseMaterials, parts: Part[], physics: P
         // 문이 빠진 칸: 안쪽의 어둠 (판을 뒤로 물려 그림자 상자를 만든다)
         put(box(bayW - 0.14, WALL - 0.55, 0.1, cx, wallY0 + (WALL - 0.55) / 2 + 0.1, hd - 0.55), tex.plankDark, 1.4, 1.2);
       } else {
-        const g = new THREE.PlaneGeometry(bayW - 0.16, WALL - 0.6, 2, 2);
-        g.translate(cx, wallY0 + (WALL - 0.6) / 2 + 0.1, hd - 0.03);
-        put(g, tex.shojiMat, 1.0, 1.0);
+        const panelW = bayW - 0.16, panelH = WALL - 0.6;
+        // 집 다섯 칸 중 한 칸만 찢는다. RNG 호출을 추가하지 않아 기존 누름돌·소품 배치 시드는 보존한다.
+        const damaged = ((m.seed >>> 2) + i * 7) % 5 === 0;
+        if (!damaged) {
+          const g = new THREE.PlaneGeometry(panelW, panelH, 2, 2);
+          g.translate(cx, wallY0 + panelH / 2 + 0.1, hd - 0.03);
+          put(g, tex.shojiMat, 1.0, 1.0);
+        } else {
+          const variant = ((m.seed >>> 5) + i) & 3;
+          // 종이 뒤 32 cm에 검은 면을 물린다. 구멍 너머로 반대편 지형이 보이는 것을 막으면서
+          // 실제 종이와 백킹 사이에는 깊이가 남아 초칭을 비추면 찢어진 가장자리가 읽힌다.
+          put(simpleBox(panelW, panelH, 0.055, cx, wallY0 + panelH / 2 + 0.1, hd - 0.35), tex.plankDark, 0.7, 0.7);
+          const paper = tornShojiPaper(panelW, panelH, variant);
+          paper.translate(cx, wallY0 + panelH / 2 + 0.1, hd - 0.025);
+          put(paper, tex.shojiMat, 1.0, 1.0);
+
+          // 찢어진 칸만 얇은 나무 살을 실제 지오메트리로 세운다. 한 세로살은 중간이 부러져
+          // 위·아래 조각이 어긋나고, 가로살 하나도 빠져 네모난 텍스처 구멍처럼 보이지 않는다.
+          const cols = 4, rows = 6;
+          const brokenV = 1 + variant % (cols - 1);
+          const missingH = 1 + (variant * 2) % (rows - 1);
+          for (let c = 1; c < cols; c++) {
+            const x = cx - panelW / 2 + panelW * c / cols;
+            if (c !== brokenV) {
+              put(simpleBox(0.028, panelH, 0.038, x, wallY0 + panelH / 2 + 0.1, hd - 0.004), tex.timber, 1.2, 0.42, true);
+              continue;
+            }
+            const lowerH = panelH * 0.36, upperH = panelH * 0.42;
+            const lower = simpleBox(0.028, lowerH, 0.038, 0, 0, 0);
+            lower.rotateZ((variant & 1 ? -1 : 1) * 0.07);
+            lower.translate(x + (variant & 1 ? -0.025 : 0.025), wallY0 + lowerH / 2 + 0.1, hd - 0.004);
+            put(lower, tex.timber, 1.2, 0.42, true);
+            put(simpleBox(0.028, upperH, 0.038, x, wallY0 + panelH - upperH / 2 + 0.1, hd - 0.004), tex.timber, 1.2, 0.42, true);
+          }
+          for (let r = 1; r < rows; r++) {
+            if (r === missingH) continue;
+            const y = wallY0 + 0.1 + panelH * r / rows;
+            put(simpleBox(panelW, 0.026, 0.038, cx, y, hd - 0.004), tex.timber, 1.2, 0.42);
+          }
+        }
       }
       // 칸을 나누는 기둥
       if (i > 0) put(box(0.11, WALL, 0.13, -hw + bayW * i, wallY0 + WALL / 2, hd - 0.03), tex.timber, 1.6, 0.5, true);
@@ -371,6 +495,22 @@ function buildMinka(m: MinkaSpec, tex: HouseMaterials, parts: Part[], physics: P
 
   // ---------- 지붕 ----------
   const ra = hw + EAVE, rb = hd + EAVE;
+  /** 처마 밑에 드러나는 서까래. 모든 조각은 timber 배치로 병합되므로 드로우콜은 늘지 않는다. */
+  const exposedRafters = (rise: number, roofBase: number) => {
+    const run = EAVE + 0.36;
+    const liftAtWall = rise * Math.min(1, EAVE / rb);
+    const angle = Math.atan2(liftAtWall, run);
+    const count = Math.max(5, Math.ceil(m.w / 0.72));
+    for (let i = 0; i <= count; i++) {
+      const x = -hw + m.w * i / count;
+      for (const side of [-1, 1]) {
+        const g = new THREE.BoxGeometry(0.07, 0.065, run);
+        g.rotateX(side * angle);
+        g.translate(x, roofBase + liftAtWall * 0.5 - 0.045, side * (hd + run * 0.5 - 0.08));
+        put(g, tex.timber, 1.5, 0.42, true);
+      }
+    }
+  };
   if (m.roof === 'thatch') {
     // 茅葺 — 두껍고 가파르다(45°+). 억새는 모서리가 둥글어 처마 끝이 두껍다
     const rise = Math.min(rb, 3.4) * 1.15;
@@ -379,6 +519,33 @@ function buildMinka(m: MinkaSpec, tex: HouseMaterials, parts: Part[], physics: P
     put(rg, tex.thatch, 1.5, 2.4);
     // 처마 끝 두께 (억새 단면)
     put(box(ra * 2, 0.34, rb * 2, 0, wallY1 + 0.3, 0), tex.thatch, 1.6, 1.6);
+    exposedRafters(rise, wallY1 + 0.3);
+    // 억새 처마의 아래 선을 한 장의 반듯한 박스로 두지 않는다. 35~48 cm 다발을 따라
+    // 길이와 기울기가 조금씩 다른 얇은 조각을 덧대 실루엣만 불규칙하게 만든다.
+    const bundleCount = Math.max(10, Math.ceil(ra * 2 / 0.42));
+    const bundleW = ra * 2 / bundleCount;
+    for (const side of [-1, 1]) for (let i = 0; i < bundleCount; i++) {
+      const h = hash01(m.seed * 97 + i * 17 + (side > 0 ? 13 : 0));
+      if (h < 0.055) continue; // 드문 빈 틈
+      const drop = 0.19 + h * 0.18;
+      const x = -ra + bundleW * (i + 0.5);
+      const g = new THREE.BoxGeometry(bundleW * 1.04, drop, 0.13);
+      g.rotateZ((h - 0.5) * 0.075);
+      g.translate(x, wallY1 + 0.32 - drop / 2, side * (rb - 0.015));
+      put(g, tex.thatch, 1.25, 1.3);
+    }
+    const sideBundles = Math.max(7, Math.ceil(rb * 2 / 0.48));
+    const sideW = rb * 2 / sideBundles;
+    for (const side of [-1, 1]) for (let i = 0; i < sideBundles; i++) {
+      const h = hash01(m.seed * 131 + i * 23 + (side > 0 ? 19 : 0));
+      if (h < 0.06) continue;
+      const drop = 0.18 + h * 0.16;
+      const z = -rb + sideW * (i + 0.5);
+      const g = new THREE.BoxGeometry(0.13, drop, sideW * 1.04);
+      g.rotateX((h - 0.5) * 0.065);
+      g.translate(side * (ra - 0.015), wallY1 + 0.32 - drop / 2, z);
+      put(g, tex.thatch, 1.25, 1.3);
+    }
     // 용마루 (棟) — 억새 지붕의 서명. 마루 위에 얹은 누름대
     put(box(ra * 0.9, 0.3, 0.5, 0, wallY1 + 0.3 + rise, 0), tex.plankDark, 1.6, 1.2);
   } else {
@@ -388,6 +555,7 @@ function buildMinka(m: MinkaSpec, tex: HouseMaterials, parts: Part[], physics: P
     rg.translate(0, wallY1 + 0.22, 0);
     put(rg, tex.plankDark, 2.4, 1.4);
     put(box(ra * 2, 0.16, rb * 2, 0, wallY1 + 0.22, 0), tex.plankDark, 2.2, 1.4);
+    exposedRafters(rise, wallY1 + 0.22);
     // 누름돌
     for (let i = 0; i < 9; i++) {
       const sx = rnd(rng, -ra * 0.8, ra * 0.8), sz = rnd(rng, -rb * 0.75, rb * 0.75);
@@ -453,6 +621,62 @@ function buildLaneProps(houses: MinkaSpec[], tex: HouseMaterials, parts: Part[],
 }
 
 // ---------------------------------------------------------------- 지오메트리
+
+/**
+ * 장지 4×6 칸 중 몇 칸을 완전히 비우고 주변 칸은 삼각 종이 조각만 남긴다.
+ * 알파 텍스처나 별도 셰이더 없이 실제 구멍을 내므로 오버드로와 새 재질이 없다.
+ */
+function tornShojiPaper(w: number, h: number, variant: number): THREE.BufferGeometry {
+  const COLS = 4, ROWS = 6;
+  const holes = [
+    [9, 10, 14],
+    [6, 10, 11],
+    [12, 16, 17],
+    [3, 6, 7],
+  ][variant & 3]!;
+  const partials = [
+    [8, 13, 15],
+    [5, 7, 14],
+    [8, 13, 18],
+    [2, 10, 11],
+  ][variant & 3]!;
+  const holeSet = new Set(holes), partialSet = new Set(partials);
+  const pos: number[] = [];
+  const tri = (a: [number, number], b: [number, number], c: [number, number]) => {
+    pos.push(a[0], a[1], 0, b[0], b[1], 0, c[0], c[1], 0);
+  };
+  const quad = (bl: [number, number], br: [number, number], tr: [number, number], tl: [number, number]) => {
+    tri(bl, br, tr); tri(bl, tr, tl);
+  };
+  const cw = w / COLS, rh = h / ROWS, inset = 0.006;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const index = r * COLS + c;
+    if (holeSet.has(index)) continue;
+    const x0 = -w / 2 + c * cw + inset, x1 = -w / 2 + (c + 1) * cw - inset;
+    const y0 = -h / 2 + r * rh + inset, y1 = -h / 2 + (r + 1) * rh - inset;
+    const bl: [number, number] = [x0, y0], br: [number, number] = [x1, y0];
+    const tr: [number, number] = [x1, y1], tl: [number, number] = [x0, y1];
+    if (!partialSet.has(index)) { quad(bl, br, tr, tl); continue; }
+    // 네 방향으로 다른 삼각 조각을 남겨 찢어진 가장자리가 격자에 딱 맞지 않게 한다.
+    switch ((index + variant) & 3) {
+      case 0: tri(bl, br, tl); break;
+      case 1: tri(bl, br, tr); break;
+      case 2: tri(bl, tr, tl); break;
+      default: tri(br, tr, tl); break;
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array((pos.length / 3) * 2).fill(0), 2));
+  g.computeVertexNormals();
+  return g;
+}
+
+/** RNG 소비 순서를 건드리지 않는 위치별 0..1 해시. */
+function hash01(seed: number) {
+  const v = Math.sin(seed * 12.9898) * 43758.5453;
+  return v - Math.floor(v);
+}
 
 /** 우진각(寄棟) 지붕 — 억새 지붕의 실루엣. 용마루가 x 축을 따른다 */
 function hipRoof(a: number, b: number, h: number, ridgeFrac: number): THREE.BufferGeometry {
@@ -528,7 +752,7 @@ function subdivide(g: THREE.BufferGeometry, target: number): THREE.BufferGeometr
  * UV 를 로컬 스페이스로 다시 쓴다. BoxGeometry 기본 UV 는 면 크기와 무관하게 0..1 이라
  * 8 m 벽과 16 cm 기둥이 같은 텍셀 밀도를 못 갖는다 — 긴 면이 그대로 늘어난다.
  */
-function projectUV(g: THREE.BufferGeometry, su: number, sv: number, swap = false) {
+export function projectUV(g: THREE.BufferGeometry, su: number, sv: number, swap = false) {
   const pos = g.attributes['position'] as THREE.BufferAttribute;
   const nrm = g.attributes['normal'] as THREE.BufferAttribute | undefined;
   if (!nrm) g.computeVertexNormals();
@@ -551,9 +775,10 @@ function projectUV(g: THREE.BufferGeometry, su: number, sv: number, swap = false
  * 버텍스 컬러 그런지. 재질이 `vertexColors: true` 라 **색 속성이 반드시 있어야 한다**.
  * 아래로 갈수록 흙이 튄 자국, 위로 갈수록 그을음, 저주파 얼룩 — 타일 반복을 깨는 것도 이 역할이다.
  */
-function grunge(g: THREE.BufferGeometry, top: number) {
+export function grunge(g: THREE.BufferGeometry, top: number, dampWall = false, seed = 0) {
   const pos = g.attributes['position'] as THREE.BufferAttribute;
   const col = new Float32Array(pos.count * 3);
+  const phase = (Math.abs(seed) % 997) * 0.0137;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
     // 지면 근처 = 흙탕물 자국 → 허리 위로 회복. 밤 + 점광원 하나라 여기서 더 깎으면 그냥 검은 덩어리가 된다
@@ -561,9 +786,20 @@ function grunge(g: THREE.BufferGeometry, top: number) {
     // 벽 위쪽(처마 밑)이 살짝 그늘진다 — 지붕까지 어둡게 하면 실루엣이 사라진다
     const under = 1 - 0.12 * Math.min(1, Math.max(0, (y - top * 0.65) / (top * 0.5)));
     // 저주파 얼룩 — 타일 반복을 깨는 역할도 겸한다
-    const blot = 0.92 + 0.08 * Math.sin(x * 1.7 + z * 2.3) * Math.cos(z * 1.1 - y * 0.7);
+    const blot = 0.92 + 0.08 * Math.sin(x * 1.7 + z * 2.3 + phase) * Math.cos(z * 1.1 - y * 0.7 - phase * 0.37);
     const v = ground * under * blot;
-    col[i * 3] = v; col[i * 3 + 1] = v * 0.985; col[i * 3 + 2] = v * 0.96;  // 살짝 따뜻하게
+    if (dampWall) {
+      // 흙벽만 하단 습기와 처마 밑 냉기를 더한다. 별도 데칼·셰이더 없이 기존 버텍스 컬러에
+      // 얹으므로 민가 전체 드로우콜과 텍스처 샘플 수는 그대로다.
+      const baseWet = 1 - Math.min(1, Math.max(0, (y - 0.18) / 1.15));
+      const drip = 0.5 + 0.5 * Math.sin(x * 2.7 + z * 1.9 + Math.sin(x * 0.8 + phase) * 1.4 + phase);
+      const wet = baseWet * (0.35 + drip * 0.65);
+      col[i * 3] = v * (1 - wet * 0.16);
+      col[i * 3 + 1] = v * (0.985 - wet * 0.035);
+      col[i * 3 + 2] = v * (0.96 - wet * 0.015);
+    } else {
+      col[i * 3] = v; col[i * 3 + 1] = v * 0.985; col[i * 3 + 2] = v * 0.96;  // 살짝 따뜻하게
+    }
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
 }

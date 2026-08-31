@@ -7,10 +7,33 @@ import { clamp } from '@/core/math';
 export type LocoState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'variation';
 
 export interface AnimEvents {
-  onFootstep?: (foot: 'L' | 'R', speed: number) => void;
+  onFootstep?: (foot: 'L' | 'R', speed: number, position: THREE.Vector3) => void;
   onJump?: () => void;
   onLand?: (impact: number) => void;
 }
+
+type GaitState = 'walk' | 'run';
+type FootstepMarker = { phase: number; foot: 'L' | 'R' };
+
+/**
+ * `mio.glb` 이동 클립에서 추출한 실제 접지 위상. 두 클립 모두 한 루프에 네 번 디딘다.
+ * 발목 높이 임계값은 크로스페이드 중 한쪽 발이 선을 넘지 못하면 이후 소리가 빠졌지만,
+ * 위상 마커는 프레임이 건너뛰어도 통과한 모든 접지를 복원한다.
+ */
+const FOOTSTEP_MARKERS: Record<GaitState, readonly FootstepMarker[]> = {
+  walk: [
+    { phase: 0.000, foot: 'L' },
+    { phase: 0.254, foot: 'R' },
+    { phase: 0.506, foot: 'L' },
+    { phase: 0.775, foot: 'R' },
+  ],
+  run: [
+    { phase: 0.000, foot: 'R' },
+    { phase: 0.233, foot: 'L' },
+    { phase: 0.500, foot: 'R' },
+    { phase: 0.715, foot: 'L' },
+  ],
+};
 
 /**
  * 이동 상태 → 클립 선택 + 크로스페이드 + 속도 동기화(발 미끄러짐 억제) + 발 접지 이벤트 + idle 변주.
@@ -23,14 +46,11 @@ export class CharacterAnimator {
   private airTime = 0;
   private idleTime = 0;
   private nextVariationAt = 0;
+  private footstepState: GaitState | null = null;
+  private footstepPhase = 0;
   private footL: THREE.Object3D | null = null;
   private footR: THREE.Object3D | null = null;
-  private footDownL = false;
-  private footDownR = false;
-  private footCooldownL = 0;
-  private footCooldownR = 0;
-  private tmp = new THREE.Vector3();
-  private inv = new THREE.Matrix4();
+  private footWorld = new THREE.Vector3();
 
   constructor(private model: CharacterModel, private events: AnimEvents = {}) {
     model.root.traverse((o) => {
@@ -131,34 +151,55 @@ export class CharacterAnimator {
     const a = settings.animation;
     // 고개 보정 목표 (상태별)
     const hc = settings.character;
-    this.model.headPitchTarget = !ctrl.grounded ? hc.headPitchAir : this.state === 'run' ? hc.headPitchRun : this.state === 'walk' ? hc.headPitchWalk : hc.headPitchIdle;
-    this.model.spinePitchTarget = !ctrl.grounded ? hc.spinePitchAir : this.state === 'run' ? hc.spinePitchRun : this.state === 'walk' ? hc.spinePitchWalk : hc.spinePitchIdle;
+    /**
+     * 보정량은 **지금 재생 중인 클립**을 따라간다 — 컨트롤러의 접지 상태가 아니라.
+     * 이 값은 클립 자체의 리그 편향을 상쇄하는 상수라, 클립은 그대로인데 보정만 바뀌면
+     * 그 차이가 **그대로 자세로 나온다**. 달리다 턱을 넘어 `fallDelay`(0.18 s) 안쪽으로 뜨면
+     * 위 상태머신은 run 을 유지하는데(= run 클립 계속 재생), 예전 코드는 `!grounded` 만 보고
+     * headPitchAir(0.28)로 내려가 run 원본의 뒤로 젖힌 머리가 **14° 도로 드러났다**.
+     */
+    const air = this.state === 'jump' || this.state === 'fall';
+    this.model.headPitchTarget = air ? hc.headPitchAir : this.state === 'run' ? hc.headPitchRun : this.state === 'walk' ? hc.headPitchWalk : hc.headPitchIdle;
+    this.model.spinePitchTarget = air ? hc.spinePitchAir : this.state === 'run' ? hc.spinePitchRun : this.state === 'walk' ? hc.spinePitchWalk : hc.spinePitchIdle;
     // 속도 동기화
     if (this.state === 'walk') this.model.setTimeScale('walk', clamp(speed / a.walkClipSpeed, 0.6, 2.0));
     else if (this.state === 'run') this.model.setTimeScale('run', clamp(speed / a.runClipSpeed, 0.6, 1.8));
 
-    // 발 접지 이벤트 (발목 본의 루트 기준 높이가 임계 아래로 내려오는 순간)
-    if ((this.state === 'walk' || this.state === 'run') && ctrl.grounded) {
-      const thr = this.state === 'walk' ? a.footContactWalk : a.footContactRun;
-      this.footCooldownL -= dt; this.footCooldownR -= dt;
-      this.inv.copy(this.model.root.matrixWorld).invert();
-      const check = (foot: THREE.Object3D | null, side: 'L' | 'R') => {
-        if (!foot) return;
-        foot.getWorldPosition(this.tmp).applyMatrix4(this.inv);
-        const down = this.tmp.y < thr;
-        const was = side === 'L' ? this.footDownL : this.footDownR;
-        const cd = side === 'L' ? this.footCooldownL : this.footCooldownR;
-        if (down && !was && cd <= 0) {
-          this.events.onFootstep?.(side, speed);
-          if (side === 'L') this.footCooldownL = 0.18; else this.footCooldownR = 0.18;
-        }
-        if (side === 'L') this.footDownL = down; else this.footDownR = down;
-      };
-      check(this.footL, 'L');
-      check(this.footR, 'R');
-    } else {
-      this.footDownL = this.footDownR = true; // 다음 접지부터 다시 감지
+  }
+
+  /**
+   * 렌더할 포즈가 완성된 뒤 호출한다. 상태·배속을 먼저 결정하고 모델 믹서를 갱신한 다음
+   * 같은 프레임의 발 위치로 소리를 내야 발이 땅에 닿는 화면과 임팩트가 어긋나지 않는다.
+   */
+  updateFootsteps(ctrl: CharacterController) {
+    const speed = ctrl.horizontalSpeed;
+    const gait: GaitState | null = this.state === 'walk' || this.state === 'run' ? this.state : null;
+    if (!gait || !ctrl.grounded || this.model.currentClip !== gait) {
+      this.footstepState = null;
+      return;
     }
+
+    const action = this.model.actions.get(gait);
+    const duration = action?.getClip().duration ?? 0;
+    if (!action || duration <= 1e-5) return;
+
+    const phase = ((action.time / duration) % 1 + 1) % 1;
+    const from = this.footstepState === gait ? this.footstepPhase : -1e-6;
+    const markers = FOOTSTEP_MARKERS[gait];
+    // 루프 경계를 넘은 경우에는 끝쪽 마커를 먼저, 시작쪽 마커를 그다음 재생한다.
+    const crossed = phase >= from
+      ? markers.filter((m) => m.phase > from && m.phase <= phase)
+      : [...markers.filter((m) => m.phase > from), ...markers.filter((m) => m.phase <= phase)];
+    if (crossed.length) this.model.root.updateWorldMatrix(true, true);
+    for (const marker of crossed) {
+      const bone = marker.foot === 'L' ? this.footL : this.footR;
+      if (bone) bone.getWorldPosition(this.footWorld);
+      else this.footWorld.copy(ctrl.position);
+      this.events.onFootstep?.(marker.foot, speed, this.footWorld);
+    }
+
+    this.footstepState = gait;
+    this.footstepPhase = phase;
   }
 
   private fadeFor(from: LocoState, to: LocoState) {

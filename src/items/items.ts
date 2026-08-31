@@ -94,4 +94,53 @@ export const ITEMS: Record<string, ItemDef> = {
       '幼いミオと姉。姉の顔だけが水に滲んだように消えている。'),
     icon: '🖼️',
   },
+  phone: {
+    id: 'phone',
+    name: L('미오의 휴대폰', 'ミオの携帯電話'),
+    type: 'record',
+    desc: L('신호가 잡히지 않는다. 시각은 여전히 15:04에 멈춰 있다.',
+      '圏外のまま。時刻は今も15:04で止まっている。'),
+    // Tripo 로 만든 2000년대 후반 일본식 휴대폰. 썸네일은 같은 모델의 생성 렌더라
+    // 인벤을 여는 즉시 뜨고, model 경로는 3D 프리뷰/손 소품에서 그대로 재사용한다.
+    icon: '/textures/items/phone-mio.webp',
+    model: '/models/props/phone-mio.glb',
+  },
+  suzu: {
+    id: 'suzu', name: L('붉은 방울', '赤い鈴'), type: 'misc', icon: '🔔',
+    desc: L('오래된 사당에서 얻었다. 들고 있는 동안 요괴가 소리를 더 쉽게 알아챈다。', '古い祠で手に入れた。運んでいる間、妖怪に気づかれやすい。'),
+    model: '/models/props/offer-suzu.glb',
+  },
+  kushi: {
+    id: 'kushi', name: L('붉은 머리빗', '赤い櫛'), type: 'misc', icon: '🪮',
+    desc: L('폐교 피아노 위에 놓여 있던 붉은 빗. 이 사이에 긴 머리카락이 걸려 있다.', '廃校のピアノに置かれていた赤い櫛。歯に長い髪が絡んでいる。'),
+    model: '/models/props/offer-kushi.glb',
+  },
+  coins: {
+    id: 'coins', name: L('동전 세 닢', '三枚の銭'), type: 'misc', icon: '🪙',
+    desc: L('우물 아래 석대에서 찾았다. 세 닢 모두 검은 물때가 같은 방향으로 번져 있다.', '井戸の下の石台で見つけた。三枚とも黒い水垢が同じ方向へ滲んでいる。'),
+    model: '/models/props/offer-coins.glb',
+  },
+  geta: {
+    id: 'geta', name: L('아이의 게다', '子どもの下駄'), type: 'misc', icon: '🩴',
+    desc: L('이름 없는 아이 무덤에 남겨진 작은 게다 한 짝.', '名のない子どもの墓に残された、小さな下駄の片方。'),
+    model: '/models/props/offer-geta.glb',
+  },
+  kagami: {
+    id: 'kagami', name: L('깨진 거울', '割れた鏡'), type: 'misc', icon: '🪞',
+    desc: L('현재가 아니라 열 해 전의 모습을 비추는 깨진 손거울.', '現在ではなく、十年前の姿を映す割れた手鏡。'),
+    model: '/models/props/offer-kagami.glb',
+  },
+  fuda: {
+    id: 'fuda', name: L('제문과 봉인패', '祭文と封印札'), type: 'misc', icon: '📜',
+    desc: L('촌장의 저택에서 찾았다. 받침대가 이 물건만은 받아들이지 않는다.', '村長の屋敷で見つけた。台座はこれだけを受け入れない。'),
+    model: '/models/props/offer-fuda.glb',
+  },
+  wakyo: {
+    id: 'wakyo',
+    name: L('와쿄(和鏡)', '和鏡'),
+    type: 'record',
+    desc: L('손잡이 없는 옛 청동 거울. 뒷면에 학과 소나무가 돋을새김돼 있다. 비추면 — 탄 것이 비치지 않는다.',
+      '柄のない古い青銅鏡。裏に鶴と松の浮き彫り。映すと — 焼けたものが映らない。'),
+    icon: '🪞',
+  },
 };

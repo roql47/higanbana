@@ -69,14 +69,16 @@ export class Village {
   }
 
   /** 비동기 에셋(지장·석등) — 생성자 밖에서 await */
-  async loadAssets() { await Promise.all([this.landmarks.load(), this.cedars.load()]); }
+  async loadAssets() { await Promise.all([this.landmarks.load(), this.cedars.load(), this.bamboo.load()]); }
 
   update(dt: number, center: THREE.Vector3) {
     this.paddy.update(dt);
     this.square.update(dt);
     this.landmarks.update(dt);
     this.shrine.update(dt);
-    this.higanbana.update(dt);
+    this.cedars.update(center);
+    this.bamboo.update(center);
+    this.higanbana.update(dt, center);
     // 실내에서는 안개 평면이 방을 가로지르므로 끈다
     const indoors = this.house.contains(center);
     this.mist.group.visible = !indoors;

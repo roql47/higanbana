@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { makeFaceBleed, PHOTO_HANDS_FACE } from '/src/story/photo.ts';
 const q = new URLSearchParams(location.search);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -24,7 +25,19 @@ const box = new THREE.Box3().setFromObject(root), size = box.getSize(new THREE.V
 const s = W/size.x, c = box.getCenter(new THREE.Vector3());
 root.scale.setScalar(s); root.position.set(-c.x*s, -c.y*s, -c.z*s);
 root.traverse(o=>{ if(!o.isMesh) return; for(const m of [].concat(o.material)){ m.color?.multiplyScalar(0.62); m.roughness=0.6; m.metalness=0; } });
-const g = new THREE.Group(); g.add(root); cam.add(g);
+const frontState = new THREE.Group(); frontState.add(root);
+const g = new THREE.Group(); g.add(frontState); cam.add(g);
+const face = {
+  right: Number(q.get('fx') ?? PHOTO_HANDS_FACE.right),
+  up: Number(q.get('fy') ?? PHOTO_HANDS_FACE.up),
+  r: Number(q.get('fr') ?? PHOTO_HANDS_FACE.r),
+};
+g.updateMatrixWorld(true);
+const width = new THREE.Box3().setFromObject(g).getSize(new THREE.Vector3()).x;
+const ray = new THREE.Raycaster();
+ray.set(new THREE.Vector3(face.right * width, face.up * width, width), new THREE.Vector3(0, 0, -1));
+const hit = ray.intersectObject(frontState, true)[0];
+if (q.get('bleed') !== '0' && hit) frontState.add(makeFaceBleed(width, hit.point.z, 1, face));
 g.position.set(0.015, Number(q.get('y') ?? -0.03), Number(q.get('z') ?? -0.30));
 g.rotation.set(Number(q.get('tilt') ?? -0.12), 0, 0.03);
 function resize(){ renderer.setSize(innerWidth, innerHeight); cam.aspect=innerWidth/innerHeight; cam.updateProjectionMatrix(); }

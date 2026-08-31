@@ -88,8 +88,26 @@ export interface PhotoContext {
  * 바로 그 재생성**이라, 원판을 들고 있어야 한다.
  */
 let shot: { img: CanvasImageSource; bleed: { x: number; y: number; r: number } | null } | null = null;
-/** 훼손도별 완성본 캐시 — 같은 값을 두 번 그리지 않는다 */
-const made = new Map<number, { front: THREE.CanvasTexture; back: THREE.CanvasTexture }>();
+/** ACT 7~의 지속 변화. 앞면 훼손과 뒷면 추가 문장을 같은 물건에 반영한다. */
+let storyState = { offered: 0, insideMessage: false };
+let storyVersion = 0;
+/** 훼손도+뒷면 상태별 완성본 캐시 — 같은 값을 두 번 그리지 않는다 */
+const made = new Map<string, { front: THREE.CanvasTexture; back: THREE.CanvasTexture }>();
+
+/** 봉납이 늘수록 얼굴의 얼룩이 목·어깨로 번진다. 0은 ACT 30의 완전 복원이다. */
+export function photoDamageForOfferings(offered: number) {
+  return 1 + THREE.MathUtils.clamp(offered, 0, 6) * 0.16;
+}
+
+export function setPhotoStoryState(offered: number, insideMessage = storyState.insideMessage) {
+  const next = { offered: THREE.MathUtils.clamp(Math.round(offered), 0, 6), insideMessage };
+  if (next.offered === storyState.offered && next.insideMessage === storyState.insideMessage) return;
+  storyState = next;
+  storyVersion++;
+  made.clear();
+}
+
+export function photoStoryVersion() { return storyVersion; }
 
 /**
  * 앞면(사진)과 뒷면(연필 글씨) 텍스처 한 벌.
@@ -97,10 +115,11 @@ const made = new Map<number, { front: THREE.CanvasTexture; back: THREE.CanvasTex
  */
 export function makePhoto(opts: PhotoOpts = {}): { front: THREE.CanvasTexture; back: THREE.CanvasTexture } {
   const dmg = opts.damaged ?? 1;
-  const hit = made.get(dmg);
+  const key = `${dmg}:${storyState.offered}:${storyState.insideMessage ? 1 : 0}`;
+  const hit = made.get(key);
   if (hit) return hit;
-  const one = { front: drawFront(dmg, null, shot ?? undefined), back: drawBack() };
-  made.set(dmg, one);
+  const one = { front: drawFront(dmg, null, shot ?? undefined), back: drawBack(storyState) };
+  made.set(key, one);
   return one;
 }
 
@@ -185,9 +204,9 @@ export async function photoThumbFromModel(
     // 얼굴 좌표는 **모델 기준**(planeSize 배)이라 크롭을 바꿔도 따라온다 — 화면 비율로 박아 두면
     // 조일 때마다 얼룩이 얼굴에서 벗어난다(그래서 한 번 어긋났다)
     const span = 2 * half / planeSize;                       // 화면 한 변이 담는 모델 폭(비율)
-    const fx = 0.5 + FACE.right / span;
-    const fy = 0.5 - (FACE.up - crop.lift) / span;
-    bleed(cctx, size * fx, size * fy, size * (FACE.r / span), damaged);
+    const fx = 0.5 + PHOTO_HANDS_FACE.right / span;
+    const fy = 0.5 - (PHOTO_HANDS_FACE.up - crop.lift) / span;
+    bleed(cctx, size * fx, size * fy, size * (PHOTO_HANDS_FACE.r / span), damaged);
   }
 
   // 정리 — 아이콘 한 장 때문에 1 MB 짜리 메시가 메모리에 남으면 안 된다
@@ -216,23 +235,40 @@ const CROP = { zoom: 0.98, lift: 0 };
 export const CROP_HANDS = { zoom: 0.46, lift: 0.08 };
 /**
  * 모델 사진 속 **언니의 얼굴** 위치와 크기. 모델 중심 기준 `planeSize` 배다.
- * 머리카락 픽셀로 재려다 배경(처마·나무)까지 물어 10 % 어긋났다 — **얼굴을 4 배로 확대해
- * 눈으로 찍었다**: 0.46 배 크롭에서 화면 44 % · 22 %, 얼굴 반지름 화면의 4 %.
- * 얼룩은 얼굴보다 조금 크게(7 %) 잡아 머리까지 먹는다.
+ * 버스와 같은 카메라·기울기로 1280×720 렌더를 비교해 보니, 기존 데칼 중심은 x=648 이고
+ * 실제 얼굴 중심은 x=675 였다. 모델 폭 비율로 0.028 만큼 오른쪽으로 옮겨 얼굴 정중앙에 맞춘다.
+ * 반지름 0.040 은 얼굴부터 턱까지 지우되 옆의 어린 미오 얼굴에는 닿지 않는 크기다.
  */
-const FACE = { right: -0.026, up: 0.202, r: 0.040 };
+export interface PhotoFacePlacement {
+  /** 모델 전체 폭을 1로 보았을 때 중심에서 오른쪽(+)/왼쪽(-) 거리 */
+  right: number;
+  /** 모델 전체 폭을 1로 보았을 때 중심에서 위쪽(+) 거리 */
+  up: number;
+  /** 모델 전체 폭을 1로 보았을 때 얼룩 반지름 */
+  r: number;
+}
+
+/** `photo-hands.glb`에서 왼쪽에 선 언니 얼굴의 모델 공간 위치. */
+export const PHOTO_HANDS_FACE: Readonly<PhotoFacePlacement> = { right: 0.002, up: 0.202, r: 0.040 };
 
 /**
  * **사진 모델 위에 얹는 물얼룩 데칼** (ACT 2 의 손에 든 사진).
  *
  * 모델 텍스처에는 언니의 얼굴이 그대로 남아 있다 — 30 cm 앞에서 그대로 보인다.
- * 텍스처를 다시 굽는 대신 얼굴 자리에 판 한 장을 띄운다. 좌표는 아이콘과 **같은 상수**(`FACE`)를
+ * 텍스처를 다시 굽는 대신 얼굴 자리에 판 한 장을 띄운다. 좌표는 아이콘과 **같은 상수**
+ * (`PHOTO_HANDS_FACE`)를
  * 쓰므로 둘이 어긋날 수 없고, ACT 30 은 이 메시를 감추기만 하면 얼굴이 드러난다.
  *
- * @param photoWidth 모델의 사진 폭(월드 단위) — `FACE` 는 이 폭에 대한 비율이다
+ * @param photoWidth 모델의 사진 폭(월드 단위) — `face` 는 이 폭에 대한 비율이다
  * @param z          사진면의 국소 z (레이캐스트로 재서 준다). 여기서 살짝 앞으로 띄운다
+ * @param face       광선 판정에도 넘긴 바로 그 얼굴 좌표. 테스트·프롭 교체 때 두 값이 갈라지지 않는다
  */
-export function makeFaceBleed(photoWidth: number, z: number, damaged = 1): THREE.Mesh {
+export function makeFaceBleed(
+  photoWidth: number,
+  z: number,
+  damaged = 1,
+  face: Readonly<PhotoFacePlacement> = PHOTO_HANDS_FACE,
+): THREE.Mesh {
   const PX = 256;          // 캔버스 한 변
   const R = 62;            // 그 안에서의 얼룩 반지름
   const CY = 0.34;         // 얼룩 중심의 세로 위치 — 아래는 흘러내린 자국 몫으로 비워 둔다
@@ -243,7 +279,7 @@ export function makeFaceBleed(photoWidth: number, z: number, damaged = 1): THREE
   bleed(bctx, PX * 0.5, PX * CY, R * 0.8, damaged);   // 한 겹으로는 얼굴이 비친다 (뷰어와 같은 이유)
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const rWorld = FACE.r * photoWidth;
+  const rWorld = face.r * photoWidth;
   const size = (PX / R) * rWorld;
   const mesh = new THREE.Mesh(
     new THREE.PlaneGeometry(size, size),
@@ -255,7 +291,7 @@ export function makeFaceBleed(photoWidth: number, z: number, damaged = 1): THREE
     }),
   );
   mesh.name = 'face-bleed';
-  mesh.position.set(FACE.right * photoWidth, FACE.up * photoWidth - (0.5 - CY) * size, z + rWorld * 0.06);
+  mesh.position.set(face.right * photoWidth, face.up * photoWidth - (0.5 - CY) * size, z + rWorld * 0.06);
   mesh.renderOrder = 11;    // 사진(10) 바로 위
   mesh.frustumCulled = false;
   return mesh;
@@ -273,7 +309,8 @@ export function makeFaceBleed(photoWidth: number, z: number, damaged = 1): THREE
  * ACT 30 은 `damaged 0` 으로 같은 원판을 얼룩 없이 받는다.
  */
 let frontShot: HTMLCanvasElement | null = null;
-const modelFronts = new Map<number, HTMLCanvasElement>();
+/** 훼손도뿐 아니라 ACT 7의 단계도 캐시 키에 포함한다. 같은 damaged 값이어도 공물 단계가 다르면 다른 사진이다. */
+const modelFronts = new Map<string, HTMLCanvasElement>();
 /**
  * 원판 안에서 **언니의 얼굴**이 있는 자리. x·r 은 가로 폭 대비, y 는 세로 높이 대비 비율.
  * 원판에 10 % 격자를 얹어 눈으로 읽었다 — 얼굴 중심 (0.445, 0.245), 얼굴 폭이 가로의 7 % 라
@@ -299,7 +336,8 @@ export async function loadPhotoFront(url = '/textures/photo-front.webp'): Promis
 /** 원판에 훼손도를 얹은 앞면. 아직 안 읽었으면 null → 호출부가 캔버스 사진으로 폴백 */
 export function modelPhotoFront(damaged = 1): HTMLCanvasElement | null {
   if (!frontShot) return null;
-  const hit = modelFronts.get(damaged);
+  const key = `${damaged}:${storyState.offered}`;
+  const hit = modelFronts.get(key);
   if (hit) return hit;
   const src = frontShot;
   const cv = document.createElement('canvas');
@@ -309,11 +347,14 @@ export function modelPhotoFront(damaged = 1): HTMLCanvasElement | null {
   if (damaged > 0) {
     // **두 겹.** 원판이 밝아서 한 겹으로는 얼굴이 비쳐 보인다 — 「지워져 있다」가 아니라 「덧칠했다」가 된다.
     // 두 번째는 조금 작게 얹어 가운데만 더 짙게 하고 가장자리의 번짐은 그대로 둔다
-    const x = src.width * PHOTO_FACE.x, y = src.height * PHOTO_FACE.y, r = src.width * PHOTO_FACE.r;
-    bleed(ctx, x, y, r, damaged);
-    bleed(ctx, x, y, r * 0.8, damaged);
+    const x = src.width * PHOTO_FACE.x, y = src.height * PHOTO_FACE.y;
+    const spread = 1 + Math.max(0, damaged - 1) * 0.7;
+    const r = src.width * PHOTO_FACE.r * spread;
+    bleed(ctx, x, y, r, Math.min(1, damaged));
+    bleed(ctx, x, y, r * 0.8, Math.min(1, damaged));
   }
-  modelFronts.set(damaged, cv);
+  applyAct7FrontDamage(ctx, src.width, src.height, storyState.offered, true);
+  modelFronts.set(key, cv);
   return cv;
 }
 
@@ -573,7 +614,11 @@ function finishFront(ctx: CanvasRenderingContext2D, damaged: number, bleedAt: { 
   ctx.save();
   ctx.beginPath(); ctx.rect(px, py, pw, ph); ctx.clip();
   // --- 물에 번진 얼룩: **사요의 얼굴만** ---
-  if (damaged > 0 && bleedAt) bleed(ctx, bleedAt.x, bleedAt.y, bleedAt.r, damaged);
+  if (damaged > 0 && bleedAt) {
+    const spread = 1 + Math.max(0, damaged - 1) * 0.7;
+    bleed(ctx, bleedAt.x, bleedAt.y, bleedAt.r * spread, Math.min(1, damaged));
+  }
+  applyAct7FrontDamage(ctx, W, H, storyState.offered, false, bleedAt);
 
   // --- 세월 ---
   grain(ctx, px, py, pw, ph);
@@ -598,6 +643,60 @@ function finishFront(ctx: CanvasRenderingContext2D, damaged: number, bleedAt: { 
   for (const [cx, cy] of [[0, 0], [W, 0], [0, H], [W, H]] as const) {
     ctx.beginPath(); ctx.arc(cx, cy, 44, 0, Math.PI * 2); ctx.fill();
   }
+}
+
+/**
+ * ACT 7의 세 번째 변화 — 사요가 미오에게 얹은 손이 사진 유제째 비어 보인다.
+ *
+ * 제공된 원판은 두 자매가 손을 맞잡는 대신 사요가 미오의 어깨를 감싼 구도다. 의미를 바꾸지
+ * 않으면서 실제 픽셀과 맞추기 위해, 세 번째 봉납부터 그 접촉점(손과 어깨)만 종이가 녹아내린
+ * 것처럼 지운다. 단순한 검은 원이 아니라 주변 색을 끌어온 불규칙한 유제 박리 + 젖은 테두리로
+ * 그려서, 얼굴 얼룩과 같은 원인에서 생긴 다음 단계로 읽히게 한다.
+ */
+function applyAct7FrontDamage(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  offered: number,
+  originalPhoto: boolean,
+  face?: { x: number; y: number; r: number } | null,
+) {
+  if (offered < 3) return;
+
+  // 원판의 실제 접촉점. 절차/로케 폴백은 얼굴 위치에서 몸 쪽으로 내려 상대 위치를 잡는다.
+  const x = originalPhoto ? width * 0.668 : (face?.x ?? width * 0.56) + (face?.r ?? width * 0.04) * 2.4;
+  const y = originalPhoto ? height * 0.455 : (face?.y ?? height * 0.30) + (face?.r ?? width * 0.04) * 4.0;
+  const r = width * (originalPhoto ? 0.032 : 0.026);
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  // 젖은 종이 섬유가 드러난 중심부. 가장자리를 완전한 원으로 만들지 않도록 작은 박리를 겹친다.
+  const paper = ctx.createRadialGradient(x - r * 0.18, y - r * 0.15, r * 0.08, x, y, r * 1.25);
+  paper.addColorStop(0, 'rgba(218,207,184,0.96)');
+  paper.addColorStop(0.55, 'rgba(197,184,157,0.9)');
+  paper.addColorStop(1, 'rgba(151,131,101,0)');
+  ctx.fillStyle = paper;
+  ctx.beginPath();
+  ctx.ellipse(x, y, r * 1.12, r * 0.72, -0.28, 0, Math.PI * 2);
+  ctx.fill();
+  for (const [dx, dy, rr] of [[-0.72, 0.08, 0.46], [0.62, -0.18, 0.38], [0.15, 0.48, 0.42]] as const) {
+    ctx.fillStyle = 'rgba(207,194,168,0.72)';
+    ctx.beginPath();
+    ctx.ellipse(x + dx * r, y + dy * r, rr * r, rr * r * 0.68, dx * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // 젖은 가장자리와 아래로 흐른 한 줄. 얼굴 얼룩의 재질 언어를 반복한다.
+  ctx.strokeStyle = 'rgba(104,78,49,0.58)';
+  ctx.lineWidth = Math.max(1.5, r * 0.09);
+  ctx.beginPath();
+  ctx.ellipse(x, y, r * 1.14, r * 0.74, -0.28, 0.15, Math.PI * 1.86);
+  ctx.stroke();
+  ctx.globalAlpha = 0.45;
+  ctx.beginPath();
+  ctx.moveTo(x + r * 0.24, y + r * 0.55);
+  ctx.quadraticCurveTo(x + r * 0.34, y + r * 1.05, x + r * 0.18, y + r * 1.55);
+  ctx.stroke();
+  ctx.restore();
 }
 
 /** 캔버스 인물(대체용) — 캐릭터 렌더가 실패했을 때만 쓴다. 사요 머리 위치를 돌려준다 */
@@ -718,8 +817,8 @@ function grain(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
 }
 const clamp255 = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v);
 
-/** 뒷면 — 연필로 쓴 날짜. 「사진 확인」에서 뒤집으면 나온다 */
-function drawBack(): THREE.CanvasTexture {
+/** 뒷면 — 개정본 ACT 2의 초대장. ACT 11 이후에는 같은 종이에 문장이 하나 더 번진다. */
+function drawBack(state: { offered: number; insideMessage: boolean }): THREE.CanvasTexture {
   return canvas((ctx) => {
     ctx.fillStyle = '#e6dcc7';
     ctx.fillRect(0, 0, W, H);
@@ -731,14 +830,26 @@ function drawBack(): THREE.CanvasTexture {
     ctx.fillStyle = 'rgba(64,56,46,0.72)';
     ctx.textAlign = 'left';
     ctx.font = `400 46px ${handFamily()}`;
-    ctx.fillText(L('히가사토  피안제', '彼ヶ里  彼岸祭'), 88, 210);
-    ctx.font = `400 38px ${handFamily()}`;
-    ctx.fillText(L('미오 여섯 살', 'ミオ 六さい'), 88, 282);
-    // 두 번째 줄은 물에 번져 읽히지 않는다 — 여기에 사요의 이름이 있었다
+    ctx.fillText(L('히가사토에서 기다릴게.', '彼ヶ里で待ってる。'), 82, 188);
+    ctx.font = `400 34px ${handFamily()}`;
+    ctx.fillText(L('2025년 9월 23일', '二〇二五年 九月二十三日'), 86, 258);
+
+    // 2번째 봉납부터 사요의 이름 첫 글자가 종이 섬유와 함께 지워진다.
     ctx.save();
-    ctx.globalAlpha = 0.5;
-    ctx.fillText(L('사요 열여섯', 'サヨ 十六'), 88, 344);
+    ctx.globalAlpha = state.offered >= 6 ? 0.22 : 0.48;
+    ctx.font = `400 34px ${handFamily()}`;
+    ctx.fillText(L('사요', 'サヨ'), 92, 326);
     ctx.restore();
-    bleed(ctx, 205, 326, 82, 0.9);
+    if (state.offered >= 2) bleed(ctx, 111, 311, 39, 0.9);
+
+    if (state.insideMessage) {
+      ctx.save();
+      ctx.rotate(-0.025);
+      ctx.fillStyle = 'rgba(75,28,29,0.72)';
+      ctx.font = `500 43px ${handFamily()}`;
+      ctx.fillText(L('문 안에 있어.', '扉の中にいる。'), 300, 405);
+      ctx.restore();
+      bleed(ctx, 435, 388, 75, 0.38);
+    }
   });
 }

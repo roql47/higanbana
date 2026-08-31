@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { createGLTFLoader } from '@/core/gltf';
 import { clamp, damp, dampAngle } from '@/core/math';
 
 /**
@@ -8,7 +7,8 @@ import { clamp, damp, dampAngle } from '@/core/math';
  *
  * 기획(PLAN-STORY 표 「1 프롤로그」)의 한 줄이 이 파일의 전부다: *사요는 손·뒷모습만*.
  * 그래서 이 클래스가 지키는 규칙이 하나 있다 — **얼굴을 보여주지 않는다.**
- * 몸은 항상 진행 방향을 보고, 재촉할 때 도는 것은 목뿐이며 그것도 옆얼굴까지(≤ 50°)다.
+ * 몸은 항상 진행 방향을 보고, 재촉할 때 도는 것은 목뿐이다. 카메라가 등에서 30 cm도
+ * 떨어져 있지 않으므로 옆얼굴까지 돌리지 않고, 머리 실루엣만 움직이는 정도(≤ 4°)로 제한한다.
  * ACT 30 에서 사진의 얼룩이 걷히는 순간을 위해 그 얼굴은 아껴 둔다.
  *
  * 왜 다시 세웠나: 2026-08-22 오전에 사요 모델을 통째로 걷어냈었다. 그때 화면이 무너진 원인은
@@ -38,7 +38,7 @@ export interface SayoPose {
   hand: THREE.Vector3 | null;
   /** 달리는 속도 (m/s) — 클립 배속을 여기서 낸다 */
   speed: number;
-  /** 0~1 뒤를 흘끗 본다 (목만, 옆얼굴까지) */
+  /** 0~1 뒤를 흘끗 본다 (목만, 얼굴 윤곽이 드러나지 않는 범위) */
   glance?: number;
 }
 
@@ -58,8 +58,17 @@ const RUN_MAX = 1.9;
 const HEIGHT = 1.49;
 /** 쇄골이 따라 여는 한계(rad). 10° */
 const CLAV_MAX = 0.175;
-/** 목이 돌아가는 한계(rad). 51° — 여기까지가 옆얼굴이다 */
-const GLANCE_MAX = 0.9;
+/**
+ * 목이 돌아가는 한계(rad). 4°.
+ *
+ * ACT 1에서는 사요가 카메라 0.29 m 앞에 있다. 예전 값 0.9 rad(51.6°)는 재촉할 때마다
+ * 옆얼굴이 렌즈 바로 앞을 가로질러 모델/프레임이 튀는 것처럼 보였다. 길이 휘는 구간까지
+ * 실측한 4°면 목을 돌린다는 의사는 읽히지만 볼·코 윤곽은 머리 실루엣 안에 남는다.
+ */
+const GLANCE_MAX = THREE.MathUtils.degToRad(4);
+/** 가까운 피사체의 윤곽이 갑자기 바뀌지 않도록, 돌아볼 때보다 복귀를 조금 더 느리게 한다. */
+const GLANCE_IN_DAMP = 3.4;
+const GLANCE_OUT_DAMP = 2.4;
 
 export interface SayoOptions {
   url?: string;
@@ -167,8 +176,7 @@ export class Sayo {
   }
 
   static async load(scene: THREE.Scene, opts: SayoOptions = {}): Promise<Sayo> {
-    const loader = new GLTFLoader();
-    loader.setMeshoptDecoder(MeshoptDecoder);
+    const loader = createGLTFLoader();
     const gltf = await loader.loadAsync(opts.url ?? '/models/sayo.glb');
     const sayo = new Sayo(gltf, opts);
     sayo.play('run');
@@ -305,8 +313,14 @@ export class Sayo {
       this.solveArm(this.target, this.armW);
     }
 
-    // --- 흘끗 --- 몸은 안 돈다. 목만, 옆얼굴까지
-    this.glanceNow = damp(this.glanceNow, clamp(p.glance ?? 0, 0, 1), 6, dt);
+    // --- 흘끗 --- 몸은 안 돈다. 목만, 얼굴 윤곽이 드러나지 않는 범위까지
+    const glanceTarget = clamp(p.glance ?? 0, 0, 1);
+    this.glanceNow = damp(
+      this.glanceNow,
+      glanceTarget,
+      glanceTarget > this.glanceNow ? GLANCE_IN_DAMP : GLANCE_OUT_DAMP,
+      dt,
+    );
     if (this.glanceNow > 0.01) this.turnHead(this.glanceNow * GLANCE_MAX);
   }
 

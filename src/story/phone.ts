@@ -25,7 +25,7 @@
 
 import { L } from '@/core/i18n';
 
-export type PhoneScreen = 'lock' | 'calling' | 'failed';
+export type PhoneScreen = 'lock' | 'ready' | 'calling' | 'failed';
 
 /**
  * 폰 화면의 글자. 날짜는 참사 10 주기 당일 — 공고판(`world/higasato/speaker.ts`)의
@@ -40,6 +40,8 @@ const DATE = L('9월 23일 화요일', '9月23日 火曜日');
 const TIME = '15:04';
 const NO_SIGNAL = L('신호 없음', '圏外');
 const SISTER = L('언니', '姉');
+const MOTHER = L('엄마', '母');
+const TAP_TO_CALL = L('클릭 / SPACE — 전화 걸기', 'クリック / SPACE — 発信');
 const CALLING = L('발신 중…', '呼び出し中…');
 const FAILED = L('연결할 수 없습니다', '圏外です');
 
@@ -48,16 +50,23 @@ export class Phone {
   private bigEl: HTMLElement;
   private subEl: HTMLElement;
   private noteEl: HTMLElement;
+  private batteryEl: HTMLElement;
   private shown = false;
+  private battery: number;
+  private onBattery?: (value: number) => void;
+  private inventoryTimer = 0;
+  private distortionTimers: number[] = [];
   /** 한 번이라도 켜 봤는가 — 공고판이 이걸 읽는다(날짜가 겹치는 걸 알아채는 대사) */
   seen = false;
 
-  constructor() {
+  constructor(opts: { battery?: number; onBattery?: (value: number) => void } = {}) {
+    this.battery = Math.max(1, Math.min(100, Math.round(opts.battery ?? 92)));
+    this.onBattery = opts.onBattery;
     this.root = document.createElement('div');
     this.root.className = 'phone';
     this.root.innerHTML =
       '<div class="scr">' +
-        `<div class="bar"><span class="sig">${NO_SIGNAL}</span><span class="bat">86%</span></div>` +
+        `<div class="bar"><span class="sig">${NO_SIGNAL}</span><span class="bat"></span></div>` +
         '<div class="mid"><div class="big"></div><div class="sub"></div></div>' +
         '<div class="note"></div>' +
       '</div>';
@@ -65,6 +74,8 @@ export class Phone {
     this.bigEl = this.root.querySelector('.big') as HTMLElement;
     this.subEl = this.root.querySelector('.sub') as HTMLElement;
     this.noteEl = this.root.querySelector('.note') as HTMLElement;
+    this.batteryEl = this.root.querySelector('.bat') as HTMLElement;
+    this.renderBattery();
     this.set('lock');
   }
 
@@ -79,20 +90,67 @@ export class Phone {
    * 자막(42) 위에 있어서 **자막 글자가 폰 뒤로 잘려 들어갔다**(사용자 리포트).
    * 폰이 떠 있는 동안만 자막을 왼쪽으로 비켜 세운다(`style.css` 의 `.phone-up .dialogue`).
    */
-  show(screen: PhoneScreen = 'lock') {
+  show(screen: PhoneScreen = 'lock', drain = true) {
     this.seen = true;
     this.set(screen);
     if (this.shown) return;
+    if (drain) this.setBattery(this.battery - 6);
     this.shown = true;
     this.root.classList.add('show');
     document.body.classList.add('phone-up');
   }
 
   hide() {
+    if (this.inventoryTimer) window.clearTimeout(this.inventoryTimer);
+    this.inventoryTimer = 0;
     if (!this.shown) return;
     this.shown = false;
     this.root.classList.remove('show');
     document.body.classList.remove('phone-up');
+  }
+
+  /** 인벤토리에서 다시 확인한다. 컷신이 아니므로 배터리는 소모하지 않고 잠시 뒤 닫힌다. */
+  inspect() {
+    this.show('lock', false);
+    if (this.inventoryTimer) window.clearTimeout(this.inventoryTimer);
+    this.inventoryTimer = window.setTimeout(() => this.hide(), 4200);
+  }
+
+  /** ACT 10 결말 — 새 알림이 아니라, 저장된 연락처 한 글자만 물에 번지듯 잘못 보인다. */
+  showWellDistortion() {
+    for (const timer of this.distortionTimers) window.clearTimeout(timer);
+    this.distortionTimers.length = 0;
+    this.show('lock');
+    this.root.classList.add('well-distort');
+    this.noteEl.textContent = SISTER;
+    this.distortionTimers.push(window.setTimeout(() => {
+      this.noteEl.textContent = MOTHER;
+      this.root.classList.add('failed');
+    }, 620));
+    this.distortionTimers.push(window.setTimeout(() => {
+      this.noteEl.textContent = SISTER;
+      this.root.classList.remove('failed');
+    }, 1850));
+    this.distortionTimers.push(window.setTimeout(() => {
+      this.root.classList.remove('well-distort');
+      this.hide();
+      this.distortionTimers.length = 0;
+    }, 3600));
+  }
+
+  get batteryLevel() { return this.battery; }
+
+  setBattery(value: number) {
+    const next = Math.max(1, Math.min(100, Math.round(value)));
+    if (next === this.battery) return;
+    this.battery = next;
+    this.renderBattery();
+    this.onBattery?.(next);
+  }
+
+  private renderBattery() {
+    this.batteryEl.textContent = `${this.battery}%`;
+    this.root.classList.toggle('battery-low', this.battery <= 20);
   }
 
   set(screen: PhoneScreen) {
@@ -105,10 +163,16 @@ export class Phone {
     } else {
       this.bigEl.textContent = SISTER;
       this.subEl.textContent = screen === 'calling' ? CALLING : '';
-      this.noteEl.textContent = screen === 'failed' ? FAILED : '';
+      if (screen === 'ready') this.noteEl.textContent = TAP_TO_CALL;
+      else this.noteEl.textContent = screen === 'failed' ? FAILED : '';
     }
     this.root.classList.toggle('failed', screen === 'failed');
+    this.root.classList.toggle('ready', screen === 'ready');
   }
 
-  dispose() { this.root.remove(); document.body.classList.remove('phone-up'); }
+  dispose() {
+    for (const timer of this.distortionTimers) window.clearTimeout(timer);
+    this.distortionTimers.length = 0;
+    this.root.remove(); document.body.classList.remove('phone-up');
+  }
 }

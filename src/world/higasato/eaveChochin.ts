@@ -112,9 +112,11 @@ export class EaveChochin {
   take() {
     if (this.taken) return;
     this.taken = true;
-    if (this.lantern) { this.group.remove(this.lantern); this.lantern = null; }
-    if (this.light) { this.group.remove(this.light); this.light.dispose(); this.light = null; }
-    this.paperMats.length = 0;
+    if (this.lantern) this.lantern.visible = false;
+    // PointLight 를 씬에서 제거하면 three 의 NUM_POINT_LIGHTS 가 바뀌어 모든 재질 셰이더가
+    // 그 프레임에 다시 컴파일된다. 획득은 플레이 중 사건이므로 광원은 상주시킨 채 세기만 0으로 둔다.
+    // 빛과 메시가 사라진 결과는 같고, 셰이더 변형 수만 고정된다.
+    if (this.light) this.light.intensity = 0;
   }
 
   update(dt: number) {

@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Physics } from '@/core/physics';
+import { settings } from '@/core/settings';
+import {
+  createSpatialInstancedMeshes,
+  fogCullDistance,
+  type SpatialInstanceRef,
+  updateChunkDistanceVisibility,
+} from '@/world/instancing';
 import type { VillageGround } from './ground';
 
 /**
@@ -25,7 +32,8 @@ const BLACK_BASE = new THREE.Color(0.09, 0.08, 0.08); // 기둥 밑동
 const DARK_TOP = new THREE.Color(0.13, 0.11, 0.11);   // 입목/도목 상단
 
 export class ToriiPath {
-  readonly mesh: THREE.InstancedMesh;
+  readonly group = new THREE.Group();
+  readonly meshes: THREE.InstancedMesh[];
   readonly count: number;
   /** 크기 배율 (`ToriiOptions.scale`) — 근접 컬링 반경이 이걸 따라간다 */
   readonly scale: number = 1;
@@ -38,6 +46,7 @@ export class ToriiPath {
     const spacing = opts.spacing ?? 1.15;
     const scale = opts.scale ?? 1;
     this.scale = scale;
+    this.group.name = 'torii';
 
     const geo = makeToriiGeometry();
     const mat = new THREE.MeshStandardMaterial({
@@ -46,17 +55,12 @@ export class ToriiPath {
       metalness: 0,
     });
 
-    const mesh = new THREE.InstancedMesh(geo, mat, count);
     const tint = new THREE.Color();
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.name = 'torii';
-    // 인스턴스가 참배로 전체(약 70 m)에 흩어져 있으므로 컬링은 청크가 아니라 전체로
-    mesh.frustumCulled = false;
 
     const dummy = new THREE.Object3D();
     const rp = { x: 0, z: 0, dirX: 0, dirZ: 0 };
     const rng = seeded(778);
+    const instances: { matrix: THREE.Matrix4; color: THREE.Color }[] = [];
     let n = 0;
     for (let i = 0; i < count; i++) {
       /**
@@ -81,10 +85,12 @@ export class ToriiPath {
       dummy.rotateZ((rng() - 0.5) * 0.024);
       dummy.rotateX((rng() - 0.5) * 0.018);
       dummy.updateMatrix();
-      mesh.setMatrixAt(n, dummy.matrix);
       // 주색도 조금씩 바랜다 — 인스턴스 색은 정점색에 곱해진다
       const fade = 0.78 + rng() * 0.3;
-      mesh.setColorAt(n, tint.setRGB(fade, fade * (0.93 + rng() * 0.12), fade * (0.9 + rng() * 0.16)));
+      instances.push({
+        matrix: dummy.matrix.clone(),
+        color: tint.setRGB(fade, fade * (0.93 + rng() * 0.12), fade * (0.9 + rng() * 0.16)).clone(),
+      });
       this.placements.push({ x: px, z: pz, y, yaw });
 
       // 기둥 콜라이더 2개
@@ -101,19 +107,24 @@ export class ToriiPath {
       physics.addStaticBox(new THREE.Vector3(px, y + 3.06 * sc, pz), new THREE.Vector3(1.95 * sc, 0.28 * sc, 0.20 * sc), q);
       n++;
     }
-    mesh.count = n;
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     this.count = n;
-    this.mesh = mesh;
-    // 근접 컬링용 원본 행렬 보관
-    this.base = new Float32Array(n * 16);
-    this.base.set(mesh.instanceMatrix.array.subarray(0, n * 16));
+    const made = createSpatialInstancedMeshes(this.group, geo, mat, instances, {
+      cellSize: 18,
+      name: 'torii',
+      castShadow: true,
+      receiveShadow: true,
+      boundsPadding: 0.5,
+      usage: THREE.DynamicDrawUsage,
+    });
+    this.meshes = made.meshes;
+    this.refs = made.refs;
+    this.base = instances.map((instance) => instance.matrix);
     this.hidden = new Uint8Array(n);
-    scene.add(mesh);
+    scene.add(this.group);
   }
 
-  private base!: Float32Array;
+  private refs: SpatialInstanceRef[] = [];
+  private base: THREE.Matrix4[] = [];
   private hidden!: Uint8Array;
   private zero = new THREE.Matrix4().makeScale(0, 0, 0);
 
@@ -122,7 +133,8 @@ export class ToriiPath {
    * 스케일 0 으로 접어 넣는 방식(인스턴스 하나짜리 draw 비용 없음).
    */
   update(cameraPos: THREE.Vector3, radius = 1.35 * this.scale + 0.7) {
-    let dirty = false;
+    updateChunkDistanceVisibility(this.meshes, cameraPos, fogCullDistance(settings.night.fogDensity));
+    const dirty = new Set<THREE.InstancedMesh>();
     const r2 = radius * radius;
     for (let i = 0; i < this.count; i++) {
       const p = this.placements[i]!;
@@ -130,12 +142,11 @@ export class ToriiPath {
       const hide = dx * dx + dz * dz < r2 && Math.abs(dy) < 2.6 * this.scale ? 1 : 0;
       if (hide === this.hidden[i]) continue;
       this.hidden[i] = hide;
-      dirty = true;
-      const arr = this.mesh.instanceMatrix.array as Float32Array;
-      if (hide) arr.set(this.zero.elements, i * 16);
-      else arr.set(this.base.subarray(i * 16, i * 16 + 16), i * 16);
+      const ref = this.refs[i]!;
+      ref.mesh.setMatrixAt(ref.index, hide ? this.zero : this.base[i]!);
+      dirty.add(ref.mesh);
     }
-    if (dirty) this.mesh.instanceMatrix.needsUpdate = true;
+    for (const mesh of dirty) mesh.instanceMatrix.needsUpdate = true;
   }
 }
 

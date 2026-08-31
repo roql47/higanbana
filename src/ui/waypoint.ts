@@ -62,7 +62,7 @@ export class Waypoint {
       px = this.cam.x > 0 ? w * 2 : -w;
       py = h * 0.5;
     }
-    // 아래쪽 여백이 더 넓다 — 화면 밑단은 프롬프트·소금·스태미나가 이미 쓰고 있다
+    // 아래쪽 여백이 더 넓다 — 화면 밑단은 프롬프트·스태미나가 이미 쓰고 있다
     const M = 46, MB = 84;
     const cx = Math.min(w - M, Math.max(M, px));
     const cy = Math.min(h - MB, Math.max(M, py));

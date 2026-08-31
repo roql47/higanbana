@@ -38,11 +38,10 @@ export interface Act4Deps {
 interface Beat { at: number; run: (d: Act4Deps, s: Act4) => void }
 
 /**
- * 마을 안쪽 — 이 상자에 들어오면 방송이 켜진다. 논·뒷산으로 새면 아직이다.
- * 북쪽 경계(z 46)는 **초입 전주(z 42.5)보다 앞**이다 — 방송이 먼저 켜지고, 걸어가는 동안
- * 첫 문장이 나오고, 도착했을 때 그 밑에 공고판이 있다. 순서가 뒤집히면 날짜를 먼저 읽게 된다
+ * 버스 종점에서 금줄 안쪽으로 인계된 자리까지 포함하는 입구 구간.
+ * 돌비석은 z 72에 있으므로 z 92부터 방송을 시작해야, 하차 → 방송 완료 → 비석 활성화 순서가 된다.
  */
-const VILLAGE = { x0: -24, x1: 44, z0: -8, z1: 46 };
+const VILLAGE = { x0: -24, x1: 44, z0: -8, z1: 92 };
 
 export class Act4 {
   private state: 'idle' | 'run' | 'done' = 'idle';
@@ -90,13 +89,26 @@ export class Act4 {
   }
 
   get running() { return this.state === 'run'; }
+  get done() { return this.state === 'done'; }
+
+  /**
+   * QA — 방송 전체를 건너뛴다(디버그 전용). 비트를 하나도 재생하지 않고 곧장 done 으로:
+   * `?debug&skip=intro` 는 프롤로그를 건너뛰는 모드인데 첫 마을 방송(약 40초)이 그대로 남아
+   * 있어서, 반복 검증 때마다 방송이 끝나기를 기다려야 비석·퀘스트가 열렸다.
+   * `finish()` 를 그대로 쓰지 않는 이유: 거긴 paOff 를 부른다 — 켠 적 없는 방송을 끄는 소리가 난다.
+   */
+  skip() {
+    if (this.state === 'done') return;
+    this.state = 'done';
+    this.d.onDone();
+  }
   /** DEV */
   get time() { return this.t; }
 
   update(dt: number, player: THREE.Vector3) {
     if (this.state === 'idle') {
-      // 비석을 안 읽고 지나쳐도 방송은 울린다 — 이건 **마을의 사건**이지 미오의 행동이 아니다.
-      // 다만 ACT 3 이 도는 중이면 기다린다(자막 두 줄이 같은 자리에서 싸운다)
+      // 버스에서 내려 금줄 안쪽으로 인계되는 순간 방송을 먼저 시작한다.
+      // 비석은 이 방송의 마지막 코멘트가 끝난 뒤 main 쪽 게이트가 별도로 연다.
       const inside = player.x > VILLAGE.x0 && player.x < VILLAGE.x1 && player.z > VILLAGE.z0 && player.z < VILLAGE.z1;
       if (inside && this.d.ready()) { this.state = 'run'; this.t = 0; }
       return;

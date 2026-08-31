@@ -8,9 +8,10 @@ import type { FirstPerson } from './firstPerson';
 import type { Bus } from '@/world/bus';
 import type { Sequencer } from './sequencer';
 import type { Sfx } from '@/audio/sfx';
-import { makePhoto, makeFaceBleed } from './photo';
+import { makePhoto, makeFaceBleed, PHOTO_HANDS_FACE } from './photo';
 import { Props } from '@/world/props';
 import type { Phone } from './phone';
+import type { Input } from '@/core/input';
 
 /**
  * ACT 2 前半 「버스 안」 — 스토리보드가 통째로 빠져 있던 자리.
@@ -42,6 +43,8 @@ export interface Act2Deps {
   phone: Phone;
   /** 좌석 위치를 매 프레임 갱신해야 흔들림이 카메라에 전달된다 */
   camera: THREE.PerspectiveCamera;
+  /** 전화 버튼 한 박자를 플레이어에게 돌려준다. 입력하지 않으면 짧게 기다린 뒤 자동 진행 */
+  input: Input;
 }
 
 /**
@@ -53,6 +56,13 @@ export interface Act2Deps {
 // −sinθ > 0, 즉 θ 를 **키워야** 한다. 부호를 반대로 잡아 창밖을 보고 있었다
 const MIRROR_YAW = 0.23;
 const MIRROR_PITCH = 0.05;
+/**
+ * 「오래 바라본다」 비트의 화각. 거울은 4 m 앞의 손바닥만 한 판이라 기본 화각(66°)에서는
+ * 그 안의 눈이 세로 15 px 밖에 안 된다 — 「본다」가 화면에 안 남았다(사용자 리포트 2026-08-26).
+ * 카메라를 **옮기지 않고** 화각만 좁힌다: 앉은 사람의 시선이 한 점으로 좁아지는 것과 같은 그림이고,
+ * 좌석·손·사진의 위치를 하나도 건드리지 않아 다른 비트가 안 흔들린다.
+ */
+const MIRROR_FOV = 34;
 
 /** 시간 기반 비트 — 앉아 있는 장면이라 거리로 잴 것이 없다 */
 interface Beat { at: number; run: (d: Act2Deps, self: Act2) => void }
@@ -70,12 +80,25 @@ export class Act2 {
   /** 「학생.」 뒤 고개를 들기까지 남은 시간. 0 이하면 미오가 스스로 든다 */
   private lookUpIn = -1;
   private lookedUp = false;
+  /** 백미러 클로즈업 0..1 — 화각만 좁힌다 */
+  private zoom = 0;
+  private zoomTarget = 0;
+  private baseFov = 0;
   /** 고개를 드는 연출이 진행 중인 시간(초) */
   private steerT = 0;
   private photo: THREE.Group;
+  /** 스캔 프롭은 앞면 전용이라 90° 지점에서 깨끗한 뒷면 프롭으로 교대한다. */
+  private photoFrontState: THREE.Object3D | null = null;
+  private photoBackState: THREE.Object3D | null = null;
   private photoTilt = new THREE.Vector2();
+  /** 0 = 앞면, 1 = 뒷면. 개정본의 「사진을 뒤집는다」를 실제 손동작으로 만든다. */
+  private photoFlip = 0;
+  private photoFlipTarget = 0;
   /** 프롭이 들어왔나 — 비어 있는 동안은 아무것도 그리지 않는다 */
   private photoReady = false;
+  /** 언니 연락처 화면 — 클릭/Space 를 기다리는 짧은 인터랙션 */
+  private awaitingCall = false;
+  private callAutoIn = -1;
 
   constructor(private d: Act2Deps) {
     // 프롭은 **스캔 모델**이다. 절차적 사진(`buildPhoto`)은 로드가 실패했을 때만 나온다 —
@@ -85,38 +108,51 @@ export class Act2 {
     d.camera.add(this.photo);
     void loadPhotoModel()
       .catch((e) => { console.warn('[act2] 사진 모델 로드 실패 — 절차적 사진으로 간다:', e); return buildPhoto(); })
-      .then((m) => { this.photo.add(m); this.photoReady = true; });
+      .then((m) => {
+        this.photo.add(m);
+        this.photoFrontState = m.getObjectByName('photo-front-state') ?? null;
+        this.photoBackState = m.getObjectByName('photo-back-state') ?? null;
+        this.photoReady = true;
+      });
 
     this.beats = [
       // 사진부터 보여준다. 대사가 아니라 **이미지가 먼저** 와야 한다
       { at: 1.2, run: (d) => void d.dialogue.say({ text: L('오래된 가족사진. 어린 미오와, 언니.', '古い家族写真。幼いミオと、姉。'), dur: 3.2 }) },
       { at: 5.0, run: (d) => void d.dialogue.say({ text: L('언니의 얼굴만 물에 번진 것처럼 지워져 있다.', '姉の顔だけが水に滲んだように消えている。'), dur: 3.6 }) },
+      // 개정본 ACT 2 — 사진은 목적지를 알려 준 초대장이며, 날짜는 참사 10주기다.
+      { at: 9.0, run: (d, s) => { s.photoFlipTarget = 1; void d.dialogue.say({ text: L('사진을 뒤집는다. 번진 글씨 — 「히가사토에서 기다릴게.」', '写真を裏返す。滲んだ文字 — 「彼ヶ里で待ってる。」'), dur: 3.5 }); } },
+      { at: 12.8, run: (d) => void d.dialogue.say({ text: L('그 아래에는 오늘 날짜가 적혀 있다. 피안제 참사 10주기.', 'その下には今日の日付。彼岸祭惨事から十年。'), dur: 3.2 }) },
       // 기사가 부른다 → 여기서부터 고개를 들 수 있다
-      { at: 9.4, run: (d, s) => { d.sfx.voice(0.55, 'low'); void d.dialogue.say({ who: DRIVER, text: L('학생.', 'お嬢さん。'), dur: 1.6 }); s.lookUpIn = 3.0; } },
-      { at: 12.6, run: (d) => { d.sfx.voice(0.5, 'low'); void d.dialogue.say({ who: DRIVER, text: L('히가사토 가는 거 맞지?', '彼ヶ里まででいいんだね?'), dur: 2.2 }); } },
-      { at: 15.4, run: (d) => { d.sfx.voice(0.42, 'girl'); void d.dialogue.say({ who: MIO, text: L('네.', 'はい。'), dur: 1.4 }); } },
-      { at: 17.4, run: (d) => { d.sfx.voice(0.5, 'low'); void d.dialogue.say({ who: DRIVER, text: L('거긴 이제 아무것도 없는데.', 'あそこにはもう何もないよ。'), dur: 2.4 }); } },
-      { at: 20.6, run: (d) => { d.sfx.voice(0.44, 'girl'); void d.dialogue.say({ who: MIO, text: L('사람을 찾으러 가요.', '人を探しに行くんです。'), dur: 2.2 }); } },
+      { at: 16.4, run: (d, s) => { d.sfx.voice(0.55, 'low'); void d.dialogue.say({ who: DRIVER, text: L('학생.', 'お嬢さん。'), dur: 1.6 }); s.lookUpIn = 3.0; } },
+      { at: 19.6, run: (d) => { d.sfx.voice(0.5, 'low'); void d.dialogue.say({ who: DRIVER, text: L('히가사토 가는 거 맞지?', '彼ヶ里まででいいんだね?'), dur: 2.2 }); } },
+      { at: 22.4, run: (d) => { d.sfx.voice(0.42, 'girl'); void d.dialogue.say({ who: MIO, text: L('네.', 'はい。'), dur: 1.4 }); } },
+      { at: 24.4, run: (d) => { d.sfx.voice(0.5, 'low'); void d.dialogue.say({ who: DRIVER, text: L('거긴 이제 아무것도 없는데.', 'あそこにはもう何もないよ。'), dur: 2.4 }); } },
+      { at: 27.6, run: (d) => { d.sfx.voice(0.44, 'girl'); void d.dialogue.say({ who: MIO, text: L('사라진 사람은 있어요.', '消えた人はいます。'), dur: 2.2 }); } },
+      { at: 30.4, run: (d) => { d.sfx.voice(0.5, 'low'); void d.dialogue.say({ who: DRIVER, text: L('산사태 때 죽은 사람이냐?', '土砂崩れで亡くなった人か?'), dur: 2.4 }); } },
+      { at: 33.4, run: (d) => { d.sfx.voice(0.44, 'girl'); void d.dialogue.say({ who: MIO, text: L('실종이에요.', '行方不明です。'), dur: 1.8 }); } },
+      { at: 35.8, run: (d) => { d.sfx.voice(0.36, 'girl'); void d.dialogue.say({ who: MIO, text: L('아직은.', 'まだ。'), dur: 1.8 }); } },
       // 「기사는 백미러로 미오를 오래 바라보다 더 묻지 않는다」
       // — 눈이 **깜빡이지 않는다**. 이 ACT 에서 처음으로 뭔가 어긋나는 순간이다
-      { at: 23.4, run: (d) => { d.bus.setEyes(1, true); void d.dialogue.say({ text: L('기사는 백미러로 미오를 오래 바라보다, 더 묻지 않는다.', '運転手はバックミラー越しに長く見つめ、それ以上は訊かない。'), dur: 4.0 }); } },
+      { at: 38.4, run: (d, s) => { d.bus.setEyes(1, true); s.zoomTarget = 1; void d.dialogue.say({ text: L('기사는 백미러로 미오를 오래 바라보다, 더 묻지 않는다.', '運転手はバックミラー越しに長く見つめ、それ以上は訊かない。'), dur: 4.0 }); } },
+      // 폰이 올라오기 전에 화각을 되돌린다 — 좁힌 채로 다음 비트에 넘기면 버스가 망원으로 보인다
+      { at: 42.4, run: (d, s) => { s.zoomTarget = 0; } },
       // --- 폰 (각색 6 C안 / P1-1) ---
       // 자리가 여기인 이유: 방금 「사람을 찾으러 가요」라고 말했다. 그 사람에게 걸어 보는 게
       // 다음 동작으로 자연스럽고, 실패가 **그 말 바로 뒤에** 붙어야 아프다.
       // 사진은 이미 무릎에 있다 — 「학생.」에 고개를 든 순간 내려갔다(`lookedUp`).
       // 한 손에 두 개를 들고 있는 그림이 안 나오는 건 그 덕이다.
-      { at: 27.8, run: (d) => d.phone.show('lock') },
-      { at: 29.4, run: (d) => void d.dialogue.say({ text: L('15:04. 9월 23일.', '15:04. 9月23日.'), dur: 2.0 }) },
-      { at: 31.6, run: (d) => { d.phone.set('calling'); void d.dialogue.say({ text: L('「언니」— 미오는 통화 버튼을 누른다.', '「姉」— ミオは通話ボタンを押す。'), dur: 2.4 }); } },
+      { at: 43.0, run: (d) => d.phone.show('lock') },
+      { at: 44.6, run: (d) => void d.dialogue.say({ text: L('15:04. 9월 23일.', '15:04. 9月23日.'), dur: 2.0 }) },
+      { at: 46.8, run: (d, s) => s.armCall() },
       // 발신음이 **울리지 않는다**. 없는 소리가 실패를 말한다 — 안내 멘트를 깔면 그냥 정보다
-      { at: 34.6, run: (d) => { d.phone.set('failed'); void d.dialogue.say({ text: L('발신음이 울리지 않는다.', '発信音が鳴らない。'), dur: 2.2 }); } },
-      { at: 37.2, run: (d) => { d.sfx.voice(0.4, 'girl'); void d.dialogue.say({ who: MIO, text: L('……산속이니까.', '……山の中だから。'), dur: 2.2 }); } },
-      { at: 39.8, run: (d) => d.phone.hide() },
+      { at: 49.8, run: (d) => { d.phone.set('failed'); void d.dialogue.say({ text: L('발신음이 울리지 않는다.', '発信音が鳴らない。'), dur: 2.2 }); } },
+      { at: 52.4, run: (d) => { d.sfx.voice(0.4, 'girl'); void d.dialogue.say({ who: MIO, text: L('……산속이니까.', '……山の中だから。'), dur: 2.2 }); } },
+      { at: 55.0, run: (d) => d.phone.hide() },
       // --- 도착 ---
-      { at: 41.4, run: (d) => { d.bus.setEyes(0); d.bus.drive(0); d.sfx.busBrake(); } },
-      { at: 44.6, run: (d) => { d.sfx.voice(0.52, 'low'); void d.dialogue.say({ who: DRIVER, text: L('종점이야.', '終点だよ。'), dur: 2.0 }); } },
-      { at: 46.4, run: (d) => { d.bus.setDoor(true); d.sfx.busDoor(); } },
-      { at: 48.4, run: (d, s) => void s.finish() },
+      { at: 56.6, run: (d) => { d.bus.setEyes(0); d.bus.drive(0); d.sfx.busBrake(); } },
+      { at: 59.8, run: (d) => { d.sfx.voice(0.52, 'low'); void d.dialogue.say({ who: DRIVER, text: L('종점이야.', '終点だよ。'), dur: 2.0 }); } },
+      { at: 61.6, run: (d) => { d.bus.setDoor(true); d.sfx.busDoor(); } },
+      { at: 63.6, run: (d, s) => void s.finish() },
     ];
   }
 
@@ -140,6 +176,7 @@ export class Act2 {
     d.fp.pitch = -0.34;               // 무릎 위의 사진을 내려다보고 있다
     this.photo.visible = this.photoReady;
     this.raise = this.raiseTarget = 1;
+    this.photoFlip = this.photoFlipTarget = 0;
 
     d.sequencer.setFade(0, 1.6);
     this.state = 'run';
@@ -155,12 +192,34 @@ export class Act2 {
     const d = this.d;
     this.t += dt;
 
+    /**
+     * 백미러 클로즈업 — 들어갈 땐 천천히(1.5), 나올 땐 빠르게(3.2).
+     * 사진이 아직 눈앞에 있으면 걸지 않는다: 사진은 **카메라 공간**에 붙은 판이라
+     * 화각이 좁아지면 같이 커져 화면을 덮는다. 고개를 든 뒤(raise ≈ 0)에만 돈다.
+     * `firstPerson` 의 달리기 화각은 `bobScale > 0` 일 때만 도는데 버스 좌석은 0 이라,
+     * 여기서 camera.fov 를 잡아도 다음 프레임에 덮이지 않는다(실측 계약).
+     */
+    if (this.baseFov === 0) this.baseFov = d.camera.fov;
+    const zTarget = this.raise > 0.05 ? 0 : this.zoomTarget;
+    this.zoom += (zTarget - this.zoom) * (1 - Math.exp(-dt * (zTarget > this.zoom ? 1.5 : 3.2)));
+    if (this.zoom > 0.0005 || Math.abs(d.camera.fov - this.baseFov) > 0.01) {
+      const want = this.baseFov + (MIRROR_FOV - this.baseFov) * this.zoom;
+      if (Math.abs(want - d.camera.fov) > 0.01) { d.camera.fov = want; d.camera.updateProjectionMatrix(); }
+    }
+
     // 좌석은 흔들린다 — 앵커를 매 프레임 갱신해야 그 흔들림이 카메라로 온다
     d.bus.seatWorld(this.anchor);
 
     for (let i = 0; i < this.beats.length; i++) {
       const b = this.beats[i]!;
       if (this.t >= b.at && !this.fired.has(i)) { this.fired.add(i); b.run(d, this); }
+    }
+
+    // 한 번만 직접 누르게 한다. 입력을 강요하면 컷신이 막히므로 1.2초 뒤에는 미오가 스스로 누른다.
+    if (this.awaitingCall) {
+      this.callAutoIn -= dt;
+      const pressed = this.d.input.justPressed('Mouse0') || this.d.input.justPressed('Space') || this.d.input.justPressed('Enter');
+      if (pressed || this.callAutoIn <= 0) this.placeCall();
     }
 
     // --- 고개를 든다 ---
@@ -182,6 +241,14 @@ export class Act2 {
       d.fp.steer(MIRROR_YAW, MIRROR_PITCH, dt, 3.2);
     }
     this.raise += (this.raiseTarget - this.raise) * (1 - Math.exp(-dt * 2.6));
+    this.photoFlip += (this.photoFlipTarget - this.photoFlip) * (1 - Math.exp(-dt * 4.8));
+    // 스캔 모델의 종이 앞면은 GLB에 구워져 있어 뒤에서도 비치면 뒷면 카드와 겹친다.
+    // 종이가 가장 얇게 보이는 90°에서 상태를 교대하면 전환선은 보이지 않고 중복 사진만 사라진다.
+    if (this.photoFrontState && this.photoBackState) {
+      const rear = this.photoFlip >= 0.5;
+      this.photoFrontState.visible = !rear;
+      this.photoBackState.visible = rear;
+    }
 
     // --- 사진: 무릎에서 눈앞까지, 그리고 마우스로 기울인다 ---
     // 기울이면 얼룩이 빛을 받아 번들거린다 — 물에 젖었던 종이라는 걸 재질이 말한다
@@ -191,7 +258,13 @@ export class Act2 {
     const r = this.raise;
     // 화면 중앙 가까이 둔다. 아래로 내리면 자막띠(하단 13.5 vh)와 겹쳐 사진 위에 글자가 얹힌다
     this.photo.position.set(0.015 + off * 0.05, -0.10 - (1 - r) * 0.5, -0.31 - (1 - r) * 0.2);
-    this.photo.rotation.set(PHOTO_TILT + this.photoTilt.x + (1 - r) * 0.5, this.photoTilt.y * 0.5, 0.03 + this.photoTilt.y * 0.25);
+    // y축 반 바퀴가 실제 뒤집기다. 중간 각도에서는 종이가 잠깐 선으로 얇아져
+    // 자막만으로 넘기던 전환보다 손에 든 물건의 질감이 분명해진다.
+    this.photo.rotation.set(
+      PHOTO_TILT + this.photoTilt.x + (1 - r) * 0.5,
+      this.photoTilt.y * 0.5 + Math.PI * this.photoFlip,
+      0.03 + this.photoTilt.y * 0.25,
+    );
     this.photo.visible = this.photoReady && r > 0.02;
   }
 
@@ -205,7 +278,26 @@ export class Act2 {
     d.bus.setEyes(0.9);
   }
 
+  private armCall() {
+    if (this.awaitingCall) return;
+    this.awaitingCall = true;
+    this.callAutoIn = 1.2;
+    this.d.phone.set('ready');
+  }
+
+  private placeCall() {
+    if (!this.awaitingCall) return;
+    this.awaitingCall = false;
+    this.callAutoIn = -1;
+    const d = this.d;
+    d.sfx.phoneTap();
+    d.phone.set('calling');
+    void d.dialogue.say({ text: L('「언니」— 미오는 통화 버튼을 누른다.', '「姉」— ミオは通話ボタンを押す。'), dur: 1.8 });
+  }
+
   private async finish() {
+    // 화각 원복 — 좁힌 채로 ACT 3 에 넘기면 마을이 망원으로 열린다
+    if (this.baseFov > 0) { this.d.camera.fov = this.baseFov; this.d.camera.updateProjectionMatrix(); this.zoom = 0; this.zoomTarget = 0; }
     if (this.state !== 'run') return;
     this.state = 'done';
     const d = this.d;
@@ -214,7 +306,8 @@ export class Act2 {
     this.photo.visible = false;
     d.bus.setEyes(0);
     d.bus.show(false);
-    d.sfx.busEngine(false);
+    // 다음 장면이 새 엔진음을 시작하므로 이전 세트의 페이드 꼬리는 여기서 완전히 자른다.
+    d.sfx.busEngine(false, true);
     d.fp.end();
     const r = this.done; this.done = null; r?.();
   }
@@ -245,13 +338,6 @@ const PHOTO_WIDTH = 0.288;
  * 위쪽(언니의 얼굴)이 멀어진다 — 이 ACT 에서 반드시 읽혀야 할 곳이 제일 안 읽혔다.
  */
 const PHOTO_TILT = -0.12;
-/**
- * 사진 속 **언니의 얼굴** — 사진 폭에 대한 비율(`story/photo.ts` 의 `FACE` 와 같은 값).
- * 레이를 쏠 지점을 정하는 데만 쓴다. 얼룩 자체의 위치는 `makeFaceBleed` 안에서 같은 상수로 잡힌다.
- */
-const FACE_X = -0.026;
-const FACE_Y = 0.202;
-
 async function loadPhotoModel(): Promise<THREE.Object3D> {
   // 빌드 산출물은 meshopt 압축이다(`build-props`) — 디코더를 단 로더가 아니면 로드 자체가 실패한다
   const gltf = await Props.loader().loadAsync(PHOTO_URL);
@@ -262,7 +348,10 @@ async function loadPhotoModel(): Promise<THREE.Object3D> {
   const s = PHOTO_WIDTH / Math.max(1e-6, size.x);
   const c = box.getCenter(new THREE.Vector3());
   const g = new THREE.Group();
-  g.add(root);
+  const frontState = new THREE.Group();
+  frontState.name = 'photo-front-state';
+  frontState.add(root);
+  g.add(frontState);
   root.scale.setScalar(s);
   root.position.set(-c.x * s, -c.y * s, -c.z * s);
   root.traverse((o) => {
@@ -277,6 +366,9 @@ async function loadPhotoModel(): Promise<THREE.Object3D> {
       if (std.color) std.color.multiplyScalar(0.62);
       std.roughness = 0.6;
       std.metalness = 0;
+      // 스캔 사진의 앞면이 뒤집힌 뒤 거울상으로 다시 나타나는 원인이었던 양면 렌더를 차단한다.
+      std.side = THREE.FrontSide;
+      std.needsUpdate = true;
     }
   });
 
@@ -290,9 +382,45 @@ async function loadPhotoModel(): Promise<THREE.Object3D> {
   g.updateMatrixWorld(true);
   const width = new THREE.Box3().setFromObject(g).getSize(new THREE.Vector3()).x;
   const ray = new THREE.Raycaster();
-  ray.set(new THREE.Vector3(FACE_X * width, FACE_Y * width, width), new THREE.Vector3(0, 0, -1));
-  const hit = ray.intersectObject(g, true)[0];
-  if (hit) g.add(makeFaceBleed(width, hit.point.z));
+  ray.set(
+    new THREE.Vector3(PHOTO_HANDS_FACE.right * width, PHOTO_HANDS_FACE.up * width, width),
+    new THREE.Vector3(0, 0, -1),
+  );
+  const hit = ray.intersectObject(frontState, true)[0];
+  if (hit) {
+    frontState.add(makeFaceBleed(width, hit.point.z, 1, PHOTO_HANDS_FACE));
+
+    // 스캔 프롭에는 앞면만 구워져 있으므로 뒷면은 별도 상태로 만든다. 앞면 스캔 전체를
+    // 90°에서 감추고 이 그룹만 켜야 기존 가족사진이 가장자리로 새어 나오지 않는다.
+    const backState = new THREE.Group();
+    backState.name = 'photo-back-state';
+    const back = makePhoto().back;
+    const paperW = width * 0.69;
+    const paperH = paperW * (2 / 3);
+    const reverse = new THREE.Mesh(
+      new THREE.PlaneGeometry(paperW, paperH),
+      new THREE.MeshBasicMaterial({ map: back, color: 0xd6ccb6, side: THREE.FrontSide }),
+    );
+    const backZ = hit.point.z - width * 0.006;
+    reverse.position.set(0, 0, backZ);
+    reverse.rotation.y = Math.PI;
+    reverse.renderOrder = 12;
+    reverse.frustumCulled = false;
+    backState.add(reverse);
+
+    // 스캔 손도 앞면 텍스처와 한 메시라 함께 숨겨야 한다. 뒤쪽에는 손가락 두 개만 얇게
+    // 다시 세워 사진을 쥐고 있다는 실루엣을 유지한다.
+    const skin = new THREE.MeshStandardMaterial({ color: 0x6b4f3c, roughness: 0.72, side: THREE.FrontSide });
+    for (const side of [-1, 1]) {
+      const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.009, 0.02, 4, 8), skin);
+      thumb.position.set(side * paperW * 0.41, -paperH * 0.42, backZ - 0.006);
+      thumb.rotation.set(0.12, Math.PI, side * -0.38);
+      thumb.renderOrder = 13;
+      backState.add(thumb);
+    }
+    backState.visible = false;
+    g.add(backState);
+  }
   else console.warn('[act2] 사진면을 못 찾았다 — 얼룩 생략');
   return g;
 }

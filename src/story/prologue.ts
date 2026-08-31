@@ -16,6 +16,7 @@ import type { Chochin } from '@/light/chochin';
 import type { Phone } from './phone';
 import type { CharacterController } from '@/character/controller';
 import type { Sayo } from './sayo';
+import type { Input } from '@/core/input';
 
 /**
  * 프롤로그 오케스트레이션 (PLAN-STORY §8.4)
@@ -29,6 +30,7 @@ import type { Sayo } from './sayo';
  * 관찰의 장면이라 카메라가 맡는다. 그 전환 자체가 미오를 소개하는 컷이 된다.
  */
 export async function playPrologue(deps: {
+  scene: THREE.Scene;
   sequencer: Sequencer;
   dialogue: Dialogue;
   village: Higasato;
@@ -42,16 +44,25 @@ export async function playPrologue(deps: {
   lightning: Lightning;
   /** ACT 2a 의 무대 — 지형 밖에 세운 자립 세트 */
   bus: Bus;
+  /** ACT 1 동안 버스 자산을 백그라운드에서 읽는다. */
+  prefetchBus: () => Promise<void>;
+  /** 타이틀 암전 아래서 버스 재질·텍스처를 GPU에 올린다. */
+  prepareBus: () => Promise<void>;
+  /** ACT 2가 끝나면 다시 쓰지 않는 버스 GPU 자원을 돌려준다. */
+  releaseBus: () => void;
   camera: THREE.PerspectiveCamera;
   sfx: Sfx;
   chochin: Chochin | null;
   phone: Phone;
+  input: Input;
   /** 아이템을 인벤토리에 넣는다 (가족사진 — ACT 2b 「가방에 넣고」) */
   give: (itemId: string) => void;
   setSurfaceOverride: (s: 'water' | null) => void;
   setDread: (v: number) => void;
   /** 시간대 전환 (world/timeOfDay.ts) */
   setTime: (name: TimeOfDayName, seconds?: number) => void;
+  /** 개정 스토리보드 진행표와 세이브의 ACT/phase를 함께 넘긴다. */
+  onAct: (act: number) => void;
   title: (show: boolean) => void;
   /** ACT 1 을 프레임 루프에 물린다 (플레이 구간이라 매 프레임 갱신이 필요하다) */
   bindAct1: (a: Act1 | null) => void;
@@ -67,6 +78,10 @@ export async function playPrologue(deps: {
   deps.setTime('rainNight');
 
   // ---------------- ACT 1 ----------------
+  deps.onAct(1);
+  // 초기 로딩에서는 버스를 읽지 않는다. 플레이가 시작된 뒤 ACT 1의 수 분 동안 네트워크·디코딩을
+  // 겹쳐 두고, 실제 GPU 업로드는 아래 타이틀 암전에서 끝낸다.
+  void deps.prefetchBus();
   const act1 = new Act1({
     village, controller, fp, pursuers, dialogue, sequencer, rain, lightning, sfx,
     sayo: deps.sayo,
@@ -81,26 +96,36 @@ export async function playPrologue(deps: {
   deps.sayo?.dispose();
 
   // ---------------- TITLE ----------------
+  const titleAt = performance.now();
   deps.title(true);
-  await wait(3200);   // 한자 등장 애니메이션(2.4 s)이 끝나고 잠깐 머무는 시간
+  // 종을 다시 치지 않는다. ACT 1 의 마지막 종에서 **타격음 없는 저역 잔향만** 돌아와
+  // 과거의 검은 화면과 10년 뒤 버스를 한 호흡으로 잇는다 (`Sfx.bellAfterimage`).
+  sfx.bellAfterimage();
+  await deps.prepareBus();
+  // 로드가 빨라도 타이틀 한자 애니메이션(2.4 s)+여운은 기존 3.2초를 그대로 보장한다.
+  await wait(Math.max(0, 3200 - (performance.now() - titleAt)));
   deps.title(false);
   await wait(700);
 
   // ---------------- ACT 2a 「버스 안」 ----------------
   // 스토리보드 ACT 2 는 여기서 시작한다 — 창가에 앉아 사진을 보는 미오, 그리고 기사.
+  deps.onAct(2);
   // 시간대를 먼저 걸어 둔다: 창밖이 오후 3시여야 한다
   deps.setTime('afternoon');
   chochin?.setLevel(0);
-  const act2 = new Act2({ bus, fp, dialogue, sequencer, sfx, phone: deps.phone, camera: deps.camera });
+  const act2 = new Act2({ bus, fp, dialogue, sequencer, sfx, phone: deps.phone, camera: deps.camera, input: deps.input });
   deps.bindAct2(act2);
   await act2.play();
   deps.bindAct2(null);
   await wait(600);
+  deps.releaseBus();
 
   // ---------------- ACT 2b 「종점」 ----------------
   // 여기서 3인칭으로 바뀐다. 문이 열리고 내려서는 순간이 **현재의 미오를 처음 보여주는** 컷이다
   const stop = village.busStop.pos;
   const stand = new THREE.Vector3(stop.x + 1.6, g.heightAt(stop.x + 1.6, stop.z + 1.2) + 0.05, stop.z + 1.2);
+  const puddle = stand.clone().add(new THREE.Vector3(0.75, 0, 0.95));
+  puddle.y = g.heightAt(puddle.x, puddle.z) + 0.022;
   deps.place(stand);
   // 게이트 **너머**로 이어지는 흙길. 게이트 자체를 보면 정류장에서 3 m 앞이라 기둥이 화면을 가른다 —
   // 「그 자리에는 오래된 흙길과 빽빽한 삼나무 숲만 남아 있다」는 그 너머를 봐야 성립한다
@@ -132,12 +157,20 @@ export async function playPrologue(deps: {
     ],
     events: [
       { t: 0, fade: 'out', dur: 1.8 },
+      { t: 0, fn: () => sfx.busEngine(true) },
       { t: 1.0, sub: { text: L('미오가 내린다. 버스 문이 닫히고 차량이 출발한다.', 'ミオが降りる。扉が閉まり、バスが発車する。'), dur: 3.4 } },
       // 「사진을 가방에 넣고」 — **그 줄에서 아이템이 된다**. 자막이 말한 것과 인벤의 상태가
       // 같은 순간에 맞아야 물건이 손에 들어온 게 된다 (PLAN-STORY P2)
-      { t: 5.4, sub: { text: L('사진을 가방에 넣고 뒤를 돌아본다.', '写真を鞄にしまい、振り返る。'), dur: 3.0 } },
-      { t: 6.0, fn: () => deps.give('photo') },
+      { t: 5.4, sub: { text: L('사진과 휴대폰을 가방에 넣고 뒤를 돌아본다.', '写真と携帯電話を鞄にしまい、振り返る。'), dur: 3.0 } },
+      { t: 6.0, fn: () => { deps.give('photo'); deps.give('phone'); } },
       { t: 12.4, sub: { text: L('버스가 없다. 아스팔트 도로도 사라졌다.', 'バスがない。アスファルトの道も消えている。'), dur: 3.4 } },
+      // 버스가 프레임 밖으로 멀어지는 동안 먼저 감쇠하고, "버스가 없다"가 보이는 순간 안전 컷.
+      { t: 10.8, fn: () => sfx.busEngine(false) },
+      { t: 13.0, fn: () => sfx.busEngine(false, true) },
+      // 자막보다 반 박자 먼저 실제 붉은 반사가 물 위를 훑는다. 보려고 고개를 돌린 뒤에는
+      // 이미 파문만 남아 있어야 「다시 보면」이 플레이 화면에서도 성립한다.
+      { t: 14.8, fn: () => showTaillightReflection(deps.scene, puddle) },
+      { t: 15.2, sub: { text: L('웅덩이 위로 붉은 후미등이 한 번 스친다. 다시 보면 물결뿐이다.', '水溜まりを赤い尾灯が一度よぎる。見直せば、波紋だけ。'), dur: 3.5 } },
       { t: 16.4, sub: { text: L('그 자리에는 오래된 흙길과 빽빽한 삼나무 숲만 남아 있다.', 'そこには古い土の道と、密な杉林だけが残っている。'), dur: 4.0 } },
       { t: 21.0, sub: { who: L('미오', 'ミオ'), text: L('……사람을 찾으러 왔어요.', '……人を探しに来ました。'), dur: 3.0 } },
       // **해가 무너진다.** 두 단계로 간다 — 오후에서 밤으로 곧장 보간하면 색이 그냥 어두워질 뿐,
@@ -162,6 +195,76 @@ export async function playPrologue(deps: {
   // 플레이 시작 — 금줄 게이트 안쪽(마을 쪽). 온 길로는 돌아갈 수 없다
   const sp = g.roadAt(9);
   deps.onEnd(new THREE.Vector3(sp.x, g.heightAt(sp.x, sp.z) + 0.05, sp.z));
+}
+
+/** 종점에 실제 버스는 없지만 물 표면에만 남는 두 개의 후미등과 늦은 파문. */
+function showTaillightReflection(scene: THREE.Scene, at: THREE.Vector3) {
+  const root = new THREE.Group();
+  root.position.copy(at);
+  root.renderOrder = 18;
+
+  const wetMat = new THREE.MeshBasicMaterial({ color: 0x10141a, transparent: true, opacity: 0.5, depthWrite: false });
+  const wet = new THREE.Mesh(new THREE.CircleGeometry(1, 40), wetMat);
+  wet.rotation.x = -Math.PI / 2;
+  wet.scale.set(1.35, 0.52, 1);
+  root.add(wet);
+
+  const redMats: THREE.MeshBasicMaterial[] = [];
+  for (const x of [-0.3, 0.3]) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xff1c0c,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    redMats.push(mat);
+    const streak = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 1.15), mat);
+    streak.position.set(x, 0.012, 0.02);
+    streak.rotation.x = -Math.PI / 2;
+    root.add(streak);
+  }
+
+  const rippleMat = new THREE.MeshBasicMaterial({ color: 0xb7c4cd, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+  const ripple = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.38, 48), rippleMat);
+  ripple.position.y = 0.018;
+  ripple.rotation.x = -Math.PI / 2;
+  root.add(ripple);
+
+  const redLight = new THREE.PointLight(0xff2414, 0, 2.8, 2);
+  redLight.position.set(0, 0.3, 0);
+  root.add(redLight);
+  scene.add(root);
+
+  const started = performance.now();
+  const duration = 2600;
+  const tick = (now: number) => {
+    const u = Math.min(1, (now - started) / duration);
+    // 0.08초 만에 나타나 짧게 미끄러지고, 1초가 되기 전에 꺼진다.
+    const red = u < 0.08 ? u / 0.08 : u < 0.36 ? 1 - (u - 0.08) / 0.28 : 0;
+    for (const mat of redMats) mat.opacity = red * 0.82;
+    redLight.intensity = red * 2.2;
+    root.position.z = at.z + (u < 0.36 ? (u / 0.36 - 0.5) * 0.75 : 0.375);
+
+    const rippleU = Math.max(0, (u - 0.24) / 0.76);
+    ripple.visible = rippleU > 0;
+    ripple.scale.setScalar(0.75 + rippleU * 2.3);
+    rippleMat.opacity = Math.sin(Math.min(1, rippleU) * Math.PI) * 0.32;
+    wetMat.opacity = 0.5 * (1 - Math.max(0, (u - 0.7) / 0.3));
+
+    if (u < 1) requestAnimationFrame(tick);
+    else {
+      scene.remove(root);
+      root.traverse((o) => {
+        const m = o as THREE.Mesh;
+        m.geometry?.dispose();
+      });
+      wetMat.dispose(); rippleMat.dispose();
+      for (const mat of redMats) mat.dispose();
+    }
+  };
+  requestAnimationFrame(tick);
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));

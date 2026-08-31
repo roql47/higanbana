@@ -27,13 +27,16 @@ export interface PauseMenuHooks {
   /** 「처음부터」 — R 과 같은 리셋 */
   onRestart(): void;
   onQuality(level: QualityLevel): void;
+  /** 렌더 해상도 배율이 바뀌었다 (0.5~1) — 저장 + 픽셀비 재계산은 바깥의 몫 */
+  onRenderScale(v: number): void;
   /** 마스터 음량이 바뀌었다 (0~1) */
   onVolume(v: number): void;
   /** HUD 옵션이 바뀌었다 — 저장 + 뷰포트 재계산 */
   onHudChange(): void;
 }
 
-const QUALITY_LABEL: Record<QualityLevel, string> = {
+/** 타이틀 설정 모달(main.ts 주입)도 같은 표기를 쓴다 */
+export const QUALITY_LABEL: Record<QualityLevel, string> = {
   low: L('낮음', '低'), medium: L('보통', '中'), high: L('높음', '高'), ultra: L('최고', '最高'),
 };
 
@@ -41,6 +44,8 @@ export class PauseMenu {
   readonly el: HTMLElement;
   isOpen = false;
   private langNote: HTMLElement;
+  private resInput: HTMLInputElement;
+  private resVal: HTMLElement;
 
   constructor(private hooks: PauseMenuHooks, private currentQuality: QualityLevel) {
     this.el = document.createElement('div');
@@ -54,9 +59,18 @@ export class PauseMenu {
           <div class="pause-note" hidden>${L('언어를 바꾸면 처음부터 다시 시작됩니다.', '言語を変えると最初からやり直しになります。')}</div>
           ${this.rowSeg('quality', L('화질', '画質'), QUALITY_LEVELS.map((q) => [q, QUALITY_LABEL[q]] as [string, string]), currentQuality)}
           <div class="pause-row">
+            <span class="pause-label">${L('렌더 해상도', '描画解像度')}</span>
+            <span class="pause-scale"><input class="pause-res" type="range" min="0.5" max="1" step="0.05" value="${settings.render.resolutionScale}"><span class="pause-res-val">${Math.round(settings.render.resolutionScale * 100)}%</span></span>
+          </div>
+          <div class="pause-row">
             <span class="pause-label">${L('소리', '音量')}</span>
             <input class="pause-vol" type="range" min="0" max="1" step="0.05" value="${settings.audio.master}">
           </div>
+          <div class="pause-row">
+            <span class="pause-label">${L('HUD 크기', 'HUD サイズ')}</span>
+            <span class="pause-hud-scale"><input class="pause-hud-size" type="range" min="0.8" max="1.3" step="0.05" value="${settings.hud.scale}"><span class="pause-hud-size-val">${Math.round(settings.hud.scale * 100)}%</span></span>
+          </div>
+          ${this.rowToggle('highContrast', L('HUD 고대비', 'HUD 高コントラスト'), settings.hud.highContrast)}
           ${this.rowToggle('waypoint', L('목표 지시자', '目標マーカー'), settings.hud.waypoint)}
           ${this.rowToggle('signRead', L('팻말 읽어 주기', '道標を読み上げ'), settings.hud.signRead)}
           ${this.rowToggle('lockAspect', L('창 비율 고정', '画面比を固定'), settings.hud.lockAspect)}
@@ -78,6 +92,24 @@ export class PauseMenu {
       hooks.onVolume(v);
     });
 
+    // 화질 프리셋(그림자·AO·소품)은 그대로 두고 해상도만 내리는 수동 배율 — 「무겁다」는 기기의 마지막 손잡이
+    this.resVal = this.el.querySelector('.pause-res-val') as HTMLElement;
+    this.resInput = this.el.querySelector('.pause-res') as HTMLInputElement;
+    this.resInput.addEventListener('input', () => {
+      const v = Number(this.resInput.value);
+      settings.render.resolutionScale = v;
+      this.resVal.textContent = `${Math.round(v * 100)}%`;
+      hooks.onRenderScale(v);
+    });
+
+    const hudSize = this.el.querySelector('.pause-hud-size') as HTMLInputElement;
+    const hudSizeVal = this.el.querySelector('.pause-hud-size-val') as HTMLElement;
+    hudSize.addEventListener('input', () => {
+      settings.hud.scale = Number(hudSize.value);
+      hudSizeVal.textContent = `${Math.round(settings.hud.scale * 100)}%`;
+      hooks.onHudChange();
+    });
+
     this.onSeg('lang', (v) => {
       if (v === lang()) return;
       setLang(v as Lang);
@@ -89,7 +121,7 @@ export class PauseMenu {
       this.currentQuality = v as QualityLevel;
       hooks.onQuality(v as QualityLevel);
     });
-    for (const k of ['waypoint', 'signRead', 'lockAspect'] as const) {
+    for (const k of ['highContrast', 'waypoint', 'signRead', 'lockAspect'] as const) {
       this.el.querySelector(`[data-toggle="${k}"]`)!.addEventListener('click', (e) => {
         const b = e.currentTarget as HTMLElement;
         settings.hud[k] = !settings.hud[k];
@@ -119,7 +151,13 @@ export class PauseMenu {
     }
   }
 
-  /** 품질이 바깥에서 바뀌었을 때 (적응형 하향·H 패널) 버튼 상태를 맞춘다 */
+  /** 렌더 해상도가 바깥(타이틀 설정)에서 바뀌었을 때 슬라이더 표시를 맞춘다 */
+  syncRenderScale(v: number) {
+    this.resInput.value = String(v);
+    this.resVal.textContent = `${Math.round(v * 100)}%`;
+  }
+
+  /** 품질이 바깥에서 바뀌었을 때 (적응형 하향·H 패널·타이틀 설정) 버튼 상태를 맞춘다 */
   syncQuality(level: QualityLevel) {
     this.currentQuality = level;
     for (const b of this.el.querySelectorAll<HTMLElement>('[data-seg="quality"]')) {

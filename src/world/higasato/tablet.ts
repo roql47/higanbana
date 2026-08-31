@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { L, lang, serifFamily } from '@/core/i18n';
 import type { Physics } from '@/core/physics';
+import { Props } from '@/world/props';
 import type { HigasatoGround } from './ground';
 import { PartsBuilder, textCanvas } from './kit';
 
@@ -56,7 +57,8 @@ export class StoneTablet {
     slab.translate(x, y + 0.45 + 0.85, z);
     b.add(slab, mStone);
     b.collide(x, y + 0.9, z, 0.6, 0.9, 0.9);
-    this.group.add(b.build('stone-tablet'));
+    const proc = b.build('stone-tablet');
+    this.group.add(proc);
 
     /**
      * 각인면 — 비신 서쪽(참배로 쪽) 면에 2 cm 띄운 평면.
@@ -70,11 +72,17 @@ export class StoneTablet {
      * 표면 바깥으로 밀고, 그다음 비신의 rotateZ → rotateY → translate 를 그대로 태운다.
      */
     this.redraw();
-    const fg = new THREE.PlaneGeometry(0.98, 1.55);
-    fg.rotateY(-Math.PI / 2);      // 법선 +z → −x (참배로 쪽)
-    fg.translate(-0.15, 0, 0);     // 비신 반두께 0.13 + 2 cm
-    fg.rotateZ(-0.05); fg.rotateY(-0.06);
-    fg.translate(x, y + 0.45 + 0.85, z);
+    // 크기를 뒤에서 바꿀 수 있게 지오메트리 조립을 함수로 — 변환이 통째로 구워지므로
+    // mesh.scale 로 줄이면 **월드 원점 기준**으로 날아간다 (scale 금지, 재생성만)
+    const buildFaceGeo = (w: number, h: number) => {
+      const g = new THREE.PlaneGeometry(w, h);
+      g.rotateY(-Math.PI / 2);      // 법선 +z → −x (참배로 쪽)
+      g.translate(-0.15, 0, 0);     // 비신 반두께 0.13 + 2 cm
+      g.rotateZ(-0.05); g.rotateY(-0.06);
+      g.translate(x, y + 0.45 + 0.85, z);
+      return g;
+    };
+    const fg = buildFaceGeo(0.98, 1.55);
     const face = new THREE.Mesh(
       fg,
       new THREE.MeshStandardMaterial({ map: this.tex!, transparent: true, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -1 }),
@@ -83,6 +91,35 @@ export class StoneTablet {
     this.facePos.copy(fg.boundingSphere!.center);
     face.receiveShadow = true;
     this.group.add(face);
+
+    /**
+     * 자연석 비석 (Tripo `prop-stele`) — 도착하면 박스 비신·기단을 감추고 그 자리에 선다.
+     * 각인 캔버스와 콜라이더는 그대로다. 캔버스는 상수 좌표가 아니라 **레이캐스트로 실제 돌 표면을
+     * 찾아** 그 앞 2 cm 로 옮긴다 — 모델의 정면이 박스와 같은 평면에 있으리라는 보장이 없다
+     * (공고판 종이를 모델 판면 위로 옮긴 것과 같은 이유, speaker.ts 참조).
+     */
+    void Props.loadNormalized('/models/props/stele.glb', 2.15, 0.45).then((m) => {
+      m.rotation.set(0, -0.06, -0.05);        // 비신과 같은 기울기 (rotateZ → rotateY 순서와 등가)
+      m.position.set(x, y - 0.03, z);         // 경사지라 3 cm 묻는다
+      m.updateMatrixWorld(true);
+      this.group.add(m);
+      proc.visible = false;
+      // 각인면의 바깥 법선(서쪽 + 기울기) — 지오메트리에 태운 회전과 같은 순서로 계산한다
+      const n = new THREE.Vector3(-1, 0, 0)
+        .applyAxisAngle(new THREE.Vector3(0, 0, 1), -0.05)
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), -0.06);
+      const rc = new THREE.Raycaster(this.facePos.clone().addScaledVector(n, 1.2), n.clone().negate(), 0, 2.4);
+      const hit = rc.intersectObject(m, true)[0];
+      if (hit) {
+        // facePos 에서 표면까지 법선 방향 부호 거리 (양수 = 표면이 캔버스보다 서쪽)
+        const off = 1.2 - hit.distance;
+        face.position.copy(n).multiplyScalar(off + 0.02);
+        this.facePos.addScaledVector(n, off + 0.02);
+      }
+      // 이 모델은 정면에 각인용 패널 홈이 파여 있다 — 캔버스를 그 안쪽 폭에 맞춰 다시 굽는다
+      face.geometry.dispose();
+      face.geometry = buildFaceGeo(0.82, 1.42);
+    }).catch((e) => console.warn('[tablet] 비석 모델 로드 실패 — 절차적 비석 유지:', e));
 
     scene.add(this.group);
   }
@@ -127,7 +164,8 @@ export class StoneTablet {
           const my = rnd() * H;
           this.moss.push({
             x: rnd() * W, y: my, r: 11 + rnd() * 28,
-            c: `rgba(${40 + rnd() * 25 | 0}, ${58 + rnd() * 30 | 0}, ${34 + rnd() * 18 | 0}, ${(0.55 + rnd() * 0.4).toFixed(2)})`,
+            // 채도를 누른 올리브 — 박스 시절의 쨍한 초록은 실물 돌 텍스처 위에서 위장무늬처럼 떴다
+            c: `rgba(${26 + rnd() * 14 | 0}, ${38 + rnd() * 18 | 0}, ${24 + rnd() * 10 | 0}, ${(0.42 + rnd() * 0.3).toFixed(2)})`,
             // 위에서부터 벗겨진다 — 손이 위에서 아래로 내려간다. ±8 % 흩뜨려 경계선이 자로 그은 듯하지 않게.
             // 상한은 1 이 아니라 0.985 — 1 이면 `at < wipeP` 가 끝까지 거짓이라 **다 닦아도 밑동에 이끼가 남는다**
             at: Math.min(0.985, Math.max(0, my / H + (rnd() - 0.5) * 0.16)),
@@ -184,7 +222,7 @@ export class StoneTablet {
  * 각인 레이아웃 (캔버스 256 × 400). 얼룩 사각형이 여기서 계산돼 나오므로,
  * 문구를 고치면 얼룩도 따라온다 — 따로 적어 두면 어긋난다.
  */
-const TITLE = L('히가사토 삼금', '彼ヶ里 三禁');
+const TITLE = L('세 가지 금기', '彼ヶ里 三禁');
 const TITLE_PX = 34;
 const RULES: readonly (readonly [string, string])[] = lang() === 'ja'
   ? [

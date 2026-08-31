@@ -46,6 +46,8 @@ export class CharacterController {
   ctrl: RAPIER.KinematicCharacterController;
   private timeSinceGrounded = 0;
   private jumpBufferTimer = Infinity;
+  /** 플레이어 점프 착지 뒤 재점프를 잠그는 시간. 공중 연타로 버니홉이 예약되지 않게 한다. */
+  private jumpLandLockTimer = 0;
   private jumping = false;
   private jumpCutApplied = false;
 
@@ -122,9 +124,13 @@ export class CharacterController {
 
     // --- 점프 (코요테 타임 + 입력 버퍼 + 점프 컷) ---
     this.timeSinceGrounded = this.grounded ? 0 : this.timeSinceGrounded + dt;
-    this.jumpBufferTimer = input.jumpPressed ? 0 : this.jumpBufferTimer + dt;
+    this.jumpLandLockTimer = Math.max(0, this.jumpLandLockTimer - dt);
+    // 착지 안정 시간 중 들어온 Space는 예약하지 않는다. 여기서 버리지 않으면 공중 연타가
+    // jumpBuffer에 남아 잠금이 풀리는 첫 프레임에 자동 재점프한다.
+    if (input.jumpPressed && this.jumpLandLockTimer <= 0) this.jumpBufferTimer = 0;
+    else this.jumpBufferTimer += dt;
     const canCoyote = this.timeSinceGrounded <= m.coyoteTime && !this.jumping;
-    if (this.jumpBufferTimer <= m.jumpBuffer && (this.grounded || canCoyote)) {
+    if (this.jumpLandLockTimer <= 0 && this.jumpBufferTimer <= m.jumpBuffer && (this.grounded || canCoyote)) {
       this.velocity.y = Math.sqrt(2 * m.gravity * m.jumpHeight);
       this.grounded = false;
       this.jumping = true;
@@ -180,9 +186,14 @@ export class CharacterController {
 
     // 착지
     if (this.grounded && !wasGrounded) {
+      const landedFromJump = this.jumping;
       this.landImpact = Math.max(0, -this.velocity.y);
       this.justLanded = true;
       this.jumping = false;
+      if (landedFromJump) {
+        this.jumpLandLockTimer = m.jumpLandLock;
+        this.jumpBufferTimer = Infinity;
+      }
     }
     if (this.grounded) this.jumping = false;
     if (this.grounded && this.velocity.y < 0) this.velocity.y = 0;

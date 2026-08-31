@@ -13,8 +13,11 @@ export function createSky(renderer: THREE.WebGLRenderer, scene: THREE.Scene, sha
   scene.add(sky);
 
   const sun = new THREE.DirectionalLight(0xffffff, settings.render.sunIntensity);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
+  // 0 = 그림자 끔. 0 을 그대로 mapSize 에 넣으면 0×0 섀도맵이 만들어져
+  // sampler2DShadow 에 불완전 텍스처가 물리고(드라이버에 따라 드로우 거부),
+  // follow() 의 텍셀 스냅이 0 나눗셈이 된다 — 크기는 기본값으로 두고 castShadow 로만 끈다.
+  sun.castShadow = shadowMapSize > 0;
+  if (shadowMapSize > 0) sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
   sun.shadow.bias = -0.00015;
   sun.shadow.normalBias = 0.04;
   sun.shadow.radius = 4;
@@ -91,8 +94,20 @@ export function createSky(renderer: THREE.WebGLRenderer, scene: THREE.Scene, sha
     sun.target.updateMatrixWorld();
   }
 
-  /** 그림자맵 해상도 런타임 변경 */
+  /**
+   * 그림자맵 해상도 런타임 변경. `nightSky.setShadowMapSize` 와 **같은 규약** — 0 = 끔.
+   * 예전에는 0 이 그대로 `mapSize` 에 들어가 `castShadow` 는 켜진 채 0×0 맵이 만들어졌다
+   * (지금은 `isVillage` 경로가 nightSky 를 쓰기 때문에 도달하지 않지만, 씬이 하나 늘면 바로 밟는다).
+   */
   function setShadowMapSize(size: number) {
+    sun.castShadow = size > 0;
+    if (size <= 0) {
+      sun.shadow.map?.dispose();
+      sun.shadow.map = null;
+      return;
+    }
+    // `map === null` + `castShadow` 인 상태로 프레임을 넘기지 않는다 (`light/chochin.ts` 주석 참고)
+    sun.shadow.needsUpdate = true;
     if (sun.shadow.mapSize.width === size) return;
     sun.shadow.map?.dispose();
     sun.shadow.map = null;

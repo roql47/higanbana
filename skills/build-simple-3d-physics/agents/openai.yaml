@@ -1,0 +1,4 @@
+interface:
+  display_name: "Simple 3D Physics Builder"
+  short_description: "Build lightweight 3D game physics from model assets"
+  default_prompt: "Use $build-simple-3d-physics to add simple, deterministic physics to this 3D game project."

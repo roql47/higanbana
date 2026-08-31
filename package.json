@@ -13,11 +13,11 @@
     "tripo:rig": "node scripts/tripo/rig.ts",
     "tripo:animate": "node scripts/tripo/animate.ts",
     "build:character": "node scripts/build-character.ts",
+    "impostor:build": "node scripts/build-impostors.ts",
+    "texture:ktx2": "node scripts/compress-ktx2.ts",
     "audio:fetch": "node scripts/audio/fetch.ts",
     "audio:search": "node scripts/audio/fetch.ts --search",
-    "tripo:fetch": "node scripts/tripo/fetch.ts",
-    "voice:build": "node scripts/voice/build.ts",
-    "voice:list": "node scripts/voice/build.ts --list"
+    "tripo:fetch": "node scripts/tripo/fetch.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",

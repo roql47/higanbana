@@ -272,7 +272,7 @@ function duration(file: string): number {
   return parseFloat(r.stdout) || 0;
 }
 
-interface Job { input: string; out: string; kind: 'oneshot' | 'loop'; mono: boolean; tight: boolean; trim?: [number, number]; loop?: LoopSpec; hp?: number; lp?: number; rate?: number; gainDb?: number; fadeIn?: number; fadeOut?: number }
+interface Job { input: string; out: string; kind: 'oneshot' | 'loop'; mono: boolean; tight: boolean; trim?: [number, number]; loop?: LoopSpec; hp?: number; lp?: number; rate?: number; pitch?: number; gainDb?: number; fadeIn?: number; fadeOut?: number }
 
 /** 1단계: 필터 → 임시 WAV, 2단계: 정규화 측정, 3단계: MP3 인코딩 */
 function render(job: Job) {
@@ -281,6 +281,11 @@ function render(job: Job) {
   if (job.trim) filters.push(`atrim=start=${job.trim[0]}:end=${job.trim[1]}`, 'asetpts=PTS-STARTPTS');
   filters.push('aresample=44100');
   if (job.rate && job.rate !== 1) filters.push(`asetrate=${Math.round(44100 * job.rate)}`, 'aresample=44100');
+  // pitch: 속도는 그대로 두고 음정만 (리샘플로 올린 뒤 atempo 로 길이를 되돌린다).
+  // 목소리를 어린쪽으로 옮길 때 필요하다 — rate 로 올리면 노래가 같이 빨라져서 사람이 아니게 된다
+  if (job.pitch && job.pitch !== 1) {
+    filters.push(`asetrate=${Math.round(44100 * job.pitch)}`, 'aresample=44100', `atempo=${(1 / job.pitch).toFixed(4)}`);
+  }
   if (job.hp) filters.push(`highpass=f=${job.hp}:poles=2`);
   if (job.lp) filters.push(`lowpass=f=${job.lp}:poles=2`);
   let complex: string | null = null;
@@ -391,7 +396,7 @@ async function handle(def: SoundDef): Promise<Status> {
     const max = def.max ?? 12;
     let n = 0;
     const jobsFor = (r: Resolved): Job[] => {
-      const base: Omit<Job, 'out' | 'trim'> = { input: r.path, kind: def.kind, mono: def.mono ?? (def.kind === 'oneshot'), tight: def.tight ?? true, hp: src.hp, lp: src.lp, rate: src.rate, gainDb: src.gainDb, loop: src.loop, fadeIn: src.fadeIn, fadeOut: src.fadeOut };
+      const base: Omit<Job, 'out' | 'trim'> = { input: r.path, kind: def.kind, mono: def.mono ?? (def.kind === 'oneshot'), tight: def.tight ?? true, hp: src.hp, lp: src.lp, rate: src.rate, pitch: src.pitch, gainDb: src.gainDb, loop: src.loop, fadeIn: src.fadeIn, fadeOut: src.fadeOut };
       if (src.slices) return src.slices.map((sl) => ({ ...base, out: '', trim: sl }));
       return [{ ...base, out: '', trim: src.trim }];
     };

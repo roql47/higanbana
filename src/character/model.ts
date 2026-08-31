@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { CharacterController } from './controller';
 import { settings } from '@/core/settings';
 import { damp } from '@/core/math';
+import { createGLTFLoader } from '@/core/gltf';
 
 export interface CharacterModelOptions {
   /** 기본 모델(GLB). 리깅된 메시 포함 */
@@ -14,6 +14,8 @@ export interface CharacterModelOptions {
   targetHeight?: number;
   /** 모델의 정면이 +Z가 아니면 보정 (rad) */
   yawOffset?: number;
+  /** T포즈 리그에 A포즈 이동 클립을 붙일 때 팔의 외전·상향 스윙을 월드 공간에서 제한 */
+  constrainLocomotionArms?: boolean;
 }
 
 /**
@@ -44,17 +46,44 @@ export class CharacterModel {
   private headPitch = 0;
   private spinePitch = 0;
   private headBone: THREE.Object3D | null = null;
+  /**
+   * **믹서 출력의 우리 쪽 사본.** 아래 자세 보정들은 전부 믹서가 쓴 본 쿼터니언 **위에** 곱해진다.
+   * 그런데 three.js `PropertyMixer.apply()` 는 이번 프레임 값이 지난 프레임과 같으면
+   * **본에 쓰지 않는다**(변화가 없으면 씬 그래프를 건드리지 않는 최적화). 미오 클립의
+   * `Head`·`NeckTwist02` 는 키가 2개뿐이고 값도 같은 **고정 트랙**이라 이 생략에 걸리고,
+   * 특히 **클립 루프가 넘어간 직후 두 프레임 연속으로** 생략된다.
+   *
+   * 그 두 프레임 동안 보정은 「이미 보정된 값」에 다시 곱해져 **2배·3배**로 쌓인다.
+   * 실측(walk, 60 fps 고정 스텝, `Head.quaternion.x`): 0.0636 → **0.1271 → 0.1902** → 0.0636.
+   * 클립 한 바퀴(walk 2.375 s = 발소리 4번)마다 고개가 한 프레임 뒤로 꺾였다 돌아온다 —
+   * 사용자가 본 「달릴 때·걸을 때 이상한 프레임」이 이것이다.
+   *
+   * → 매 프레임 **본 값이 우리가 지난 프레임에 쓴 값과 똑같으면 믹서가 건너뛴 것**으로 보고,
+   *   보정 전 원본(`raw`)으로 되돌린 뒤 보정을 건다. 그러면 보정은 항상 1회분만 걸린다.
+   */
+  private poseCache: { bone: THREE.Object3D; raw: THREE.Quaternion; out: THREE.Quaternion }[] = [];
+  private poseCacheReady = false;
   /** 목 본(위→아래 순) — 보정을 한 관절에 몰지 않고 목 전체에 나눠 건다 */
   private neckBones: THREE.Object3D[] = [];
   private spineBones: THREE.Object3D[] = [];
   /** 손 본 — 손목 롤 보정(`settings.character.handRoll`)이 여기 걸린다 */
   private handBones: THREE.Object3D[] = [];
-  /** 쇄골 — 어깨선 수평 보정(`settings.character.torsoRoll`)이 여기 걸린다 */
+  /** 쇄골 — 어깨선 수평·말림 보정이 여기 걸린다 */
   private clavicleBones: THREE.Object3D[] = [];
+  private armL: { upper?: THREE.Object3D; fore?: THREE.Object3D; hand?: THREE.Object3D } = {};
+  private armR: { upper?: THREE.Object3D; fore?: THREE.Object3D; hand?: THREE.Object3D } = {};
+  private constrainLocomotionArms = false;
   private tmpQ2 = new THREE.Quaternion();
+  private tmpQ3 = new THREE.Quaternion();
+  private tmpQ4 = new THREE.Quaternion();
   private tmpV = new THREE.Vector3();
+  private tmpV2 = new THREE.Vector3();
+  private tmpV3 = new THREE.Vector3();
+  private tmpV4 = new THREE.Vector3();
   private innerBaseY = 0;
   private tmpQ = new THREE.Quaternion();
+  /** 카메라가 몸 안에 들어왔을 때 표시 상태가 경계에서 깜박이지 않게 하는 히스테리시스 */
+  private closeCameraHidden = false;
   private originalMaps = new Map<THREE.MeshStandardMaterial, THREE.Texture>();
   /** 믹서·보정 뒤에 얹는 절차적 포즈 훅 (공격 등) */
   postPose: ((dt: number) => void) | null = null;
@@ -64,6 +93,7 @@ export class CharacterModel {
     this.inner.add(scene);
     this.root.add(this.inner);
     this.root.name = 'character';
+    this.constrainLocomotionArms = opts.constrainLocomotionArms ?? false;
 
     // 그림자·재질 정리
     scene.traverse((o) => {
@@ -106,6 +136,13 @@ export class CharacterModel {
       if (/^(Spine01|Spine02|mixamorig:Spine1|mixamorig:Spine2)$/.test(o.name)) this.spineBones.push(o);
       if (/^([LR]_Hand|mixamorig:(Left|Right)Hand)$/.test(o.name)) this.handBones.push(o);
       if (/^([LR]_Clavicle|mixamorig:(Left|Right)Shoulder)$/.test(o.name)) this.clavicleBones.push(o);
+      if (o.name === 'L_Upperarm') this.armL.upper = o;
+      else if (o.name === 'L_Forearm') this.armL.fore = o;
+      else if (o.name === 'L_Hand') this.armL.hand = o;
+      else if (o.name === 'R_Upperarm') this.armR.upper = o;
+      else if (o.name === 'R_Forearm') this.armR.fore = o;
+      else if (o.name === 'R_Hand') this.armR.hand = o;
+      if ((o as THREE.Bone).isBone) this.poseCache.push({ bone: o, raw: new THREE.Quaternion(), out: new THREE.Quaternion() });
     });
     for (const mat of this.materials) {
       const std = mat as THREE.MeshStandardMaterial;
@@ -114,56 +151,66 @@ export class CharacterModel {
   }
 
   /**
-   * 알베도 색보정: 원본 텍스처 이미지를 캔버스로 재가공(채도/대비/밝기/따뜻함) 후 교체.
-   * settings.character 값을 바꾸고 다시 호출하면 원본 기준으로 재적용된다.
+   * 알베도 색보정: 픽셀을 캔버스로 복사하지 않고 map 샘플 직후 셰이더에서 처리한다.
+   * KTX2 CompressedTexture는 HTMLImage가 아니므로 drawImage할 수 없고, WebP도 캔버스 복제본을
+   * 만들면 같은 알베도가 GPU 메모리에 두 벌 남는다. uniform만 갱신하면 두 경로 모두 원본 한 장이다.
    */
   gradeAlbedo() {
     const g = settings.character;
-    for (const [mat, orig] of this.originalMaps) {
-      const img = orig.image as ImageBitmap | HTMLImageElement | HTMLCanvasElement | undefined;
-      if (!img || !('width' in img)) continue;
-      const w = img.width, h = img.height;
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-      ctx.drawImage(img as CanvasImageSource, 0, 0);
-      const data = ctx.getImageData(0, 0, w, h);
-      const px = data.data;
-      const sat = g.saturation, con = g.contrast, bri = g.brightness, warm = g.warmth * 255;
-      for (let i = 0; i < px.length; i += 4) {
-        let r = px[i]!, gg = px[i + 1]!, b = px[i + 2]!;
-        // 채도 (luma 기준)
-        const l = 0.299 * r + 0.587 * gg + 0.114 * b;
-        r = l + (r - l) * sat; gg = l + (gg - l) * sat; b = l + (b - l) * sat;
-        // 대비 (128 기준) + 밝기
-        r = ((r - 128) * con + 128) * bri; gg = ((gg - 128) * con + 128) * bri; b = ((b - 128) * con + 128) * bri;
-        // 따뜻함
-        r += warm; b -= warm;
-        px[i] = r < 0 ? 0 : r > 255 ? 255 : r;
-        px[i + 1] = gg < 0 ? 0 : gg > 255 ? 255 : gg;
-        px[i + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
+    for (const [mat] of this.originalMaps) {
+      type GradeUniforms = {
+        saturation: { value: number };
+        contrast: { value: number };
+        brightness: { value: number };
+        warmth: { value: number };
+      };
+      let uniforms = mat.userData['characterGrade'] as GradeUniforms | undefined;
+      if (!uniforms) {
+        uniforms = {
+          saturation: { value: g.saturation }, contrast: { value: g.contrast },
+          brightness: { value: g.brightness }, warmth: { value: g.warmth },
+        };
+        mat.userData['characterGrade'] = uniforms;
+        const previousCompile = mat.onBeforeCompile;
+        const previousKey = mat.customProgramCacheKey.bind(mat);
+        mat.onBeforeCompile = (shader, renderer) => {
+          previousCompile(shader, renderer);
+          shader.uniforms['uGradeSaturation'] = uniforms!.saturation;
+          shader.uniforms['uGradeContrast'] = uniforms!.contrast;
+          shader.uniforms['uGradeBrightness'] = uniforms!.brightness;
+          shader.uniforms['uGradeWarmth'] = uniforms!.warmth;
+          shader.fragmentShader = shader.fragmentShader
+            .replace('#include <map_pars_fragment>', `#include <map_pars_fragment>
+              uniform float uGradeSaturation;
+              uniform float uGradeContrast;
+              uniform float uGradeBrightness;
+              uniform float uGradeWarmth;`)
+            .replace('#include <map_fragment>', `#ifdef USE_MAP
+              vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+              #ifdef DECODE_VIDEO_TEXTURE
+                sampledDiffuseColor = sRGBTransferEOTF( sampledDiffuseColor );
+              #endif
+              float gradeLuma = dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+              sampledDiffuseColor.rgb = mix(vec3(gradeLuma), sampledDiffuseColor.rgb, uGradeSaturation);
+              sampledDiffuseColor.rgb = (sampledDiffuseColor.rgb - 0.5) * uGradeContrast + 0.5;
+              sampledDiffuseColor.rgb *= uGradeBrightness;
+              sampledDiffuseColor.rgb += vec3(uGradeWarmth, 0.0, -uGradeWarmth);
+              diffuseColor *= clamp(sampledDiffuseColor, 0.0, 1.0);
+            #endif`);
+        };
+        mat.customProgramCacheKey = () => `${previousKey()}|character-grade-v1`;
+        mat.needsUpdate = true;
       }
-      ctx.putImageData(data, 0, 0);
-      const tex = new THREE.CanvasTexture(canvas);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.flipY = orig.flipY;
-      tex.wrapS = orig.wrapS; tex.wrapT = orig.wrapT;
-      tex.anisotropy = orig.anisotropy;
-      tex.minFilter = orig.minFilter; tex.magFilter = orig.magFilter;
-      tex.generateMipmaps = true;
-      tex.needsUpdate = true;
-      const prev = mat.map;
-      mat.map = tex;
-      mat.needsUpdate = true;
-      if (prev && prev !== orig) prev.dispose();
+      uniforms.saturation.value = g.saturation;
+      uniforms.contrast.value = g.contrast;
+      uniforms.brightness.value = g.brightness;
+      uniforms.warmth.value = g.warmth;
     }
   }
 
-  /** 에셋은 meshopt + WebP 로 빌드하므로 Draco/KTX2 디코더는 넣지 않는다(번들 -1.9 MB) */
+  /** meshopt는 항상, KTX2는 렌더러 지원 검사 뒤에만 붙인다. */
   static loaders(_renderer?: THREE.WebGLRenderer) {
-    const loader = new GLTFLoader();
-    loader.setMeshoptDecoder(MeshoptDecoder);
-    return loader;
+    return createGLTFLoader();
   }
 
   static async load(opts: CharacterModelOptions, renderer?: THREE.WebGLRenderer): Promise<CharacterModel> {
@@ -234,6 +281,7 @@ export class CharacterModel {
   addClip(name: string, clip: THREE.AnimationClip) {
     clip.name = name;
     clip.tracks = clip.tracks.filter((t) => KEEP_TRACK.test(t.name));
+    if (CYCLIC_CLIPS.has(name)) makeCyclic(clip);
     const action = this.mixer.clipAction(clip);
     action.enabled = true;
     this.actions.set(name, action);
@@ -329,28 +377,35 @@ export class CharacterModel {
   setTimeScale(name: string, scale: number) { const a = this.actions.get(name); if (a) a.timeScale = scale; }
 
   /**
-   * 카메라가 가까워지면 몸을 투명하게 (3인칭 근접 페이드).
+   * 카메라가 거의 몸 안으로 들어오면 캐릭터를 통째로 숨긴다.
    *
-   * ⚠️ **`depthWrite` 를 끄면 안 된다.** 반투명 관례대로 껐더니 미오가 **조각조각 깨져** 보였다
-   * (사용자 리포트 2026-08-22, 「그래픽 깨짐」). 이 모델은 메시 **한 장**(119 k 삼각형)이라
-   * 깊이 기록이 없으면 자기 삼각형끼리 그리는 순서가 곧 앞뒤가 된다 — 뒤통수 머리카락이
-   * 뺨 위로, 세일러 칼라가 어깨 위로 덮인다. 실측으로 재현·확인했다.
-   *
-   * 깊이를 쓰면 반투명 오브젝트끼리의 순서가 어긋날 수 있지만, 이 씬에서 캐릭터 뒤에 겹치는
-   * 반투명은 사실상 없다. 뜯겨 보이는 것보다 훨씬 낫다.
+   * 모델 전체를 반투명하게 만들면 한 장의 양면 스킨 메시 안에서 **뒤통수·머리카락을 통과해
+   * 앞얼굴이 그대로 보인다.** depthWrite 를 켜도 알파 블렌딩 자체가 앞면 색을 섞으므로 해결되지
+   * 않는다. 그래서 평소에는 완전 불투명으로 유지하고, 실제 교차 직전에만 완전 숨김으로 바꾼다.
+   * 숨김/복귀 문턱을 다르게 둬 벽 모서리에서 한 프레임씩 깜박이는 것도 막는다.
    */
   setVisibility(v: number) {
     const vis = THREE.MathUtils.clamp(v, 0, 1);
-    this.root.visible = vis > 0.02;
+    if (this.closeCameraHidden) {
+      if (vis >= 0.24) this.closeCameraHidden = false;
+    } else if (vis <= 0.12) this.closeCameraHidden = true;
+    // root에는 손을 따라가는 초칭이 별도 자식으로 붙는다. root 자체를 숨기면 1인칭에서
+    // 종이등뿐 아니라 이 게임의 주 광원까지 꺼지므로, 캐릭터 메시/뼈가 든 inner만 숨긴다.
+    this.root.visible = true;
+    this.inner.visible = !this.closeCameraHidden;
     for (const mat of this.materials) {
-      mat.transparent = vis < 0.999 || (mat as THREE.MeshStandardMaterial).alphaTest > 0;
-      mat.opacity = vis;
+      mat.transparent = (mat as THREE.MeshStandardMaterial).alphaTest > 0;
+      mat.opacity = 1;
       mat.depthWrite = true;
     }
   }
 
   update(dt: number, ctrl: CharacterController) {
     this.root.position.copy(ctrl.position);
+    // Rapier 캐릭터 컨트롤러는 충돌 안정성을 위해 지면과 controllerOffset 만큼 간격을 둔다.
+    // ctrl.position 은 캡슐 바닥 좌표라 그 간격까지 포함하고 있으므로, 그대로 따라가면 발이 2 cm 떠 보인다.
+    // 물리 캡슐은 유지하고 시각 모델만 같은 양만큼 내려 실제 발바닥을 지면에 붙인다.
+    this.root.position.y -= settings.physics.controllerOffset;
     this.root.rotation.y = ctrl.yaw;
     // 가속 기울임(플레이스홀더와 동일 로직, 약하게)
     const m = settings.movement;
@@ -374,6 +429,7 @@ export class CharacterModel {
     this.mixer.update(dt);
     this.upperMixer.update(dt);
     if (this.upperCurrent && !this.upperCurrent.isRunning()) this.upperCurrent = null;
+    this.rebaseFromMixer(); // 믹서가 이번 프레임에 건너뛴 본을 원본으로 되돌린다 (poseCache 주석 참고)
 
     // 상체/고개 숙임 보정: 애니메이션이 쓴 회전 위에 척추·목·머리 본을 로컬 X(피치)축으로 펴줌
     this.spinePitch = damp(this.spinePitch, this.spinePitchTarget, 8, dt);
@@ -406,6 +462,19 @@ export class CharacterModel {
         b0.parent!.getWorldQuaternion(this.tmpQ2);
         this.tmpV.applyQuaternion(this.tmpQ2.invert()).normalize(); // 부모 로컬로
         this.tmpQ.setFromAxisAngle(this.tmpV, troll);
+        b0.quaternion.premultiply(this.tmpQ);
+      }
+    }
+    // 말린 어깨 보정: 좌우 쇄골을 월드 수직축 주위로 반대 회전해 어깨를 뒤로 연다.
+    // 척추를 더 젖혀 보정하면 턱만 앞으로 남아 거북목이 강조되므로, 가슴 피치와 별도로 건다.
+    const shoulderBack = settings.character.shoulderBack;
+    if (Math.abs(shoulderBack) > 1e-4 && this.clavicleBones.length) {
+      for (const b0 of this.clavicleBones) {
+        this.tmpV.set(0, 1, 0);
+        b0.parent!.getWorldQuaternion(this.tmpQ2);
+        this.tmpV.applyQuaternion(this.tmpQ2.invert()).normalize();
+        const side = /^(L_|mixamorig:Left)/.test(b0.name) ? 1 : -1;
+        this.tmpQ.setFromAxisAngle(this.tmpV, shoulderBack * side);
         b0.quaternion.premultiply(this.tmpQ);
       }
     }
@@ -444,6 +513,7 @@ export class CharacterModel {
       if (nb) { const each = (hroll * share) / nb; for (const b of this.neckBones) rollBone(b, each); }
       if (this.headBone) rollBone(this.headBone, hroll * (nb ? 1 - share : 1));
     }
+    this.applyLocomotionArmLimits(ctrl);
     /**
      * **손목 롤 보정** — 이 리그는 손이 팔뚝 축을 기준으로 180° 돌아가 있다.
      *
@@ -463,12 +533,138 @@ export class CharacterModel {
       for (const b of this.handBones) b.quaternion.multiply(this.tmpQ);
     }
     this.postPose?.(dt); // 웅크림 포즈(CrouchPose)·공격 등 절차 자세는 여기서 얹는다
+    this.commitPose(); // 이번 프레임에 우리가 남긴 값을 기록 (다음 프레임의 「믹서가 썼나」 판정 기준)
+  }
+
+  /** 믹서 뒤 · 보정 앞: 믹서가 쓰기를 건너뛴 본을 지난 프레임의 믹서 출력으로 되돌린다 */
+  private rebaseFromMixer() {
+    if (!this.poseCacheReady) {
+      for (const e of this.poseCache) e.raw.copy(e.bone.quaternion);
+      return;
+    }
+    for (const e of this.poseCache) {
+      if (e.bone.quaternion.equals(e.out)) e.bone.quaternion.copy(e.raw); // 믹서가 안 썼다 → 원본 복원
+      else e.raw.copy(e.bone.quaternion);                                  // 새 믹서 출력 → 원본 갱신
+    }
+  }
+
+  /** 모든 자세 보정이 끝난 뒤 호출 — 다음 프레임의 비교 기준을 남긴다 */
+  private commitPose() {
+    for (const e of this.poseCache) e.out.copy(e.bone.quaternion);
+    this.poseCacheReady = true;
+  }
+
+  /**
+   * 새 미오는 T포즈로 리깅됐지만 이동 클립은 A포즈 리그에서 왔다. 상완 회전 트랙을 그대로
+   * 쓰면 달릴 때 팔꿈치가 몸에서 크게 벌어지고 전완까지 위로 접혀 손이 머리 높이로 솟는다.
+   *
+   * 로컬 Euler 각은 좌우 본 축이 서로 달라 안전하지 않다. 믹서가 만든 실제 관절 방향을 월드에서
+   * 읽고, 캐릭터의 좌우·전방 축으로 분해해 **바깥쪽 성분과 위쪽 성분만** 제한한다. 앞뒤 스윙은
+   * 남으므로 달리기 리듬은 유지된다. 공격 상체 레이어와 점프·낙하는 의도된 큰 동작이라 건드리지 않는다.
+   */
+  private applyLocomotionArmLimits(ctrl: CharacterController) {
+    if (!this.constrainLocomotionArms || this.upperPlaying) return;
+    const clip = this.currentClip;
+    if (!clip || !['idle', 'walk', 'run', 'look_around', 'standing_relax'].includes(clip)) return;
+
+    const kind = clip === 'run' ? 'run' : clip === 'walk' ? 'walk' : 'idle';
+    const upper = kind === 'run'
+      ? { sideMin: 0.02, sideMax: 0.12, up: 0.22, forward: 0.75, strength: 0.92 }
+      : kind === 'walk'
+        ? { sideMin: 0.04, sideMax: 0.14, up: -0.55, forward: 0.45, strength: 0.88 }
+        : { sideMin: 0.04, sideMax: 0.12, up: -0.78, forward: 0.15, strength: 0.88 };
+    const fore = kind === 'run'
+      ? { sideMin: -0.06, sideMax: 0.14, up: 0.18, forward: 0.72, strength: 0.92 }
+      : kind === 'walk'
+        ? { sideMin: -0.04, sideMax: 0.14, up: -0.35, forward: 0.55, strength: 0.84 }
+        : { sideMin: 0.02, sideMax: 0.10, up: -0.65, forward: 0.22, strength: 0.86 };
+
+    // 컨트롤러 yaw가 캐릭터 축의 단일 소스다. +right, +forward 모두 월드 공간.
+    this.tmpV3.set(Math.cos(ctrl.yaw), 0, -Math.sin(ctrl.yaw));
+    this.tmpV4.set(-Math.sin(ctrl.yaw), 0, -Math.cos(ctrl.yaw));
+    this.root.updateMatrixWorld(true);
+    this.limitArm(this.armL, upper, fore);
+    this.limitArm(this.armR, upper, fore);
+  }
+
+  private limitArm(
+    arm: { upper?: THREE.Object3D; fore?: THREE.Object3D; hand?: THREE.Object3D },
+    upperLimit: { sideMin: number; sideMax: number; up: number; forward: number; strength: number },
+    foreLimit: { sideMin: number; sideMax: number; up: number; forward: number; strength: number },
+  ) {
+    if (!arm.upper || !arm.fore || !arm.hand) return;
+    arm.upper.getWorldPosition(this.tmpV);
+    this.root.getWorldPosition(this.tmpV2);
+    const sideSign: -1 | 1 = this.tmpV.sub(this.tmpV2).dot(this.tmpV3) < 0 ? -1 : 1;
+    this.limitBoneDirection(arm.upper, arm.fore, sideSign, upperLimit);
+    arm.upper.updateWorldMatrix(false, true);
+    this.limitBoneDirection(arm.fore, arm.hand, sideSign, foreLimit);
+    arm.fore.updateWorldMatrix(false, true);
+  }
+
+  private limitBoneDirection(
+    bone: THREE.Object3D,
+    child: THREE.Object3D,
+    sideSign: -1 | 1,
+    limit: { sideMin: number; sideMax: number; up: number; forward: number; strength: number },
+  ) {
+    bone.getWorldPosition(this.tmpV);
+    child.getWorldPosition(this.tmpV2);
+    this.tmpV2.sub(this.tmpV).normalize();
+
+    const side = THREE.MathUtils.clamp(this.tmpV2.dot(this.tmpV3) * sideSign, limit.sideMin, limit.sideMax);
+    const up = Math.min(this.tmpV2.y, limit.up);
+    const forward = THREE.MathUtils.clamp(this.tmpV2.dot(this.tmpV4), -limit.forward, limit.forward);
+    this.tmpV.copy(this.tmpV3).multiplyScalar(side * sideSign)
+      .addScaledVector(AXIS_Y, up)
+      .addScaledVector(this.tmpV4, forward)
+      .normalize();
+    if (this.tmpV2.dot(this.tmpV) > 0.99999 || !bone.parent) return;
+
+    // 월드 회전 델타를 부모 로컬 공간으로 옮겨 현재 믹서 포즈 위에 적용한다.
+    this.tmpQ.setFromUnitVectors(this.tmpV2, this.tmpV);
+    bone.parent.getWorldQuaternion(this.tmpQ2);
+    this.tmpQ3.copy(this.tmpQ2).invert().multiply(this.tmpQ).multiply(this.tmpQ2).multiply(bone.quaternion);
+    bone.quaternion.slerp(this.tmpQ3, limit.strength);
   }
 }
 
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 /** 리타게팅: 회전 트랙 + Root·Hip 이동만 남긴다 (`addClip` 주석 참고) */
 const KEEP_TRACK = /(\.quaternion$)|^(Root|Hip)\.position$/;
+/** 루프로 재생하는 이동 클립 — 첫 키와 마지막 키의 자세가 맞아야 한다 */
+const CYCLIC_CLIPS = new Set(['idle', 'walk', 'run']);
+
+/**
+ * **루프 이음매 보정.** run 클립은 첫 키와 마지막 키가 어긋나 있다 — 실측 `R_Upperarm` **18.98°** ·
+ * `L_Forearm` 16.86° · 허벅지 12° 등 14개 본. 루프가 넘어가는 **한 프레임에 그만큼 툭 튄다**
+ * (idle·walk 는 0° 라 이 함수가 아무 일도 하지 않는다). 더 나은 루프 지점도 없다 — 20~30번 키를
+ * 전부 첫 키와 비교했을 때 마지막 키가 이미 최선(잔차 합 116° vs 그 다음이 275°)이었다.
+ *
+ * → 어긋난 만큼을 **클립 전체에 선형으로 나눠 흡수**한다. `D = key[0] · key[n−1]⁻¹` 을 구해
+ *   키 i 앞에 `slerp(단위, D, i/(n−1))` 을 곱하면 첫 키는 그대로, 마지막 키는 첫 키와 같아진다.
+ *   19° 를 1.25 s 에 퍼뜨리므로 초당 15° — 달리기 본의 정상 변화(~95°/s)에 묻힌다.
+ */
+function makeCyclic(clip: THREE.AnimationClip) {
+  const qA = new THREE.Quaternion();
+  const qB = new THREE.Quaternion();
+  const qD = new THREE.Quaternion();
+  const qS = new THREE.Quaternion();
+  for (const t of clip.tracks) {
+    if (!t.name.endsWith('.quaternion')) continue;
+    const n = t.times.length;
+    const v = t.values;
+    if (n < 3 || v.length !== n * 4) continue; // 큐빅 스플라인(값 3배)은 건드리지 않는다
+    qA.fromArray(v, 0);
+    qB.fromArray(v, (n - 1) * 4);
+    if (qA.angleTo(qB) < 1e-3) continue; // 이미 순환한다
+    qD.copy(qB).invert().premultiply(qA); // key[n−1] → key[0] 로 보내는 회전
+    for (let i = 1; i < n; i++) {
+      qS.identity().slerp(qD, i / (n - 1));
+      qA.fromArray(v, i * 4).premultiply(qS).toArray(v, i * 4);
+    }
+  }
+}
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
 /** 상체 레이어에 포함할 본 (Tripo / Mixamo 네이밍) */
 const UPPER_BONE_RE = /^(Spine\d*|Waist|NeckTwist\d*|Neck|Head|[LR]_(Clavicle|Upperarm|UpperarmTwist\d*|Forearm|ForearmTwist\d*|Hand)|mixamorig:(Spine\d*|Neck|Head|(Left|Right)(Shoulder|Arm|ForeArm|Hand)))$/;
