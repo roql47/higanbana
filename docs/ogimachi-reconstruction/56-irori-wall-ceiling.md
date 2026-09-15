@@ -1,0 +1,9 @@
+# Irori timber finish — 2026-09-13
+
+Wall/ceiling pass after the staggered floor. Replaced the stretched ceiling slab and wainscot sheets with individual cedar boards. Frame UVs follow each member's longest local axis; wainscot grain is vertical and ceiling grain follows the board length. Dark aged frame and lighter cedar finishes share the existing room runtime atlas. Added beam bearing blocks, exposed pegs, rear-wall frame posts and plaster/wood transition rails. No new light or collision system was introduced. The prior floor, cushions and furniture remain.
+
+Source: `assets/authored/ogimachi/irori-interior-v6.blend`, pre-edit backup alongside it. Authoring script: `scripts/blender/refine-irori-timber-v6.py`. Render inspected at the existing room camera: `artifacts/ogimachi-phases/irori-interior-v6.png`. This remains an authored game interior, not a measured reconstruction of the real restaurant.
+
+Runtime integration: SurveyWorld and the build list select `irori-restaurant-interior-v6.glb`. The first bake produced visible black furniture patches. Split new timber from the room atlas and changed smart-project margins to FRACTION 0.0025 with 4 px bake padding. The final export uses `runtime-irori-interior-v6-packed`. A diagnostic sample of triangle-centroid texels reduced near-black samples in the room from 37.9% (initial combined group) to 8.46%, and timber to 0.30%; this is an unweighted diagnostic including tiny faces, not a guarantee of zero texture defects. The same game camera confirms removal of the large visible patches.
+
+Final export: 33 textures, 20 collision proxies, four moving door/glass nodes and four light anchors. Source-room render and final game screenshot inspected. Typecheck, actual Irori entry/exit controller regression and Ogimachi build pass. No Steam package or full performance benchmark was run. Lighting refinement and optimization remain future passes.

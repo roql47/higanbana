@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {renderedRoad} from '../scripts/ogimachi/rendered-road-sampler.mjs';
+test('bridge samples deck, not valley below',()=>{const terrain=(x,z)=>x>2&&x<18?-20:0;const sample=renderedRoad({points:[[0,0],[20,0]],bridge:true,kind:'footway'},terrain);assert(Math.abs(sample(10,0)-.12)<1e-8);});
+test('ordinary road follows generated sloped surface',()=>{const sample=renderedRoad({points:[[0,0],[20,0]],bridge:false,kind:'footway'},(x,z)=>x*.1);assert(Math.abs(sample(10,0)-1.12)<1e-8);assert(Math.abs(sample(15,0)-sample(5,0)-1)<1e-8);});

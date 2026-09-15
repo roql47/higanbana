@@ -1,0 +1,5 @@
+# Earth yard transition
+
+Removed automatically generated gravel yard overlays for building yards whose rotated bounding box intersects the ACT1 earth patch. This includes the previously exposed strip beside building 236248631. Unrelated yards and mapped roads remain. The underlying terrain now blends the same grass/rock texture at the legacy two-frequency UV scale into the surrounding aerial material over an 8m band. The transition uses an approximate neutral earth tint, not an exact copy of every legacy vertex colour. Extra texture samples are limited by a shader branch to the patch and transition region. No additional geometry or texture assets are added.
+
+Typecheck and production preview build passed, along with three yard/overlay checks. The reviewed building-corner view shows continuous earth without the prior gravel strip. Other edges and all camera angles have not been visually certified. This changes surface appearance and removes duplicate decorative yard geometry; it does not rebuild walking collisions, Blender models or the Steam package.

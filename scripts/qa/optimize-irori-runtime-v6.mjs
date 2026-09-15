@@ -1,0 +1,15 @@
+import {NodeIO} from '@gltf-transform/core';
+import {ALL_EXTENSIONS} from '@gltf-transform/extensions';
+import {dedup,prune,textureCompress} from '@gltf-transform/functions';
+import sharp from 'sharp';
+import {statSync,writeFileSync} from 'node:fs';
+const io=new NodeIO().registerExtensions(ALL_EXTENSIONS);
+const directory='artifacts/ogimachi-phases/runtime-irori-v6';
+const source=`${directory}/irori-restaurant-v6.glb`,output='public/models/ogimachi/irori-restaurant-v6.glb';
+const document=await io.read(source);
+await document.transform(dedup(),prune(),textureCompress({encoder:sharp,targetFormat:'webp',resize:[2048,2048],quality:90}));
+await io.write(output,document);
+const check=await io.read(output),root=check.getRoot();
+if(!root.listScenes()[0]?.listChildren().some(node=>node.getExtras().archetype==='irori-restaurant'))throw Error('Missing restaurant root');
+if(root.listTextures().length!==12)throw Error('Missing baked textures');
+writeFileSync(`${directory}/report.json`,JSON.stringify({beforeBytes:statSync(source).size,afterBytes:statSync(output).size,meshes:root.listMeshes().length,textures:root.listTextures().length},null,2));

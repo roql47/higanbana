@@ -45,7 +45,7 @@ export class Higanbana {
   private farMeshes: THREE.InstancedMesh[];
   private reject: ((x: number, z: number) => boolean) | null;
 
-  constructor(scene: THREE.Scene, ground: VillageGround, opts: HiganbanaOpts = {}) {
+  constructor(scene: THREE.Scene, ground: Pick<VillageGround, 'heightAt' | 'paddyMask' | 'roadAt' | 'roadLength' | 'slopeAt'>, opts: HiganbanaOpts = {}) {
     this.group.name = 'higanbana';
     // FLOWER_FIELD(배미 하나를 비운 자리) 중앙 — 맵이 바뀌면 밖에서 준다
     this.cluster = opts.cluster ?? { x: -18.5, z: 42.2, r: 5.0 };

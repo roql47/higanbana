@@ -59,13 +59,13 @@ export function L(ko: string, ja: string): string { return current === 'ja' ? ja
  */
 export function serifFamily(): string {
   return current === 'ja'
-    ? '"Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif'
-    : '"Noto Serif KR", "Apple SD Gothic Neo", serif';
+    ? '"Higanbana Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif'
+    : '"Higanbana Serif KR", "Apple SD Gothic Neo", serif';
 }
 
 /** 손글씨 스택 — 사요의 목소리(사진 뒷면·퀘스트 보이스). CSS 의 `--hand` 와 같은 것을 캔버스용으로 */
 export function handFamily(): string {
   return current === 'ja'
-    ? '"Yomogi", "Hiragino Maru Gothic ProN", cursive'
-    : '"Nanum Pen Script", "Apple SD Gothic Neo", cursive';
+    ? '"Higanbana Hand JP", "Hiragino Maru Gothic ProN", cursive'
+    : '"Higanbana Hand KR", "Apple SD Gothic Neo", cursive';
 }

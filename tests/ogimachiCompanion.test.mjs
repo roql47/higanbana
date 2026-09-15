@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import * as THREE from 'three';
+import {SurveyWorld} from '../src/world/ogimachi/surveyWorld.ts';
+import {SurveyHeightfield} from '../src/world/ogimachi/survey.ts';
+import {OgimachiStoryRoute} from '../src/story/ogimachiRoute.ts';
+import {Physics} from '../src/core/physics.ts';
+import {addWalkColliders} from '../src/world/ogimachi/walkPhysics.ts';
+test('survey ACT 1 companion keeps a continuous player-relative position across actual road corners',async()=>{
+const data=JSON.parse(readFileSync('public/data/ogimachi/survey.json'));
+const buf=readFileSync('public/data/ogimachi/dem.f32');
+const w=Object.create(SurveyWorld.prototype);Object.assign(w,{data,heights:new SurveyHeightfield(data,new Float32Array(buf.buffer.slice(buf.byteOffset,buf.byteOffset+buf.byteLength))),pads:new Map(),paddies:[],group:new THREE.Group(),dressing:new THREE.Group()});w.group.add(w.dressing);
+for(const b of data.buildings){const r=Math.hypot(b.width,b.depth)/2+3;for(let z=Math.floor((b.z-r)/40);z<=Math.floor((b.z+r)/40);z++)for(let x=Math.floor((b.x-r)/40);x<=Math.floor((b.x+r)/40);x++){const k=`${x},${z}`,l=w.pads.get(k)??[];l.push(b);w.pads.set(k,l);}}
+const geo=new THREE.PlaneGeometry(160,160,40,40).rotateX(-Math.PI/2).translate(-80,0,-64);const p=geo.attributes.position;for(let i=0;i<p.count;i++)p.setY(i,w.height(p.getX(i),p.getZ(i)));const m=new THREE.Mesh(geo);m.name='GSI-DEM-ground-metres';w.group.add(m);w.buildRoads(new THREE.Texture(),new THREE.Texture(),new THREE.Texture());
+const physics=await Physics.create();const surface=addWalkColliders(physics,w.group,{buildings:[]});physics.step(1/60);
+const road=data.roads.find(r=>r.id===1268046903);const route=new OgimachiStoryRoute(road.points.slice(road.points.findIndex(p=>Math.abs(p[1]+3.117)<.1)),()=>0);
+const {CharacterController}=await import('../src/character/controller.ts');
+const {FirstPerson}=await import('../src/story/firstPerson.ts');
+const {Act1}=await import('../src/story/act1.ts');
+const pt=route.roadAt(8);const ctrl=new CharacterController(physics,new THREE.Vector3(pt.x,surface.heightAt(pt.x,pt.z)+.1,pt.z));physics.step(1/60);
+const camera=new THREE.PerspectiveCamera();const fp=new FirstPerson(new THREE.Scene(),camera);fp.begin(Math.atan2(-pt.dirX,-pt.dirZ),4.5);
+const sayo={root:new THREE.Group(),play(){},update(dt,p){this.root.position.copy(p.pos);},show(){}};
+const ground=new OgimachiStoryRoute(route.points,(x,z)=>surface.heightAt(x,z)??w.height(x,z));
+const noops=new Proxy({},{get:()=>()=>{}});
+const act=new Act1({companionFollowsPlayer:true,village:{ground},controller:ctrl,fp,pursuers:{proximity:0,update(){}},sayo,lightning:noops,sfx:noops,dialogue:{say(){}},setDread(){}});
+Object.assign(act,{state:'run',startS:8,LEN:1000,beats:[],nearS:8,nearX:pt.x,nearZ:pt.z});
+let prev,oldPrev,largest=0,oldLargest=0;for(let i=0;i<1200;i++){const dt=1/60;ctrl.update(dt,{axis:{x:0,y:0},cameraYaw:fp.forwardYaw,walk:false,speedMul:1.25,jumpPressed:false,jumpHeld:false});physics.step(dt);fp.update(dt,{x:0,y:0},ctrl);act.update(dt);const rel=sayo.root.position.clone().sub(ctrl.position);const nr=ground.nearestRoad(ctrl.position.x,ctrl.position.z),r=ground.roadAt(nr.s+.29+fp.tugging*.05),rx=-r.dirZ,rz=r.dirX;
+const lat=THREE.MathUtils.clamp((ctrl.position.x-nr.x)*rx+(ctrl.position.z-nr.z)*rz,-.9,.9);
+const oldRel=new THREE.Vector3(r.x+rx*(.17+lat)-ctrl.position.x,rel.y,r.z+rz*(.17+lat)-ctrl.position.z);
+if(prev&&i>60){largest=Math.max(largest,rel.distanceTo(prev));oldLargest=Math.max(oldLargest,oldRel.distanceTo(oldPrev));}prev=rel;oldPrev=oldRel;}physics.world.free();assert.ok(oldLargest>.1, 'fixture must reproduce the old projection jump');assert.ok(largest<.02, `companion jumped ${largest} metres`);
+});

@@ -1,0 +1,14 @@
+import {readFile,writeFile,cp,rm} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
+import {resolve,join} from 'node:path';
+const app=resolve('src-tauri/target/release/bundle/macos/Higanbana Optimization QA.app');
+const id=execFileSync('plutil',['-extract','CFBundleIdentifier','raw',join(app,'Contents/Info.plist')],{encoding:'utf8'}).trim();
+if(id!=='com.higanbana.optimizationqa')throw Error('Refusing to seed the user game profile');
+const content=join(app,'Contents/Resources/content');
+await rm(content,{recursive:true,force:true});await cp('dist-desktop',content,{recursive:true});
+await cp('scripts/qa/native-art-qa.js',join(content,'native-art-qa.js'));
+const index=join(content,'index.html');
+await writeFile(index,(await readFile(index,'utf8')).replace('</body>','<script type="module" src="/native-art-qa.js"></script></body>'));
+execFileSync('codesign',['--force','--sign','-',app],{stdio:'inherit'});
+execFileSync('codesign',['--verify','--deep','--strict',app],{stdio:'inherit'});
+console.log('Prepared isolated native art QA:',app);

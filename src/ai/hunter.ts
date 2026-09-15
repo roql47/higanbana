@@ -7,6 +7,7 @@ import type { VillageGround } from '@/world/village/ground';
 import { NavGrid } from './navgrid';
 import { findPath } from './astar';
 import { Senses } from './senses';
+import type { PathQueue } from './pathQueue';
 
 export type HunterState = 'PATROL' | 'INVESTIGATE' | 'CHASE' | 'SEARCH' | 'GRAB';
 
@@ -25,6 +26,7 @@ export interface HunterOptions {
   spawn: THREE.Vector3;
   patrolAnchors: THREE.Vector3[];
   events?: HunterEvents;
+  paths?: PathQueue;
 }
 
 /**
@@ -47,6 +49,9 @@ export class Hunter {
   private path: THREE.Vector3[] = [];
   private pathI = 0;
   private repathT = 0;
+  private pathGoal = new THREE.Vector3();
+  private animationElapsed = 0;
+  private animationStep = 0;
   private stateT = 0;
   private loseT = 0;
   /** CHASE 중 시야가 끊긴 시간(초) — 은신 성립 판정에 쓴다 */
@@ -70,7 +75,7 @@ export class Hunter {
   /** 감지 거리 배율(난이도) */
   detectionMul = 1;
   /** 순찰 앵커를 런타임에 교체(여우가 마을로 내려올 때) */
-  setAnchors(a: THREE.Vector3[]) { this.opts.patrolAnchors = a; this.path = []; }
+  setAnchors(a: THREE.Vector3[]) { this.opts.paths?.cancel(this); this.opts.patrolAnchors = a; this.path = []; }
   private eye = new THREE.Vector3();
   private tmp = new THREE.Vector3();
   loaded = false;
@@ -153,6 +158,8 @@ export class Hunter {
   get grabbed() { return this.state === 'GRAB'; }
 
   reset(pos?: THREE.Vector3) {
+    this.opts.paths?.cancel(this);
+    this.animationElapsed = 0; this.animationStep = 0;
     this.position.copy(pos ?? this.opts.spawn);
     this.setState('PATROL');
     this.path = [];
@@ -161,6 +168,7 @@ export class Hunter {
 
   private setState(s: HunterState) {
     if (this.state === s) return;
+    this.opts.paths?.cancel(this);
     const wasChase = this.state === 'CHASE';
     this.state = s;
     this.stateT = 0;
@@ -190,7 +198,7 @@ export class Hunter {
         if (seen) { this.setState('CHASE'); break; }
         const n = this.senses.loudestNoise(this.eye);
         if (n) { this.target.copy(n.pos); this.setState('INVESTIGATE'); break; }
-        if (this.path.length === 0 || this.pathI >= this.path.length) this.nextAnchor();
+        if ((this.path.length === 0 || this.pathI >= this.path.length) && !this.opts.paths?.has(this)) this.nextAnchor();
         break;
       }
       case 'INVESTIGATE': {
@@ -236,8 +244,7 @@ export class Hunter {
         const goal = this.state === 'PATROL'
           ? (this.path[this.path.length - 1] ?? this.target)
           : this.target;
-        const p = findPath(this.grid, this.position, goal);
-        if (p && p.length) { this.path = p; this.pathI = 0; }
+        this.requestPath(goal);
       }
       // 근접 직진: 추격 중 목표(마지막 목격 지점)가 가까우면 격자 경로 대신 직진한다.
       // 경로 웨이포인트는 셀 중심(1.5 m)이라 최종 셀 중심이 잡기 거리(1.15 m) 밖이면
@@ -301,8 +308,14 @@ export class Hunter {
     if (this.mixer) {
       const clipRef = anim === 'run' ? 3.0 : anim === 'walk' ? 1.0 : 1;
       const ts = anim === 'idle' ? 1 : Math.max(0.3, this.speed / clipRef);
-      this.mixer.timeScale = (this.freezeT > 0 ? 0 : ts * this.jitterMul);
-      this.mixer.update(dt);
+      this.animationElapsed += dt;
+      this.animationStep += dt * (this.freezeT > 0 ? 0 : ts * this.jitterMul);
+      const interval = this.state === 'CHASE' || dist < 28 ? 0 : dist < 55 ? 1 / 30 : 1 / 15;
+      if (this.animationElapsed >= interval) {
+        this.mixer.timeScale = 1;
+        this.mixer.update(this.animationStep);
+        this.animationElapsed = 0; this.animationStep = 0;
+      }
     }
   }
 
@@ -312,7 +325,16 @@ export class Hunter {
     // 같은 앵커 반복 방지 + 무작위
     this.anchorI = (this.anchorI + 1 + Math.floor(Math.random() * (anchors.length - 1))) % anchors.length;
     this.target.copy(anchors[this.anchorI]!);
-    const p = findPath(this.grid, this.position, this.target);
-    if (p && p.length) { this.path = p; this.pathI = 0; }
+    this.requestPath(this.target);
+    this.repathT = 1.6;
+  }
+
+  private requestPath(goal: THREE.Vector3) {
+    this.pathGoal.copy(goal);
+    const run = () => {
+      const p = findPath(this.grid, this.position, this.pathGoal);
+      if (p?.length) { this.path = p; this.pathI = 0; }
+    };
+    if (this.opts.paths) this.opts.paths.request(this, run); else run();
   }
 }

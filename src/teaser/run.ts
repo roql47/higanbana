@@ -131,7 +131,7 @@ class Overlay {
   }
 
   private font(size: number, kind: 'serif' | 'pen' = 'serif', weight = 600) {
-    return kind === 'pen' ? `${size}px "Nanum Pen Script", cursive` : `${weight} ${size}px "Noto Serif KR", serif`;
+    return kind === 'pen' ? `${size}px "Higanbana Hand KR", cursive` : `${weight} ${size}px "Higanbana Serif KR", serif`;
   }
 
   fadeAt(t: number): number {
@@ -598,10 +598,10 @@ class Teaser {
   async prepare() {
     await Promise.all([
       this.yokai.load(),
-      document.fonts.load('600 190px "Noto Serif KR"'),
-      document.fonts.load('400 46px "Noto Serif KR"'),
-      document.fonts.load('600 52px "Noto Serif KR"'),
-      document.fonts.load('54px "Nanum Pen Script"'),
+      document.fonts.load('600 190px "Higanbana Serif KR"'),
+      document.fonts.load('400 46px "Higanbana Serif KR"'),
+      document.fonts.load('600 52px "Higanbana Serif KR"'),
+      document.fonts.load('54px "Higanbana Hand KR"'),
     ]);
   }
 

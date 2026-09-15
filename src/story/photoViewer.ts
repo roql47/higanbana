@@ -1,5 +1,6 @@
 import { makePhoto, modelPhotoFront, photoStoryVersion } from './photo';
 import { L } from '@/core/i18n';
+import { modalInput } from '@/ui/modalInput';
 
 /**
  * 가족사진 뷰어 — **이 게임의 열쇠 소품을 다시 여는 창구** (PLAN-STORY P2)
@@ -55,6 +56,11 @@ export class PhotoViewer {
      * **루트 하나로 합쳤다** — 힌트 줄에 적힌 것(「클릭 뒤집기 · Esc 닫기」)과도 그게 맞다.
      */
     this.root.addEventListener('click', () => this.flip());
+    window.addEventListener('keydown', (e) => {
+      if (!this.open || !modalInput.allows(this.root)) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (!e.repeat) this.key(e.code);
+    });
   }
 
   get isOpen() { return this.open; }
@@ -85,6 +91,7 @@ export class PhotoViewer {
     // (실측). 강제 리플로우로 트랜지션의 시작 상태를 확정하고 같은 틱에 얹는다
     void this.root.offsetWidth;
     this.root.classList.add('show');
+    modalInput.open(this.root, () => this.close());
     if (document.pointerLockElement) document.exitPointerLock();
   }
 
@@ -96,6 +103,7 @@ export class PhotoViewer {
   close() {
     if (!this.open) return;
     this.open = false;
+    modalInput.close(this.root);
     this.root.classList.remove('show');
     // 페이드가 끝난 뒤에 숨긴다 — 바로 hidden 이면 사라지는 게 아니라 툭 꺼진다
     setTimeout(() => { if (!this.open) this.root.classList.add('hidden'); }, 220);

@@ -74,8 +74,8 @@ export class Hokora {
   private t = 0;
   private bounds: { x0: number; z0: number; x1: number; z1: number };
 
-  constructor(scene: THREE.Scene, physics: Physics, ground: HigasatoGround) {
-    const s = SITES.hokora!;
+  constructor(scene: THREE.Scene, physics: Physics, ground: Pick<HigasatoGround, 'heightAt'>, site: {x:number;z:number} = SITES.hokora!) {
+    const s = site;
     const cx = s.x, cz = s.z;
     const gy = ground.heightAt(cx, cz);
     this.center = new THREE.Vector3(cx, gy, cz);
@@ -297,7 +297,7 @@ export class Hokora {
     childMark.translate(wallX1 - 0.142, floorY + 0.92, cz + 2.65);
     b.add(childMark, new THREE.MeshStandardMaterial({
       map: childMarkTex, transparent: true, roughness: 1, metalness: 0,
-      depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, side: THREE.DoubleSide,
+      depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, side: THREE.DoubleSide, forceSinglePass: true,
     }));
     // 장지 얼룩 — 물 먹은 갈색 번짐 몇 장. 깨끗한 종이는 새 세트장처럼 보인다(박공 이끼와 같은 문법)
     const stainTex = textCanvas(256, 256, (ctx) => {

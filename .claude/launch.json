@@ -23,6 +23,16 @@
       ],
       "port": 4174,
       "autoPort": true
+    },
+    {
+      "name": "ogimachi",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:ogimachi"
+      ],
+      "port": 5188,
+      "url": "http://127.0.0.1:5188"
     }
   ]
 }

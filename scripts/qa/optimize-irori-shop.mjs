@@ -1,0 +1,10 @@
+import {NodeIO} from '@gltf-transform/core';
+import {ALL_EXTENSIONS} from '@gltf-transform/extensions';
+import {dedup,prune,textureCompress} from '@gltf-transform/functions';
+import sharp from 'sharp';
+const io=new NodeIO().registerExtensions(ALL_EXTENSIONS);
+const doc=await io.read('artifacts/ogimachi-phases/runtime-irori-shop-v1/irori-shop-v5.glb');
+await doc.transform(dedup(),prune(),textureCompress({encoder:sharp,targetFormat:'webp',resize:[2048,2048],quality:90}));
+if(!doc.getRoot().listScenes()[0].listChildren().some(n=>n.getExtras().archetype==='irori-shop'))throw Error('Missing shop root');
+await io.write('public/models/ogimachi/irori-shop-v5.glb',doc);
+console.log('Shop exported',doc.getRoot().listMeshes().length,'meshes',doc.getRoot().listTextures().length,'textures');

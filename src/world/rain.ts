@@ -19,7 +19,7 @@ export class Rain {
     this.drop = new Float32Array(this.n * 4);
     for (let i = 0; i < this.n; i++) this.respawn(i, new THREE.Vector3(), true);
     this.geo = new THREE.BufferGeometry();
-    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     const mat = new THREE.LineBasicMaterial({ color: 0x9db1c6, transparent: true, opacity: 0.3, depthWrite: false });
     const lines = new THREE.LineSegments(this.geo, mat);
     lines.frustumCulled = false;

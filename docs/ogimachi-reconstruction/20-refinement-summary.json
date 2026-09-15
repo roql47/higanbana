@@ -1,0 +1,30 @@
+{
+  "counts": {
+    "hero": 4,
+    "frontage": 58,
+    "background": 391
+  },
+  "well": 12.8,
+  "remainingSlopeRoutes": [
+    [
+      "shrine",
+      "manor"
+    ],
+    [
+      "manor",
+      "school"
+    ],
+    [
+      "school",
+      "square"
+    ],
+    [
+      "shrine",
+      "cemetery"
+    ],
+    [
+      "paddy",
+      "school"
+    ]
+  ]
+}

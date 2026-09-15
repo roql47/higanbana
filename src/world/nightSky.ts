@@ -75,7 +75,9 @@ export function createNightSky(renderer: THREE.WebGLRenderer, scene: THREE.Scene
       col += uMoonColor * (disc * 1.05 + halo);
 
       // 별 (지평선 근처는 옅게)
-      col += vec3(0.85, 0.9, 1.0) * starField(d) * uStars * smoothstep(-0.02, 0.22, d.y);
+      if (uStars > 0.0 && d.y > -0.02) {
+        col += vec3(0.85, 0.9, 1.0) * starField(d) * uStars * smoothstep(-0.02, 0.22, d.y);
+      }
 
       gl_FragColor = vec4(col, 1.0); // 컴포저 타깃은 선형 — 색공간 변환은 후처리 마지막에서 한다
     }`;
@@ -87,7 +89,9 @@ export function createNightSky(renderer: THREE.WebGLRenderer, scene: THREE.Scene
   const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), mat);
   dome.scale.setScalar(1500);
   dome.frustumCulled = false;
-  dome.renderOrder = -1;
+  // 불투명 지형·건물 뒤에 그려, 가려진 픽셀은 깊이 검사에서 걸러진다.
+  // 투명 안개·유리는 Three의 별도 투명 목록에서 이 하늘보다 뒤에 그려진다.
+  dome.renderOrder = 10000;
   dome.name = 'night-sky';
   scene.add(dome);
 

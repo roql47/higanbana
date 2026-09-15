@@ -1,7 +1,11 @@
 import * as THREE from 'three';
+import { facingYaw } from '@/ai/facing';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Physics } from '@/core/physics';
 import { Props } from '@/world/props';
+import { investigationPaper } from '@/world/investigationProps';
+import { GraveyardHollow } from './graveyardHollow';
+import { L } from '@/core/i18n';
 import type { VillageGround } from './ground';
 
 /**
@@ -38,8 +42,21 @@ export class Graveyard {
   readonly group = new THREE.Group();
   readonly center = new THREE.Vector3();
   readonly count: number;
-  /** 이름이 지워진 아이 무덤 — 게다가 놓인 자리 (ACT 12 의 목적지) */
+  /** 이름이 지워진 아이 무덤 — 지상 놀이를 마치는 자리. 공물은 hollow.getaPos에 있다. */
   readonly getaPos = new THREE.Vector3();
+  /** 지장들이 보는 빈 자리. 진짜 게다는 이곳에서 건너간 묘역에 있다. */
+  readonly gazePoint = new THREE.Vector3();
+  readonly returnPos = new THREE.Vector3();
+  readonly jizoPositions: THREE.Vector3[] = [];
+  readonly hollow: GraveyardHollow;
+  readonly playCluePositions: THREE.Vector3[] = [];
+  readonly playResolvePositions: THREE.Vector3[] = [];
+  private playStones: THREE.Mesh[] = [];
+  setPlayReconstructed(done: boolean) {
+    const p = this.playCluePositions[0];
+    if (!p) return;
+    this.playStones.forEach((stone, i) => stone.position.set(p.x + (i - 1) * (done ? 0.14 : 0.23), p.y + 0.06, p.z + (done ? 0.09 : (i % 2 ? -0.3 : 0.28))));
+  }
   /** 미로가 한 바퀴 돌았다 — 연출은 main 이 (웃음소리·안개) */
   onLoop: ((n: number) => void) | null = null;
   private childGhosts: THREE.Group[] = [];
@@ -93,6 +110,9 @@ export class Graveyard {
     const markReserveA = GETA_A + Math.PI * 0.86;
     const markReserveX = this.center.x + Math.cos(markReserveA) * R * 0.5;
     const markReserveZ = this.center.z + Math.sin(markReserveA) * R * 0.5;
+    const clueJizoA = 144 * Math.PI / 180;
+    const clueJizoX = this.center.x + Math.cos(clueJizoA) * R * 0.44 + 0.65;
+    const clueJizoZ = this.center.z + Math.sin(clueJizoA) * R * 0.44;
 
     const rng = seeded(6931);
     // 밤에 초칭을 받으면 돌은 금방 하얗게 뜬다 — 화강암 반사율(0.35 안팎)보다 훨씬 낮게 깎아 둔다
@@ -125,6 +145,7 @@ export class Graveyard {
       const z = this.center.z + row * GRID_Z + (rng() - 0.5) * 1.1;
       if (Math.hypot(x - this.center.x, z - this.center.z) > R) continue;
       if (Math.hypot(x - this.center.x, z - this.center.z) < 2.6) continue;
+      if (Math.hypot(x - clueJizoX, z - clueJizoZ) < 1.4) continue;
       if (Math.hypot(x - getaReserveX, z - getaReserveZ) < 2.2) continue;
       if (Math.hypot(x - markReserveX, z - markReserveZ) < 1.8) continue;
       if (ground.pathDist(x, z) < 2.0) continue;       // 길은 비운다
@@ -203,6 +224,9 @@ export class Graveyard {
     const gz = this.center.z + Math.sin(GA) * R * 0.62;
     const gyH = ground.heightAt(gx, gz);
     this.getaPos.set(gx, gyH, gz);
+    this.gazePoint.set(gx, ground.heightAt(gx, gz + 1.05), gz + 1.05);
+    this.returnPos.set(gx + 1.45, ground.heightAt(gx + 1.45, gz + 1.05) + 0.1, gz + 1.05);
+    this.hollow = new GraveyardHollow(scene, physics, this.center.clone());
     // 아이 무덤 — 어른 묘석의 절반 키. 이름 칸이 **정으로 쪼아 지워졌다**.
     // 절차적 돌로 두면 주변이 전부 Tripo 묘석으로 갈린 뒤 **이것만 허옇게 뜬다**(실측: 정점색
     // 상단 0.15 vs 실물 묘석의 어두운 텍스처). 같은 에셋을 작게 쓰는 것이 유일하게 안전한 길이다
@@ -221,7 +245,7 @@ export class Graveyard {
     scar.rotation.y = GA + Math.PI;
     this.group.add(scar);
 
-    // --- 여섯 지장 — 전부 아이 무덤을 본다 (§5.3.4 파훼: 세는 게 아니라 시선을 읽는다) ---
+    // --- 여섯 지장 — 전부 빈 무덤 앞의 같은 자리를 본다 ---
     // 흩어 두되 어느 하나 곁에 서면 그 시선이 다음 지장을 가리키도록 반경을 계단식으로 좁힌다
     // **여섯이 다 서야 한다** — 부채꼴을 무덤 정반대에 걸치면 두 구가 할머니의 집 선반에 박혀
     // 제외되고 넷만 남았다(실측). 이웃이 없는 방위는 서쪽 호(100°~210°)뿐이라 거기에 늘어세운다.
@@ -236,16 +260,33 @@ export class Graveyard {
       if (exclude.some((e) => Math.abs(jx - e.x) < e.w / 2 && Math.abs(jz - e.z) < e.d / 2)) continue;
       jizoSpots.push({ x: jx, z: jz });
     }
+    // 모델 실패/지연 중에도 여섯 시선과 충돌이 존재한다. 코와 모은 손이 +Z 정면을 표시한다.
+    const jizoFallbacks: THREE.Group[] = [];
+    const jizoMat = new THREE.MeshStandardMaterial({ color: 0x62665c, roughness: 1 });
+    const bodyGeo = new THREE.CylinderGeometry(0.18, 0.29, 0.72, 10);
+    const headGeo = new THREE.SphereGeometry(0.19, 10, 8);
+    const noseGeo = new THREE.ConeGeometry(0.045, 0.08, 5); noseGeo.rotateX(Math.PI / 2);
+    for (const sp of jizoSpots) {
+      const jy = ground.heightAt(sp.x, sp.z), g = new THREE.Group();
+      const body = new THREE.Mesh(bodyGeo, jizoMat); body.position.y = 0.4; g.add(body);
+      const head = new THREE.Mesh(headGeo, jizoMat); head.position.y = 0.94; g.add(head);
+      const nose = new THREE.Mesh(noseGeo, jizoMat); nose.position.set(0, 0.94, 0.19); g.add(nose);
+      g.position.set(sp.x, jy, sp.z);
+      g.rotation.y = Math.atan2(this.gazePoint.x - sp.x, this.gazePoint.z - sp.z);
+      this.group.add(g); jizoFallbacks.push(g);
+      this.jizoPositions.push(new THREE.Vector3(sp.x, jy + 0.7, sp.z));
+      physics.addStaticBox(new THREE.Vector3(sp.x, jy + 0.58, sp.z), new THREE.Vector3(0.26, 0.58, 0.26));
+    }
     void Props.loadNormalized('/models/props/jizo.glb', 1.15, 0.5).then((tpl) => {
-      for (const sp of jizoSpots) {
+      for (const [i, sp] of jizoSpots.entries()) {
         const m = tpl.clone(true);
         const jy = ground.heightAt(sp.x, sp.z);
         m.position.set(sp.x, jy - 0.02, sp.z);
-        // **전부 게다 무덤을 향한다.** normalize() 가 Tripo 정면(+X)을 +Z 로 돌려 두므로 atan2(dx,dz)
-        m.rotation.y = Math.atan2(gx - sp.x, gz - sp.z);
+        m.rotation.y = Math.atan2(this.gazePoint.x - sp.x, this.gazePoint.z - sp.z);
         this.group.add(m);
-        physics.addStaticBox(new THREE.Vector3(sp.x, jy + 0.58, sp.z), new THREE.Vector3(0.26, 0.58, 0.26));
+        jizoFallbacks[i]!.removeFromParent();
       }
+      bodyGeo.dispose(); headGeo.dispose(); noseGeo.dispose(); jizoMat.dispose();
     }).catch((e) => console.warn('[graveyard] 지장 모델 로드 실패:', e));
 
     // --- 붉은 천을 감은 묘석 하나 — 루프를 「알아채게」 하는 표식 ---
@@ -266,6 +307,20 @@ export class Graveyard {
       this.group.add(band);
     }
     physics.addStaticBox(new THREE.Vector3(mkx, mky + 0.45, mkz), new THREE.Vector3(0.2, 0.45, 0.14));
+
+    this.playCluePositions.push(
+      new THREE.Vector3(this.center.x + 1.35, ground.heightAt(this.center.x + 1.35, this.center.z) + 0.03, this.center.z),
+      new THREE.Vector3(mkx + 0.6, ground.heightAt(mkx + 0.6, mkz) + 0.03, mkz),
+      new THREE.Vector3(clueJizoX, ground.heightAt(clueJizoX, clueJizoZ) + 0.03, clueJizoZ),
+    );
+    this.playResolvePositions.push(this.playCluePositions[0]!.clone(), this.getaPos.clone());
+    investigationPaper(this.group, this.playCluePositions[0]!, L('돌아온 사람', 'もどったひと'), ['○　○　○', L('술래　◎', 'おに　◎')], 0.68);
+    investigationPaper(this.group, this.playCluePositions[1]!, L('약속', 'やくそく'), [L('손을 잡고', 'てをつないで'), L('같이 돌아오기', 'いっしょにもどる')]);
+    investigationPaper(this.group, this.playCluePositions[2]!, L('귀환', 'きかん'), ['一　二　三', L('다 찾았음', 'みつけた')]);
+    const playGeo = new THREE.IcosahedronGeometry(0.065, 0);
+    const playMat = new THREE.MeshStandardMaterial({ color: 0x897e6e, roughness: 1 });
+    for (let i = 0; i < 3; i++) { const stone = new THREE.Mesh(playGeo, playMat); this.group.add(stone); this.playStones.push(stone); }
+    this.setPlayReconstructed(false);
 
     // 아이 무덤·표식 묘석을 실물 묘석으로 — 절차 버전은 폴백으로 남긴다(밭 전체와 같은 규칙)
     void Props.loadNormalized('/models/props/grave-slab.glb', 1.0, 0.42).then((tpl) => {
@@ -420,7 +475,7 @@ export class Graveyard {
 
   /** 묘지 안인가 — 앰비언스·요괴 앵커 판정용 */
   contains(p: THREE.Vector3, r = 15) {
-    return (p.x - this.center.x) ** 2 + (p.z - this.center.z) ** 2 < r * r;
+    return Math.abs(p.y - this.center.y) < 6 && (p.x - this.center.x) ** 2 + (p.z - this.center.z) ** 2 < r * r;
   }
 
   beginHaunt() {
@@ -557,7 +612,9 @@ export class Graveyard {
    */
   loopCheck(p: THREE.Vector3, dt: number): THREE.Vector3 | null {
     if (this.loopCooldown > 0) this.loopCooldown -= dt;
-    if (!this.mazeOn || this.loopCooldown > 0) return null;
+    if (!this.mazeOn || this.loopCooldown > 0 || this.hollow.contains(p)) return null;
+    // 지상 미로는 지하 묘역/실내를 끌어 올리지 않는다. XZ 경계만 검사하면 모서리에서 지상으로 튄다.
+    if (Math.abs(p.y - this.ground.heightAt(p.x, p.z)) > 2.5) return null;
     const dx = p.x - this.center.x, dz = p.z - this.center.z;
     const r = Math.hypot(dx, dz);
     if (r < this.loopR) return null;
@@ -570,17 +627,18 @@ export class Graveyard {
   }
 
   update(dt: number, player: THREE.Vector3) {
+    this.hollow.update(player, dt);
     this.hauntT += dt;
     this.updatePetals(dt);
     // 남은 아이가 다가온다 — 「가장 어린 아이 하나만 잠시 남는다」의 그 아이.
     // 말 없이 다가오는 것이 대사보다 낫다: 플레이어가 물러설지 기다릴지 스스로 정한다
-    if (this.approachOn && this.keepIdx >= 0) {
+    if (this.approachOn && this.keepIdx >= 0 && this.contains(player, 22)) {
       const g = this.childGhosts[this.keepIdx];
       if (g) {
         const dx = player.x - g.position.x, dz = player.z - g.position.z;
         const d = Math.hypot(dx, dz);
         if (d > 1.15) {
-          const v = Math.min(0.85, d * 0.6) * dt;
+          const v = Math.min(d - 1.15, Math.min(0.85, d * 0.6) * dt);
           g.position.x += (dx / d) * v;
           g.position.z += (dz / d) * v;
           g.userData['baseY'] = this.ground.heightAt(g.position.x, g.position.z);
@@ -596,7 +654,9 @@ export class Graveyard {
     for (let i = 0; i < this.childGhosts.length; i++) {
       const g = this.childGhosts[i]!;
       g.position.y = (g.userData['baseY'] as number) + Math.sin(this.hauntT * 1.7 + i * 2.1) * 0.07;
-      g.lookAt(player.x, g.position.y + 0.65, player.z);
+      if (this.contains(player, 22)) {
+        g.rotation.set(0, facingYaw(g.rotation.y, player.x - g.position.x, player.z - g.position.z, dt), 0);
+      }
       if (this.haunt < 0.01 && this.hauntTarget === 0) g.visible = false;
     }
     for (let i = 0; i < this.decoys.length; i++) {

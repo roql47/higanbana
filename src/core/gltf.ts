@@ -29,7 +29,12 @@ export function configureGLTFTextureCompression(renderer: THREE.WebGLRenderer, e
     'WEBGL_compressed_texture_pvrtc',
   ].some((name) => renderer.extensions.has(name));
 
-  gpuCompressedModels = enabled && nativeCompression;
+  // WKWebView's tauri: origin stalls the Basis worker at Sayo's first texture.
+  // Keep the original full-resolution WebP materials there; Windows WebView2 and
+  // browsers retain native GPU compression. Re-enable only after native worker QA.
+  const customSchemeWebKit = typeof location !== 'undefined' && location.protocol === 'tauri:'
+    && typeof navigator !== 'undefined' && /AppleWebKit/i.test(navigator.userAgent);
+  gpuCompressedModels = enabled && nativeCompression && !customSchemeWebKit;
   if (!gpuCompressedModels) {
     ktx2Loader?.dispose();
     ktx2Loader = null;

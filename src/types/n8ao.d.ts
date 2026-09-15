@@ -34,6 +34,7 @@ declare module 'n8ao' {
   export class N8AOPostPass extends Pass {
     constructor(scene: THREE.Scene, camera: THREE.Camera, width?: number, height?: number);
     configuration: N8AOConfiguration;
+    setDepthTexture(depthTexture: THREE.Texture | null): void;
     setQualityMode(mode: N8AOQualityMode): void;
     setSize(width: number, height: number): void;
     setDisplayMode(mode: 'Combined' | 'AO' | 'No AO' | 'Split' | 'Split AO'): void;

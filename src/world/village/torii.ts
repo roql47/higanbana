@@ -40,7 +40,7 @@ export class ToriiPath {
   /** 각 토리이의 (x, z, yaw) — H2 에서 길찾기·시야 차폐에 쓴다 */
   readonly placements: { x: number; z: number; y: number; yaw: number }[] = [];
 
-  constructor(scene: THREE.Scene, physics: Physics, ground: VillageGround, opts: ToriiOptions = {}) {
+  constructor(scene: THREE.Scene, physics: Physics, ground: Pick<VillageGround, 'heightAt' | 'roadAt' | 'roadLength'>, opts: ToriiOptions = {}) {
     const startS = opts.startS ?? 70;
     const count = opts.count ?? 60;
     const spacing = opts.spacing ?? 1.15;

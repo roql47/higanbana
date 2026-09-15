@@ -1,6 +1,7 @@
 import { L, lang, setLang, type Lang } from '@/core/i18n';
 import { settings } from '@/core/settings';
 import { QUALITY_LEVELS, type QualityLevel } from '@/core/quality';
+import { modalInput } from './modalInput';
 
 /**
  * 일시정지 메뉴 — **Esc 로 열리는 것처럼 보이는 창**.
@@ -24,8 +25,9 @@ import { QUALITY_LEVELS, type QualityLevel } from '@/core/quality';
 export interface PauseMenuHooks {
   /** 「계속하기」 — 포인터락을 다시 잡는다 */
   onResume(): void;
-  /** 「처음부터」 — R 과 같은 리셋 */
+  /** 「처음부터」 — 저장 삭제 확인을 거친 새 게임 */
   onRestart(): void;
+  onQuit?(): void;
   onQuality(level: QualityLevel): void;
   /** 렌더 해상도 배율이 바뀌었다 (0.5~1) — 저장 + 픽셀비 재계산은 바깥의 몫 */
   onRenderScale(v: number): void;
@@ -52,7 +54,8 @@ export class PauseMenu {
     this.el.className = 'pause hidden';
     this.el.innerHTML = `
       <div class="pause-panel">
-        <div class="pause-title">${L('일시정지', '一時停止')}</div>
+        <div class="pause-eyebrow">${L('피안화 · 꺼지지 않는 등불', '彼岸花 · 消えない灯り')}</div>
+        <h2 class="pause-title" id="pause-heading">${L('일시정지', '一時停止')}</h2>
         <button type="button" class="pause-resume">${L('계속하기', '続ける')}</button>
         <div class="pause-rows">
           ${this.rowSeg('lang', L('언어', '言語'), [['ko', '한국어'], ['ja', '日本語']], lang())}
@@ -80,15 +83,44 @@ export class PauseMenu {
       </div>`;
     document.body.appendChild(this.el);
     this.langNote = this.el.querySelector('.pause-note') as HTMLElement;
+    this.el.setAttribute('aria-labelledby', 'pause-heading');
+    const rows = this.el.querySelector('.pause-rows')!;
+    for (const [title, selectors] of [
+      [L('화면', '画面'), ['[data-seg="quality"]', '.pause-res', '[data-toggle="lockAspect"]']],
+      [L('소리와 언어', '音と言語'), ['.pause-vol', '[data-seg="lang"]']],
+      [L('안내 및 접근성', '案内とアクセシビリティ'), ['.pause-hud-size', '[data-toggle="highContrast"]', '[data-toggle="waypoint"]', '[data-toggle="signRead"]']],
+    ] as const) {
+      const section = document.createElement('fieldset'); section.className = 'pause-section';
+      const legend = document.createElement('legend'); legend.textContent = title; section.append(legend);
+      for (const selector of selectors) {
+        const control = rows.querySelector(selector)!;
+        section.append(control.closest('.pause-row')!);
+      }
+      if (selectors.some(s => s.includes('lang'))) section.append(this.langNote);
+      rows.append(section);
+    }
+    for (const input of this.el.querySelectorAll<HTMLInputElement>('input[type="range"]')) {
+      input.setAttribute('aria-label', input.closest('.pause-row')!.querySelector('.pause-label')!.textContent!);
+    }
+    const volume = this.el.querySelector<HTMLInputElement>('.pause-vol')!;
+    const volumeValue = document.createElement('output'); volumeValue.className = 'pause-vol-val';
+    volumeValue.textContent = `${Math.round(settings.audio.master * 100)}%`;
+    volume.after(volumeValue);
 
     this.el.querySelector('.pause-resume')!.addEventListener('click', () => this.close());
-    this.el.querySelector('.pause-restart')!.addEventListener('click', () => { this.close(); hooks.onRestart(); });
+    this.el.querySelector('.pause-restart')!.addEventListener('click', () => hooks.onRestart());
+    if (hooks.onQuit) {
+      const quit = document.createElement('button'); quit.type = 'button'; quit.className = 'pause-quit';
+      quit.textContent = L('게임 종료', 'ゲームを終了'); quit.addEventListener('click', () => hooks.onQuit!());
+      this.el.querySelector('.pause-restart')!.after(quit);
+    }
     // 패널 **바깥**을 눌러도 돌아간다 — 락이 풀린 화면에서 가장 먼저 하는 동작이다
     this.el.addEventListener('pointerdown', (e) => { if (e.target === this.el) this.close(); });
 
     this.el.querySelector('.pause-vol')!.addEventListener('input', (e) => {
       const v = Number((e.target as HTMLInputElement).value);
       settings.audio.master = v;
+      volumeValue.textContent = `${Math.round(v * 100)}%`;
       hooks.onVolume(v);
     });
 
@@ -126,6 +158,7 @@ export class PauseMenu {
         const b = e.currentTarget as HTMLElement;
         settings.hud[k] = !settings.hud[k];
         b.classList.toggle('on', settings.hud[k]);
+        b.setAttribute('aria-pressed', String(settings.hud[k]));
         b.textContent = settings.hud[k] ? L('켬', 'オン') : L('끔', 'オフ');
         hooks.onHudChange();
       });
@@ -134,18 +167,19 @@ export class PauseMenu {
 
   private rowSeg(key: string, label: string, opts: [string, string][], cur: string) {
     const buttons = opts.map(([v, t]) =>
-      `<button type="button" data-seg="${key}" data-value="${v}" class="${v === cur ? 'on' : ''}">${t}</button>`).join('');
+      `<button type="button" data-seg="${key}" data-value="${v}" aria-pressed="${v === cur}" class="${v === cur ? 'on' : ''}">${t}</button>`).join('');
     return `<div class="pause-row"><span class="pause-label">${label}</span><div class="pause-seg">${buttons}</div></div>`;
   }
   private rowToggle(key: string, label: string, on: boolean) {
     return `<div class="pause-row"><span class="pause-label">${label}</span>`
-      + `<button type="button" data-toggle="${key}" class="pause-toggle ${on ? 'on' : ''}">${on ? L('켬', 'オン') : L('끔', 'オフ')}</button></div>`;
+      + `<button type="button" data-toggle="${key}" aria-label="${label}" aria-pressed="${on}" class="pause-toggle ${on ? 'on' : ''}">${on ? L('켬', 'オン') : L('끔', 'オフ')}</button></div>`;
   }
   private onSeg(key: string, fn: (value: string) => void) {
     for (const b of this.el.querySelectorAll<HTMLElement>(`[data-seg="${key}"]`)) {
       b.addEventListener('click', () => {
-        for (const o of this.el.querySelectorAll(`[data-seg="${key}"]`)) o.classList.remove('on');
+        for (const o of this.el.querySelectorAll(`[data-seg="${key}"]`)) { o.classList.remove('on'); o.setAttribute('aria-pressed', 'false'); }
         b.classList.add('on');
+        b.setAttribute('aria-pressed', 'true');
         fn(b.dataset['value']!);
       });
     }
@@ -162,6 +196,7 @@ export class PauseMenu {
     this.currentQuality = level;
     for (const b of this.el.querySelectorAll<HTMLElement>('[data-seg="quality"]')) {
       b.classList.toggle('on', b.dataset['value'] === level);
+      b.setAttribute('aria-pressed', String(b.dataset['value'] === level));
     }
   }
 
@@ -169,12 +204,14 @@ export class PauseMenu {
     if (this.isOpen) return;
     this.isOpen = true;
     this.el.classList.remove('hidden');
+    modalInput.open(this.el, () => this.close());
   }
 
   close() {
     if (!this.isOpen) return;
     this.isOpen = false;
     this.el.classList.add('hidden');
+    modalInput.close(this.el);
     this.hooks.onResume();
   }
 }

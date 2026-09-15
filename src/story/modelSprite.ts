@@ -21,11 +21,14 @@ export async function modelSprite(
     faceThinAxis?: boolean;
     /** 화면 위쪽으로 세울 축 — 생략하면 남은 두 축 중 긴 쪽(손가락 방향) */
     roll?: number;
+    /** 굽기 전에 소품 자세를 고정한다. 런타임에는 이 자세의 이미지 한 장만 남는다. */
+    pose?: (root: THREE.Object3D) => void;
   } = {},
 ): Promise<string> {
   const size = opts.size ?? 512;
   const gltf = await Props.loader().loadAsync(url);
   const root = gltf.scene;
+  opts.pose?.(root);
   const scene = new THREE.Scene();
   scene.add(root);
   // 스캔 모델의 알베도는 이미 빛을 물고 있다 — 평평하게 밝히기만 한다(photo.ts 와 같은 이유)
@@ -72,15 +75,37 @@ export async function modelSprite(
   rt.texture.colorSpace = THREE.SRGBColorSpace;
   const prevRT = renderer.getRenderTarget();
   const prevAlpha = renderer.getClearAlpha();
-  renderer.setClearAlpha(0);                 // 투명 배경 — 오버레이 위에 그대로 얹힌다
-  renderer.setRenderTarget(rt);
-  renderer.clear();
-  renderer.render(scene, cam);
   const buf = new Uint8Array(size * size * 4);
-  renderer.readRenderTargetPixels(rt, 0, 0, size, size, buf);
-  renderer.setRenderTarget(prevRT);
-  renderer.setClearAlpha(prevAlpha);
-  rt.dispose();
+  try {
+    renderer.setClearAlpha(0);                 // 투명 배경 — 오버레이 위에 그대로 얹힌다
+    renderer.setRenderTarget(rt);
+    renderer.clear();
+    renderer.render(scene, cam);
+    renderer.readRenderTargetPixels(rt, 0, 0, size, size, buf);
+  } finally {
+    renderer.setRenderTarget(prevRT);
+    renderer.setClearAlpha(prevAlpha);
+    rt.dispose();
+    // 이 함수가 별도로 읽은 모델이다. PNG를 만든 뒤 임시 GLB의 GPU 자원을 남기지 않는다.
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+    const textures = new Set<THREE.Texture>();
+    const skeletons = new Set<THREE.Skeleton>();
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      geometries.add(mesh.geometry);
+      for (const mat of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) materials.add(mat);
+      if ((mesh as THREE.SkinnedMesh).isSkinnedMesh) skeletons.add((mesh as THREE.SkinnedMesh).skeleton);
+    });
+    for (const mat of materials) {
+      for (const value of Object.values(mat)) if (value instanceof THREE.Texture) textures.add(value);
+      mat.dispose();
+    }
+    for (const geo of geometries) geo.dispose();
+    for (const tex of textures) tex.dispose();
+    for (const skeleton of skeletons) skeleton.dispose();
+  }
 
   // WebGL 은 아래에서 위로 읽는다 — 행을 뒤집어 캔버스 좌표계로 옮긴다
   const img = new ImageData(size, size);

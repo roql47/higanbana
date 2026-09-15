@@ -1,0 +1,44 @@
+import * as T from 'three';
+import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js';
+import {MassingWorld} from './massingWorld';
+import {installVideoComparison} from './referenceCompare';
+import {buildingPoint} from './streetStudy';
+import {ONSEN_ID} from './onsenStudy';
+import type {ForestQuality} from './forestLod';
+
+document.body.classList.add('design-mode');
+document.title='오기마치 · 전체 디자인 04';
+document.querySelector('header')!.innerHTML=`<div class="design-eyebrow">OGIMACHI / LAYOUT STUDY 04</div><h1>마을 전체 디자인</h1><p>B004 시라카와고노유 · 긴 목조 건물의 외관 구성</p><nav><button id="design-onsen">온천 전경</button><button id="design-onsen-entry">온천 입구</button><button id="design-street">중앙 골목</button><button id="design-north">북쪽 전경</button><button id="design-valley">계곡 전체</button><button id="design-plan">배치도</button><button id="design-paddies">논 단차</button><button id="design-irori">이로리 앞</button><button id="design-hakusuien">백수원 앞</button><button id="design-land">건물 숨기기</button><button id="design-forest">숲 숨기기</button><button id="video-compare">원본 영상 대조</button></nav><div id="status">지형과 구획을 구성하는 중…</div>`;
+const notes=document.createElement('aside');notes.id='design-notes';notes.innerHTML='<span><i style="background:#6e5740"></i>높은 지붕</span><span><i style="background:#626964"></i>낮은 지붕</span><span><i style="background:#aab183"></i>농경지</span><span><i style="background:#709995"></i>하천</span><p>도로·집터는 지도 좌표 유지 · 미확인 지붕 분류와 강 폭은 디자인 가안</p><a href="?view=detail">기존 상세 건물 보기 ↗</a>';document.body.append(notes);
+const style=document.createElement('style');style.textContent=`.design-mode{background:#dce1d8;color:#263c31}.design-mode header{background:#f4f4eadf;color:#263c31;max-width:calc(100vw - 40px);border-color:#a6b4a1;padding:14px 18px}.design-eyebrow{font:10px ui-monospace;letter-spacing:.16em;color:#5a7466;margin-bottom:6px}.design-mode header h1{font-size:20px;letter-spacing:0}.design-mode header p{font-size:11px}.design-mode button{background:#e0e6db;font-size:12px;padding:8px 11px}.design-mode button[aria-pressed=true]{background:#365545;color:#fff}.design-mode #status{font:11px system-ui;margin-top:9px}.design-mode footer{font-size:10px;padding:7px 10px;bottom:10px;left:20px;background:#355343dc;z-index:2}.design-mode #design-notes{position:fixed;bottom:76px;left:20px;right:20px;font-size:11px;z-index:2}.design-mode #design-notes span{display:inline-flex;align-items:center;margin-right:14px}.design-mode #design-notes i{width:9px;height:9px;border-radius:2px;margin-right:5px}.design-mode #design-notes p{margin:8px 0}.design-mode #design-notes a{color:#385c49}.design-mode.reference-open #design-notes,.design-mode.reference-open .design-eyebrow{display:none}.design-mode.reference-open header h1{font-size:13px}.design-mode.reference-open #video-reference{color:#eee}`;document.head.append(style);
+const renderer=new T.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;renderer.shadowMap.autoUpdate=false;document.body.append(renderer.domElement);
+const scene=new T.Scene();scene.background=new T.Color(0xdce1d8);scene.fog=new T.FogExp2(0xdce1d8,.00027);
+scene.add(new T.HemisphereLight(0xeaf0ed,0x8b9272,2));const sun=new T.DirectionalLight(0xffefd5,2.5);sun.position.set(-500,900,-400);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-650,right:650,top:650,bottom:-650,near:10,far:2200});sun.shadow.bias=-.00001;sun.shadow.normalBias=.06;scene.add(sun,sun.target);
+const camera=new T.PerspectiveCamera(50,1,.15,7000),controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.maxPolarAngle=Math.PI*.54;controls.minDistance=4;controls.maxDistance=3300;
+const world=new MassingWorld();scene.add(world.group);let dirty=true,loaded=false;
+let forestQuality:ForestQuality='standard';
+try{if(localStorage.getItem('ogimachi-forest-quality')==='low')forestQuality='low';}catch{}
+const qualityButton=document.createElement('button');qualityButton.id='forest-quality';document.querySelector('header nav')!.append(qualityButton);
+const forestStatus=document.createElement('div');forestStatus.style.cssText='font:11px system-ui;margin-top:6px;color:#53694f';document.querySelector('header')!.append(forestStatus);
+const qualityLabel=()=>{qualityButton.textContent=`숲 품질: ${forestQuality==='low'?'낮음':'기본'}`;qualityButton.setAttribute('aria-pressed',String(forestQuality==='low'));};qualityLabel();
+qualityButton.onclick=()=>{forestQuality=forestQuality==='low'?'standard':'low';try{localStorage.setItem('ogimachi-forest-quality',forestQuality);}catch{}qualityLabel();dirty=true;};
+const resize=()=>{const compare=document.body.classList.contains('reference-open'),stack=compare&&innerWidth<900;
+  const width=compare&&!stack?innerWidth/2:innerWidth,height=compare?width*9/16:Math.max(220,Math.min(innerHeight-260,width*9/16));
+  renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();Object.assign(renderer.domElement.style,{position:'fixed',right:'0',top:`${compare?(stack?innerHeight/2+44:(innerHeight-height)/2):Math.max(document.querySelector('header')!.getBoundingClientRect().bottom+16,(innerHeight-height)/2)}px`});dirty=true;
+};addEventListener('resize',resize);resize();
+const view=(eye:number[],target:number[],fov=50)=>{camera.fov=fov;camera.updateProjectionMatrix();camera.position.fromArray(eye);controls.target.fromArray(target);controls.update();const radius=T.MathUtils.clamp(camera.position.distanceTo(controls.target)*.85,40,1000);Object.assign(sun.shadow.camera,{left:-radius,right:radius,top:radius,bottom:-radius});sun.shadow.camera.updateProjectionMatrix();sun.target.position.copy(controls.target);sun.position.copy(controls.target).add(new T.Vector3(-500,900,-400));renderer.shadowMap.needsUpdate=true;dirty=true;};
+const north=()=>view([45,175,-390],[-30,0,50],52);
+const street=()=>view([-148,85,-197],[-47,4,-62],48);
+const groundEye=(x:number,z:number)=>loaded?world.height(x,z)+2.2:4;
+const onsenView=(entry=false)=>{if(!loaded)return;const b=world.data.buildings.find(b=>b.id===ONSEN_ID)!,p=buildingPoint(b,entry?-16:-65,entry?14:15),q=buildingPoint(b,entry?-6.55:0,entry?14:0);view([p[0],entry?Math.max(world.height(...p),b.height)+2.2:b.height+25,p[1]],[q[0],b.height+3.4,q[1]],entry?72:48);};
+const views=[['design-north',north],['design-valley',()=>view([680,650,-360],[-70,45,480],48)],['design-plan',()=>view([-15,1850,510.1],[-15,0,510],49)],['design-paddies',()=>view([130,55,-200],[20,0,-65],50)],['design-street',street],['design-irori',()=>view([-76,groundEye(-76,-100),-100],[-58,4,-103],75)],['design-hakusuien',()=>view([-63,groundEye(-63,-75),-75],[-44,4,-62],62)],['design-onsen',()=>onsenView()],['design-onsen-entry',()=>onsenView(true)]] as const;
+for(const [id,action] of views){document.getElementById(id)!.onclick=()=>{for(const [viewId] of views)document.getElementById(viewId)!.setAttribute('aria-pressed',String(viewId===id));action();};}
+document.getElementById('design-land')!.onclick=event=>{world.buildings.visible=!world.buildings.visible;(event.currentTarget as HTMLButtonElement).textContent=world.buildings.visible?'건물 숨기기':'건물 표시';renderer.shadowMap.needsUpdate=true;dirty=true;};
+document.getElementById('design-forest')!.onclick=event=>{world.forest.visible=!world.forest.visible;(event.currentTarget as HTMLButtonElement).textContent=world.forest.visible?'숲 숨기기':'숲 표시';renderer.shadowMap.needsUpdate=true;dirty=true;};
+installVideoComparison(time=>{if(time===16)north();else if(time===25)view([20,85,-220],[5,10,40],48);else if(loaded)view([-65,world.height(-65,-45)+9,-45],[-80,20,130],55);},()=>{document.querySelector('header h1')!.textContent='마을 전체 디자인';dirty=true;});
+world.ready.then(async()=>{loaded=true;onsenView();document.getElementById('design-onsen')!.setAttribute('aria-pressed','true');document.getElementById('status')!.textContent='B004 텍스처 모델 불러오는 중…';resize();await Promise.all([world.loadOnsen(),world.loadLegacyGround()]);document.getElementById('status')!.textContent='B004 외관 · 중앙 골목은 기존 맵 흙길 재질 적용';renderer.shadowMap.needsUpdate=true;dirty=true;}).catch(e=>{document.getElementById('status')!.textContent=`불러오기 실패: ${e.message}`;console.error(e);});
+controls.addEventListener('change',()=>{dirty=true;});renderer.setAnimationLoop(()=>{controls.update();if(dirty){
+  if(loaded){if(world.updateForest(camera.position,forestQuality))renderer.shadowMap.needsUpdate=true;
+    const stats=world.forestStats;forestStatus.textContent=world.forest.visible?`거리별 나무 ${stats.trees.toLocaleString()}그루 · ${forestQuality==='low'?'나무 그림자 없음':'가까운 나무만 그림자'}`:'숲 모델 숨김';
+  }renderer.render(scene,camera);dirty=false;
+}});

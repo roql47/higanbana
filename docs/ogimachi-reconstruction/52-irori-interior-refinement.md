@@ -1,0 +1,9 @@
+# Irori interior refinement — 2026-09-12
+
+The apparent second pair of swing doors was actually the old `V2 entrance deep jamb` geometry: two 2.1 m long sheets extending into the dining room. These exterior-era depth cheats were left visible in the initial enterable asset. They are now hidden in the editable source and omitted from export, replaced with shallow 20 cm jambs and sliding tracks. The actual sliding leaves and their interaction remain.
+
+Blender-authored interior additions: inset shoji paper and kumiko grids, timber wainscot/skirting/rails, framed service cabinet with inset doors and pulls, open crockery shelves, hollow lathed bowls and cups, serving trays/chopsticks, menu books, tatami binding, open chair-back slats, lantern ribs and lower frames. Furniture preserves the central aisle. The cabinet has a collision proxy. Interior interpretation is game-authored rather than a measured reproduction of the real restaurant.
+
+Source: `assets/authored/ogimachi/irori-interior-v2.blend` (pre-edit snapshot alongside it). Script: `scripts/blender/refine-irori-interior-v2.py`. Blender render: `artifacts/ogimachi-phases/irori-interior-v2.png`. Runtime: `public/models/ogimachi/irori-restaurant-interior-v2.glb`, loaded by SurveyWorld. Color/roughness/normal atlases are rebaked and compressed; 21 textures, four moving leaf/glass nodes, four lights, 20 collision proxies. Source multi-scene Blender session remains open and was not replaced.
+
+Verification: Blender interior render inspected. Production asset test checks removal of old jamb vertices, 20 colliders, closed-door blocking, opening/entry, safe closing and exit with the real character controller. Typecheck and Ogimachi build pass. Browser entry/opening and interior inspected after loading the new asset. Existing large-bundle build advisory remains.

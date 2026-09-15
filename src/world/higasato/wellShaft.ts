@@ -1,9 +1,12 @@
 import * as THREE from 'three';
+import { TessellateModifier } from 'three/addons/modifiers/TessellateModifier.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Physics } from '@/core/physics';
 import { SITES, type HigasatoGround } from './ground';
 import { PartsBuilder, textCanvas, tileTex } from './kit';
 import { L, serifFamily } from '@/core/i18n';
 import { Props } from '@/world/props';
+import { manorBox, batchManorCraft } from './manorCraft';
 
 /**
  * 공동우물 지하 — ACT 10~11 「동전 세 닢」의 무대 (PLAN-STORY §2.3, §5.3.3)
@@ -61,8 +64,8 @@ export class WellShaft {
   private falseHaruT = 0;
   private t = 0;
 
-  constructor(scene: THREE.Scene, physics: Physics, ground: HigasatoGround) {
-    const s = SITES.well!;
+  constructor(scene: THREE.Scene, physics: Physics, ground: Pick<HigasatoGround, 'heightAt'>, site: {x:number;z:number} = SITES.well!) {
+    const s = site;
     const cx = s.x, cz = s.z;
     const gy = ground.heightAt(cx, cz);
     this.topPos = new THREE.Vector3(cx, gy, cz);
@@ -77,7 +80,8 @@ export class WellShaft {
     // 서쪽 벽감과 1.9 m 공물 판정이 겹치지 않게 방 중앙 쪽으로 뺀다.
     // 이전 위치(cx-R+1, cz-.8)는 마지막 벽감 앞에서 동전 프롬프트가 E 입력을 가로챘다.
     this.altarPos = new THREE.Vector3(cx - 1.25, floorY, cz - 1.1);
-    this.carvingPos = new THREE.Vector3(cx, floorY, cz + R - 0.9);
+    const carvingAngle = Math.PI / 5; // 벽감 사이의 온전한 벽면
+    this.carvingPos = new THREE.Vector3(cx + Math.cos(carvingAngle) * (R - 0.8), floorY + 0.8, cz + Math.sin(carvingAngle) * (R - 0.8));
     this.pebblePilePos = new THREE.Vector3(cx + 1.75, floorY + 0.08, cz + 0.95);
     this.ropeKnotYs = [floorY + 9.25, floorY + 6.2, floorY + 3.1];
 
@@ -156,11 +160,12 @@ export class WellShaft {
       }
     });
     const carve = new THREE.Mesh(
-      new THREE.PlaneGeometry(3.4, 2.6),
-      new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1 }),
+      new THREE.PlaneGeometry(1.75, 2.4),
+      new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1 }),
     );
-    carve.position.set(cx, floorY + 1.7, cz + R - 0.28);
-    carve.rotation.y = Math.PI;
+    carve.name = 'well-wall-inscription';
+    carve.position.set(cx + Math.cos(carvingAngle) * (R - 0.265), floorY + 1.7, cz + Math.sin(carvingAngle) * (R - 0.265));
+    carve.rotation.y = -carvingAngle - Math.PI / 2;
     this.group.add(carve);
 
     // ---------- 지상: 끝나지 않은 장례의 물증 3종 ----------
@@ -213,7 +218,9 @@ export class WellShaft {
     // ---------- 지하: 벽감 물증·침수/우회 상태를 읽게 하는 실물 ----------
     this.niches.forEach((n, i) => {
       const a = Math.atan2(n.z - cz, n.x - cx);
-      this.group.add(makeNicheEvidence(i, n, a, floorY));
+      // 벽감 판정은 그대로 두고 물증만 안쪽으로 뺀다. n은 뒷벽의 안쪽 면에 있다.
+      const display = n.clone().add(new THREE.Vector3(-Math.cos(a) * 0.42, 0, -Math.sin(a) * 0.42));
+      this.group.add(makeNicheEvidence(i, display, a, floorY));
       const flood = new THREE.Mesh(
         new THREE.CircleGeometry(0.78, 18),
         new THREE.MeshStandardMaterial({ color: 0x071116, roughness: 0.08, metalness: 0.28, transparent: true, opacity: 0 }),
@@ -652,8 +659,25 @@ function makeWetFootprintTrail(origin: THREE.Vector3) {
 /** 빈 벽감이 아니라, 가까이 가기 전에도 서로 다른 물증임을 읽을 수 있는 저비용 실루엣. */
 function makeNicheEvidence(index: number, anchor: THREE.Vector3, angle: number, floorY: number) {
   const out = new THREE.Group();
-  out.position.set(anchor.x, floorY + 0.18, anchor.z);
-  out.rotation.y = -angle + Math.PI / 2;
+  out.name = `well-niche-display-${index}`;
+  out.position.set(anchor.x, floorY + 0.56, anchor.z);
+  // +Z가 보이는 앞면이다. 방 중앙을 향해야 이름표와 옷의 앞섶이 보인다.
+  out.rotation.y = -angle - Math.PI / 2;
+  if (index > 0) {
+    const stone = new THREE.MeshStandardMaterial({ color: 0x81877a, roughness: 0.94,
+      map: tileTex('/textures/stone/japanese_stone_wall_diff_1k.webp', true),
+      normalMap: tileTex('/textures/stone/japanese_stone_wall_nor_gl_1k.webp', false),
+      normalScale: new THREE.Vector2(0.35, 0.35) });
+    stone.userData['worldUV'] = 1.3;
+    const shelf = new THREE.Group(); shelf.name = 'carved-niche-shelf';
+    manorBox(shelf, [1.28, 0.09, 0.64], [0, -0.045, 0], stone, 0.018);
+    manorBox(shelf, [1.18, 0.06, 0.57], [0, -0.12, -0.02], stone, 0.012);
+    for (const x of [-0.43, 0.43]) {
+      manorBox(shelf, [0.17, 0.22, 0.38], [x, -0.22, -0.09], stone, 0.026);
+      manorBox(shelf, [0.14, 0.12, 0.23], [x, -0.37, -0.14], stone, 0.02);
+    }
+    batchManorCraft(shelf); out.add(shelf);
+  }
   const fallback = new THREE.Group();
   out.add(fallback);
   const wetCloth = new THREE.MeshStandardMaterial({ color: index === 0 ? 0xc3c7bf : 0x6f5d58, roughness: 0.96 });
@@ -683,15 +707,38 @@ function makeNicheEvidence(index: number, anchor: THREE.Vector3, angle: number, 
     }
   }
 
-  const hero = index === 1
+  const hero = index === 0
+    ? { url: '/models/props/haru-hanging-gown.glb', height: 1.1, tint: 0.9, yaw: 0 }
+    : index === 1
     ? { url: '/models/props/wet-sleeve-nails.glb', height: 0.14, tint: 0.72, yaw: -0.22 }
     : index === 2
-      ? { url: '/models/props/wooden-horse-haru.glb', height: 0.62, tint: 0.72, yaw: -0.12 }
+      ? { url: '/models/props/wooden-horse-haru.glb', height: 0.62, tint: 0.82, yaw: Math.PI / 2 - 0.18 }
       : null;
   if (hero) void Props.loadNormalized(hero.url, hero.height, hero.tint).then((model) => {
       model.rotation.y = hero.yaw;
+      model.updateMatrixWorld(true);
+      const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+      model.scale.multiplyScalar(Math.min(1, 1.18 / size.x, 0.54 / size.z));
       model.position.y = index === 2 ? -0.02 : 0.015;
       model.name = `well-niche-evidence-tripo-${index}`;
+      if (index === 0) {
+        model.name = 'well-haru-hanging-gown-model';
+        const label = textCanvas(256, 112, ctx => {
+          ctx.fillStyle = '#c4c2ac'; ctx.fillRect(0, 0, 256, 112);
+          ctx.fillStyle = '#303d3b'; ctx.font = `700 35px ${serifFamily()}`;
+          ctx.fillText(L('하루', 'ハル'), 15, 45);
+          ctx.font = `25px ${serifFamily()}`; ctx.fillText('9 / 20', 15, 91);
+        });
+        label.flipY = false; // glTF's UV origin, including the sewn patch.
+        // Use the sewn patch's authored UVs; a separate overlay can intersect the folds.
+        model.traverse(o => {
+          if (!(o instanceof THREE.Mesh) || Array.isArray(o.material)) return;
+          const mat = o.material as THREE.MeshStandardMaterial;
+          if (mat.name === 'Sewn name label') {
+            mat.map?.dispose(); mat.map = label; mat.color.setHex(0xffffff); mat.needsUpdate = true;
+          }
+        });
+      }
       out.add(model);
       fallback.visible = false;
     }).catch((error) => console.warn(`[well] niche ${index} evidence fallback retained`, error));
@@ -703,7 +750,21 @@ function makeHangingHospitalGown() {
   const out = new THREE.Group();
   out.name = 'well-haru-hanging-hospital-gown';
   const clothMat = new THREE.MeshStandardMaterial({
-    color: 0xaab9bd, roughness: 0.88, metalness: 0,
+    color: 0xc5d0ce, roughness: 0.94, metalness: 0,
+    map: textCanvas(256, 256, (ctx) => {
+      ctx.fillStyle = '#c1cbc8'; ctx.fillRect(0, 0, 256, 256);
+      for (let y = 0; y < 256; y += 2) {
+        ctx.fillStyle = y % 4 ? '#bac5c2' : '#c8d0cb'; ctx.fillRect(0, y, 256, 1);
+      }
+      ctx.strokeStyle = '#94acae'; ctx.lineWidth = 1;
+      for (let x = 12; x < 256; x += 24) for (let y = 12; y < 256; y += 24) {
+        ctx.beginPath(); ctx.moveTo(x - 3, y); ctx.lineTo(x + 3, y);
+        ctx.moveTo(x, y - 3); ctx.lineTo(x, y + 3); ctx.stroke();
+      }
+      const wet = ctx.createLinearGradient(0, 180, 0, 256);
+      wet.addColorStop(0, 'rgba(42,67,71,0)'); wet.addColorStop(1, 'rgba(42,67,71,.45)');
+      ctx.fillStyle = wet; ctx.fillRect(0, 170, 256, 86);
+    }),
     emissive: new THREE.Color(0x10191b), emissiveIntensity: 0.08,
   });
   const seamMat = new THREE.MeshStandardMaterial({ color: 0x6f858b, roughness: 0.92 });
@@ -724,13 +785,25 @@ function makeHangingHospitalGown() {
   shape.lineTo(0.34, 0.56);
   shape.lineTo(0.29, 0.04);
   shape.quadraticCurveTo(0, -0.015, -0.29, 0.04);
-  const gown = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, {
-    depth: 0.025, bevelEnabled: true, bevelSegments: 2, bevelSize: 0.012, bevelThickness: 0.009, curveSegments: 5,
-  }), clothMat);
+  const shell = new THREE.ExtrudeGeometry(shape, {
+    depth: 0.11, bevelEnabled: true, bevelSegments: 2, bevelSize: 0.018, bevelThickness: 0.018, curveSegments: 8,
+  });
+  let cloth: THREE.BufferGeometry = new TessellateModifier(0.09, 6).modify(shell);
+  shell.dispose();
+  const vertices = cloth.getAttribute('position');
+  const clothZ = (x: number, y: number) => 0.028 * Math.sin(x * 24 + y * 1.8)
+    + 0.025 * Math.sin(y * 5) - 0.035 * Math.abs(x);
+  for (let i = 0; i < vertices.count; i++) {
+    vertices.setZ(i, vertices.getZ(i) + clothZ(vertices.getX(i), vertices.getY(i)));
+  }
+  cloth.deleteAttribute('normal');
+  const smoothCloth = mergeVertices(cloth);
+  cloth.dispose(); cloth = smoothCloth;
+  cloth.computeVertexNormals(); cloth.computeBoundingSphere();
+  const gown = new THREE.Mesh(cloth, clothMat);
   gown.position.set(0, 0.03, 0);
-  gown.rotation.z = -0.025;
-  gown.castShadow = true;
   out.add(gown);
+  gown.castShadow = true;
 
   const tube = (points: THREE.Vector3[], radius = 0.006, material = seamMat) => {
     const mesh = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 12, radius, 5, false), material);
@@ -774,6 +847,18 @@ function makeHangingHospitalGown() {
     new THREE.Vector3(0, 0.72, -0.012), new THREE.Vector3(0, 0.98, -0.012),
     new THREE.Vector3(0.1, 1.05, -0.012), new THREE.Vector3(0.16, 0.98, -0.012),
   ], 0.009, metal);
+  for (const detail of out.children) {
+    if (detail === gown) continue;
+    if (detail instanceof THREE.Mesh) {
+      // Front embellishments have positive Z; the hanger remains behind the garment.
+      if (detail.position.z > 0.04) detail.position.z += 0.085 + clothZ(detail.position.x, detail.position.y);
+      else if (detail.geometry instanceof THREE.TubeGeometry && detail.material === seamMat) {
+        const points = detail.geometry.getAttribute('position');
+        for (let i = 0; i < points.count; i++) points.setZ(i, points.getZ(i) + 0.085 + clothZ(points.getX(i), points.getY(i)));
+        detail.geometry.computeVertexNormals(); detail.geometry.computeBoundingSphere();
+      }
+    }
+  }
   return out;
 }
 

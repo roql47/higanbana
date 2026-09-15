@@ -520,15 +520,45 @@ export class Bus {
     // --- 커튼 --- 창 위에 걷어 올려 묶어 둔 천. 오후 햇빛이 드는 쪽 창에만
     {
       const cloth = mat(0x8a8272, 0.98);
+      cloth.side = THREE.DoubleSide;
+      const curtainGeo = new THREE.PlaneGeometry(0.30, 0.30, 20, 8);
+      const positions = curtainGeo.attributes.position!;
+      for (let i = 0; i < positions.count; i++) {
+        const x = positions.getX(i), y = positions.getY(i);
+        const gather = 1 - 0.55 * Math.exp(-Math.pow((y + 0.05) / 0.08, 2));
+        positions.setXYZ(i, x * gather, y + 0.012 * Math.cos(x * 65), 0.026 * Math.sin(x * 90) * gather);
+      }
+      curtainGeo.computeVertexNormals();
+      const tieGeo = new THREE.TorusGeometry(0.068, 0.009, 5, 12);
       for (const side of [-1, 1]) {
         const x = side * (HALF_W - T * 1.3);
         for (const [a2, b2] of (side < 0 ? [winAt(0), winAt(1), winAt(2)] : [winAt(0), winAt(1), winAt(2), winAt(3)])) {
-          const c = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.17, (b2 - a2) * 0.34), cloth);
-          c.position.set(x, WIN_HI - 0.09, a2 + (b2 - a2) * 0.22);
+          const c = new THREE.Mesh(curtainGeo, cloth);
+          c.rotation.y = Math.PI / 2;
+          c.position.set(x, WIN_HI - 0.14, a2 + (b2 - a2) * 0.22);
           this.cabin.add(c);
+          const tie = new THREE.Mesh(tieGeo, mBeige);
+          tie.rotation.x = Math.PI / 2;
+          tie.scale.set(0.65, 1, 1);
+          tie.position.copy(c.position); tie.position.y -= 0.05;
+          this.cabin.add(tie);
         }
       }
     }
+
+    // 비상 설비는 통로 밖, 창 기둥과 앞쪽 벽에 고정한다.
+    const emergencyRed = mat(0x94382b, 0.72);
+    for (const side of [-1, 1]) {
+      const x = side * 1.065;
+      box(0.035, 0.26, 0.13, x, 1.34, -1.30, mDark);
+      box(0.045, 0.15, 0.028, x - side * 0.035, 1.31, -1.30, emergencyRed);
+      box(0.052, 0.045, 0.11, x - side * 0.035, 1.40, -1.30, mMetal);
+    }
+    const extinguisher = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.36, 12), emergencyRed);
+    extinguisher.position.set(0.98, 0.25, 3.1);
+    this.cabin.add(extinguisher);
+    box(0.14, 0.035, 0.08, 0.98, 0.46, 3.1, mDark);
+    box(0.18, 0.05, 0.19, 0.98, 0.06, 3.1, mMetal);
 
     // --- 창밖: 실제 풍경이 흘러간다 ---
     // 캔버스 실루엣을 UV 로 흘리던 것을 걷어냈다. 창가에 앉아 35 초를 보는 장면에서는
@@ -716,7 +746,8 @@ export class Bus {
     const textures = new Set<THREE.Texture>();
     this.group.traverse((o) => {
       const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh) return;
+      if (!mesh.isMesh && !(o as THREE.Line).isLine) return;
+      if ((mesh as THREE.InstancedMesh).isInstancedMesh) (mesh as THREE.InstancedMesh).dispose();
       geometries.add(mesh.geometry);
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const mat of mats) {

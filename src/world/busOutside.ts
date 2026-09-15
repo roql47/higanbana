@@ -36,12 +36,14 @@ interface Item {
   z: number;
   /** 흐름 배율 — 능선처럼 아주 먼 것만 1 보다 작다 */
   rate: number;
+  span: number;
 }
 
 export class BusOutside {
   readonly group = new THREE.Group();
   private items: Item[] = [];
   private rng = seeded(20261);
+  private groundMaps: THREE.Texture[] = [];
   /**
    * GLB 가 도착하면 안이 갈리는 **소켓**들. 오브젝트를 통째로 바꾸지 않고 소켓의 자식만 바꾼다 —
    * 전신주를 통째로 갈았더니 같은 그룹에 있던 **전선이 같이 사라졌다**(실측).
@@ -67,6 +69,20 @@ export class BusOutside {
   private buildGround() {
     const asphalt = new THREE.MeshStandardMaterial({ color: 0x4c4b48, roughness: 0.95 });
     const gravel = new THREE.MeshStandardMaterial({ color: 0x6a6152, roughness: 1 });
+    for (const [material, base] of [[asphalt, '#99958d'], [gravel, '#b4aa94']] as const) {
+      const texture = textCanvas(256, 256, (ctx) => {
+        ctx.fillStyle = base; ctx.fillRect(0, 0, 256, 256);
+        const random = seeded(312);
+        for (let i = 0; i < 3500; i++) {
+          ctx.fillStyle = i % 2 ? 'rgba(25,22,18,0.19)' : 'rgba(240,232,212,0.18)';
+          ctx.fillRect(random() * 256, random() * 256, 1 + random() * 3, 1 + random() * 2);
+        }
+      });
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(material === asphalt ? 3.6 : 0.8, SPAN);
+      material.map = texture;
+      this.groundMaps.push(texture);
+    }
     const field = new THREE.MeshStandardMaterial({ color: 0x55603c, roughness: 1 });
     const road = new THREE.Mesh(new THREE.PlaneGeometry(7.2, SPAN * 2), asphalt);
     road.rotation.x = -Math.PI / 2;
@@ -121,10 +137,10 @@ export class BusOutside {
       this.slots.rail.push(sock);
     }
 
-    // --- 전신주: 22 m 간격, 좌우 번갈아. 전선이 다음 기둥까지 **처진다** ---
+    // 같은 갓길의 22 m 간격 전주를 연결한다. 좌우 교대 배치는 전선을 허공에 끊었다.
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x9a9691, roughness: 0.92 });
     const wireMat = new THREE.LineBasicMaterial({ color: 0x2a2a2a, transparent: true, opacity: 0.75 });
-    let side = 1;
+    const side = 1;
     for (let z = -SPAN / 2; z < SPAN / 2; z += 22) {
       const g = new THREE.Group();
       const sock = new THREE.Group();
@@ -146,7 +162,6 @@ export class BusOutside {
       g.position.set(side * 5.9, ROAD_Y, 0);
       this.add(g, z, 1);
       this.slots.pole.push(sock);
-      side = -side;
     }
 
     // --- 갓길 덤불 — 창 바로 밖을 스친다. 속도감의 절반이 여기서 나온다 ---
@@ -203,7 +218,8 @@ export class BusOutside {
       const h = 7 + this.rng() * 6;
       const sock = new THREE.Group();
       sock.add(mkCedar(h, leafFar));
-      sock.position.set(side * (20 + this.rng() * 14), ROAD_Y - 0.3, 0);
+      // 농막(26~40 m)과 수목이 서로 관통하지 않도록 숲은 밭 뒤에 둔다.
+      sock.position.set(side * (48 + this.rng() * 14), ROAD_Y - 0.3, 0);
       sock.rotation.y = this.rng() * 6.28;
       this.add(sock, -SPAN / 2 + this.rng() * SPAN, 1);
       this.slots.treeFar.push(sock);
@@ -222,6 +238,24 @@ export class BusOutside {
   private buildFarmland() {
     const water = new THREE.MeshStandardMaterial({ color: 0x7d8a8c, roughness: 0.12, metalness: 0.35 });
     const bund = new THREE.MeshStandardMaterial({ color: 0x5a4f3a, roughness: 1 });
+    const riceMaterial = new THREE.MeshStandardMaterial({ color: 0x788847, roughness: 1, side: THREE.DoubleSide });
+    const blades: number[] = [];
+    for (let blade = 0; blade < 3; blade++) {
+      const angle = blade * Math.PI * 2 / 3;
+      const point = (t: number, edge: number) => {
+        const width = 0.024 * (1 - t) * edge;
+        return [Math.cos(angle) * t * t * 0.16 - Math.sin(angle) * width,
+          t * (0.36 + blade * 0.04) - 0.21,
+          Math.sin(angle) * t * t * 0.16 + Math.cos(angle) * width];
+      };
+      for (let segment = 0; segment < 3; segment++) {
+        const a = segment / 3, b = (segment + 1) / 3;
+        blades.push(...point(a, -1), ...point(a, 1), ...point(b, 1), ...point(a, -1), ...point(b, 1), ...point(b, -1));
+      }
+    }
+    const riceGeometry = new THREE.BufferGeometry();
+    riceGeometry.setAttribute('position', new THREE.Float32BufferAttribute(blades, 3));
+    riceGeometry.computeVertexNormals();
     for (let i = 0; i < 10; i++) {
       const side = i % 2 === 0 ? -1 : 1;
       const w = 12 + this.rng() * 10, len = 14 + this.rng() * 12;
@@ -232,6 +266,21 @@ export class BusOutside {
       w1.rotation.x = -Math.PI / 2;
       w1.position.y = 0.02;
       g.add(w1);
+      // 모종은 논마다 한 번의 draw call로 처리한다.
+      const rice = new THREE.InstancedMesh(
+        riceGeometry,
+        riceMaterial,
+        120,
+      );
+      const transform = new THREE.Object3D();
+      for (let n = 0; n < 120; n++) {
+        transform.position.set(((n % 10) / 9 - 0.5) * (w - 2), 0.23, (Math.floor(n / 10) / 11 - 0.5) * (len - 2));
+        transform.rotation.y = n * 2.4;
+        transform.updateMatrix();
+        rice.setMatrixAt(n, transform.matrix);
+      }
+      rice.instanceMatrix.needsUpdate = true;
+      g.add(rice);
       // 흙둑 — 물을 가두는 테두리. 수면 위로 올라와야 논이 칸으로 나뉘어 보인다
       for (const [dx, dz, sx, sz] of [[0, len / 2, w, 0.55], [0, -len / 2, w, 0.55], [w / 2, 0, 0.55, len], [-w / 2, 0, 0.55, len]] as [number, number, number, number][]) {
         const m = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.4, sz), bund);
@@ -264,21 +313,46 @@ export class BusOutside {
 
     // --- 농막 — 함석 지붕 창고. 논 사이에 하나씩 ---
     const tin = new THREE.MeshStandardMaterial({ color: 0x6e6a5e, roughness: 0.6, metalness: 0.3 });
+    tin.map = textCanvas(256, 256, (ctx) => {
+      ctx.fillStyle = '#bcb7a7'; ctx.fillRect(0, 0, 256, 256);
+      for (let x = 0; x < 256; x += 16) {
+        ctx.fillStyle = '#77776f'; ctx.fillRect(x, 0, 3, 256);
+        ctx.fillStyle = '#d4ceba'; ctx.fillRect(x + 3, 0, 2, 256);
+      }
+      const random = seeded(901);
+      for (let i = 0; i < 80; i++) {
+        ctx.fillStyle = 'rgba(112,56,28,0.32)';
+        ctx.fillRect(random() * 256, random() * 256, 2 + random() * 8, 6 + random() * 26);
+      }
+    });
     const wallM = new THREE.MeshStandardMaterial({ color: 0x746a58, roughness: 0.95 });
     for (let i = 0; i < 5; i++) {
       const side = this.rng() < 0.5 ? -1 : 1;
       const w = 3.4 + this.rng() * 2.4, dep = 3 + this.rng() * 2;
       const g = new THREE.Group();
       const body = new THREE.Mesh(new THREE.BoxGeometry(w, 2.3, dep), wallM);
+      g.name = 'bus-farm-shed';
       body.position.y = 1.15;
       // 한쪽으로 흘러내리는 함석 지붕 (편경사) — 맞배지붕보다 농막에 흔하다
       const roof = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, 0.09, dep + 0.5), tin);
       roof.position.y = 2.4;
-      roof.rotation.z = 0.16;
+      roof.rotation.z = 0.025;
       g.add(body, roof);
+      // 입체 문틀·문짝·처마 받침. 창고가 단색 상자로 보이지 않도록 깊이를 준다.
+      const detail = (sx: number, sy: number, sz: number, x: number, y: number, z: number, material: THREE.Material) => {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), material);
+        mesh.position.set(x, y, z); g.add(mesh);
+      };
+      detail(1.05, 1.85, 0.07, 0, 0.925, dep / 2 + 0.045, tin);
+      for (const x of [-0.59, 0.59]) detail(0.12, 2.02, 0.15, x, 1.01, dep / 2 + 0.06, wallM);
+      detail(1.3, 0.12, 0.15, 0, 2.02, dep / 2 + 0.06, wallM);
+      detail(w + 0.12, 0.20, 0.12, 0, 2.32, dep / 2, wallM);
+      detail(w + 0.12, 0.20, 0.12, 0, 2.32, -dep / 2, wallM);
+      detail(0.06, 0.22, 0.09, 0.34, 0.96, dep / 2 + 0.11, tin);
+      for (const x of [-w / 2, w / 2]) detail(0.13, 2.3, 0.13, x, 1.15, dep / 2, wallM);
       g.position.set(side * (26 + this.rng() * 14), ROAD_Y, 0);
       g.rotation.y = this.rng() * 6.28;
-      this.add(g, -SPAN / 2 + this.rng() * SPAN, 1);
+      this.add(g, -SPAN / 2 + this.rng() * SPAN, 1, 660);
     }
   }
 
@@ -317,7 +391,7 @@ export class BusOutside {
       board.rotation.y = side > 0 ? -0.55 : Math.PI + 0.55;
       g.add(pole, board);
       g.position.set(side * 5.7, ROAD_Y, 0);
-      this.add(g, z, 1);
+      this.add(g, z, 1, 660);
     }
 
     // 산 쪽에 짧게 나타났다 사라지는 자연석 옹벽. 반복 벽 대신 구간을 비워 리듬을 만든다.
@@ -388,10 +462,10 @@ export class BusOutside {
 
   // ---------------------------------------------------------------- 공통
 
-  private add(obj: THREE.Object3D, z: number, rate: number): Item {
+  private add(obj: THREE.Object3D, z: number, rate: number, span = SPAN): Item {
     obj.position.z = z;
     this.group.add(obj);
-    const it = { obj, z, rate };
+    const it = { obj, z, rate, span };
     this.items.push(it);
     return it;
   }
@@ -425,9 +499,11 @@ export class BusOutside {
   update(dt: number, speed: number) {
     if (speed <= 0.001) return;
     const d = speed * dt;
+    // Plane UV의 +v가 진행 방향의 반대이므로 offset을 줄여 노면도 뒤로 흐르게 한다.
+    for (const texture of this.groundMaps) texture.offset.y = (texture.offset.y - d / 2) % 1;
     for (const it of this.items) {
       it.z -= d * it.rate;
-      if (it.z < -SPAN / 2) it.z += SPAN;
+      while (it.z < -SPAN / 2) it.z += it.span;
       it.obj.position.z = it.z;
     }
   }

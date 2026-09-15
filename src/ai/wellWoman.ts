@@ -12,9 +12,8 @@ import { Props } from '@/world/props';
  * **물소리가 잦아들 때(잠김)만** 밧줄을 오를 수 있다(§5.3.3 파훼 ③).
  *
  * ## 모습
- * Tripo 모델(젖은 기모노·긴 손가락)은 S2 예정(§9.1). 이 슬라이스에서 그녀는
- * **수면 아래 그림자**(잠김)와 **일어선 검은 형체**(수면 위 실루엣 + 파문)다 —
- * 물의 여자가 물로 존재하는 것이 오히려 정직하고, 모델이 오면 형체만 바꿔 끼운다.
+ * 젖은 기모노 스킨 모델과 상승·얼굴 확인·포획 클립을 사용한다.
+ * 연출 중에도 포즈와 파문은 갱신하고 추격·포획 시계만 멈춘다.
  *
  * ## 상태
  * dormant → [동전 픽업] risen(일어섬 — 첨벙, 접근) ⇄ submerged(잠김 — 그림자 유영, 무해)
@@ -76,6 +75,7 @@ export class WellWoman {
   private truthStagger = 0;
   /** 짧은 카메라 연출 중에는 상태 애니메이션은 돌되 이동·주기 전환·재포획을 멈춘다. */
   private cinematicHold = false;
+  private recognitionDelay = 0;
 
   constructor(private shaft: WellShaft, private sfx: Sfx) {
     const c = shaft.chamber;
@@ -281,6 +281,14 @@ export class WellWoman {
     this.caughtCooldown = Math.max(this.caughtCooldown, 12);
   }
 
+  /** 등반의 마지막 매듭은 잠수 주기와 무관하게 밧줄을 잡는 실체를 보여 준다. */
+  beginFinalKnot() {
+    this.root.visible = true;
+    this.setState('risen');
+    this.holdForCinematic();
+    this.playGesture('rope_tug', 5.3);
+  }
+
   releaseFromCinematic(grace = 0.65) {
     this.cinematicHold = false;
     this.caughtCooldown = grace;
@@ -370,9 +378,7 @@ export class WellWoman {
     this.caughtCooldown = Math.max(this.caughtCooldown, seconds);
     this.setState('risen');
     this.playGesture('rope_tug', Math.min(1.3, seconds));
-    setTimeout(() => {
-      if (this.state !== 'dormant' && this.truthStagger > 0) this.playGesture('recognize', Math.max(1.4, seconds - 1.1));
-    }, 1100);
+    this.recognitionDelay = 1.1;
   }
 
   deactivate() {
@@ -386,6 +392,7 @@ export class WellWoman {
     this.truthStagger = 0;
     this.gestureT = 0;
     this.cinematicHold = false;
+    this.recognitionDelay = 0;
     this.playClip('submerged', 0.15);
   }
 
@@ -436,24 +443,30 @@ export class WellWoman {
   }
 
   /** @param carryingCoins 동전 소지 — risen 이 길고 빠르다 */
-  update(dt: number, player: THREE.Vector3, carryingCoins: boolean) {
+  update(dt: number, player: THREE.Vector3, carryingCoins: boolean, pauseAI = false) {
     if (this.state === 'dormant') return;
+    const held = pauseAI || this.cinematicHold;
+    const aiDt = held ? 0 : dt;
     this.t += dt;
-    this.stateT += dt;
-    if (this.caughtCooldown > 0) this.caughtCooldown -= dt;
-    if (this.childCallT > 0) this.childCallT = Math.max(0, this.childCallT - dt);
-    if (this.decoyT > 0) this.decoyT = Math.max(0, this.decoyT - dt);
-    if (this.truthStagger > 0) this.truthStagger = Math.max(0, this.truthStagger - dt);
+    this.stateT += aiDt;
+    if (this.caughtCooldown > 0) this.caughtCooldown -= aiDt;
+    if (this.childCallT > 0) this.childCallT = Math.max(0, this.childCallT - aiDt);
+    if (this.decoyT > 0) this.decoyT = Math.max(0, this.decoyT - aiDt);
+    if (this.truthStagger > 0) this.truthStagger = Math.max(0, this.truthStagger - aiDt);
     if (this.gestureT > 0) this.gestureT = Math.max(0, this.gestureT - dt);
+    if (this.recognitionDelay > 0) {
+      this.recognitionDelay = Math.max(0, this.recognitionDelay - dt);
+      if (this.recognitionDelay === 0) this.playGesture('recognize', Math.max(1.4, this.truthStagger));
+    }
     const c = this.shaft.chamber;
 
     if (this.warningGrace > 0) {
-      this.warningGrace = Math.max(0, this.warningGrace - dt);
+      this.warningGrace = Math.max(0, this.warningGrace - aiDt);
     }
 
     // ---- 주기 교대 ----
     const dur = this.state === 'risen' && carryingCoins ? this.phaseDur * 1.5 : this.phaseDur;
-    if (!this.questioning && !this.cinematicHold && this.warningGrace <= 0 && this.childCallT <= 0
+    if (!this.questioning && !held && this.warningGrace <= 0 && this.childCallT <= 0
       && this.decoyT <= 0 && this.truthStagger <= 0 && this.stateT > dur) {
       this.setState(this.state === 'risen' ? 'submerged' : this.armed ? 'risen' : 'submerged');
     }
@@ -464,7 +477,9 @@ export class WellWoman {
     // ---- 이동 ----
     const dx = player.x - this.pos.x, dz = player.z - this.pos.z;
     const pd = Math.hypot(dx, dz);
-    if (this.childCallT > 0) {
+    if (held) {
+      // 연출 중 배우의 위치를 고정하고 포즈만 재생한다.
+    } else if (this.childCallT > 0) {
       // 목소리는 방 중앙의 물속에서 난다. 미오에게서 멀어져 그 자리로 몸을 돌린다.
       const tx = c.cx, tz = c.cz;
       const cdx = tx - this.pos.x, cdz = tz - this.pos.z;
@@ -476,23 +491,25 @@ export class WellWoman {
       const dd = Math.max(0.001, Math.hypot(ddx, ddz));
       this.pos.x += (ddx / dd) * Math.min(dd, 1.28 * dt);
       this.pos.z += (ddz / dd) * Math.min(dd, 1.28 * dt);
-    } else if (this.armed && !this.questioning && !this.cinematicHold && this.truthStagger <= 0
+    } else if (this.armed && !this.questioning && !held && this.truthStagger <= 0
       && this.state === 'risen' && playerInside && !inNiche) {
       // 일어서서 걸어온다 — 물을 가르는 속도. 동전을 들었으면 빠르다
       const spd = (carryingCoins ? 1.35 : 0.95) * this.pursuitMul;
       if (pd > 0.01) {
-        this.pos.x += (dx / pd) * spd * dt;
-        this.pos.z += (dz / pd) * spd * dt;
+        const step = Math.min(pd, spd * dt);
+        this.pos.x += (dx / pd) * step;
+        this.pos.z += (dz / pd) * step;
       }
     } else if (this.state === 'submerged') {
       // 그림자가 중심으로 흘러 돌아간다 — 다음에 어디서 일어설지 모르게
       this.pos.x = damp(this.pos.x, c.cx + Math.sin(this.t * 0.4) * 1.2, 0.8, dt);
       this.pos.z = damp(this.pos.z, c.cz + Math.cos(this.t * 0.31) * 1.2, 0.8, dt);
     }
-    const movingAboveWater = this.state === 'risen'
+    const movingAboveWater = !held && this.state === 'risen'
       && (this.childCallT > 0 || this.decoyT > 0
         || (this.armed && !this.questioning && this.truthStagger <= 0 && playerInside && !inNiche && pd > 0.12));
-    if (this.state === 'risen' && this.stateT > 1.45 && this.gestureT <= 0) this.playClip(movingAboveWater ? 'wade' : 'idle', 0.24);
+    const rising = this.activeClip === 'rise' && (this.actions.get('rise')?.isRunning() ?? this.riseK < 0.95);
+    if (this.state === 'risen' && !rising && this.gestureT <= 0) this.playClip(movingAboveWater ? 'wade' : 'idle', 0.24);
     else if (this.state === 'submerged') this.playClip('submerged', 0.24);
     this.mixer?.update(dt);
     // 방 안에 가둔다 (니치에는 못 들어온다 — 그녀는 물에서 못 나간다)
@@ -515,7 +532,7 @@ export class WellWoman {
     }
 
     // ---- 잡기 — risen 상태에서만. 니치 안은 안전 ----
-    if (this.armed && !this.questioning && !this.cinematicHold && this.childCallT <= 0
+    if (this.armed && !this.questioning && !held && this.childCallT <= 0
       && this.truthStagger <= 0 && this.state === 'risen'
       && playerInside && !inNiche && this.caughtCooldown <= 0 && pd < 0.8) {
       this.caughtCooldown = 2.5;

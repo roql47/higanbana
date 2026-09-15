@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {planAccess,segmentHitsRect} from '../scripts/ogimachi/access-paths.mjs';
+const building={id:1,points:[[4,-2],[6,-2],[6,2],[4,2]]};
+const segments=[{a:[10,-10],b:[10,10],roadId:1}];
+test('expanded building obstacle requires a genuine detour',()=>{const site={position:[0,0],buildingId:null};const result=planAccess(site,[building],segments,()=>true);assert(result);assert(result.path.length>2);assert(result.length>10);for(let i=1;i<result.path.length;i++)assert(!segmentHitsRect(result.path[i-1],result.path[i],[3,7,-3,3]));});
+test('blocked new site relocates outside occupied footprint',()=>{const site={position:[5,0],buildingId:null};const result=planAccess(site,[building],segments,()=>true);assert(result);assert(site.positionAdjustmentMeters>0);assert.deepEqual(site.originalPosition,[5,0]);});
+test('reused building approach begins outside facade',()=>{const site={position:[5,0],buildingId:1};const result=planAccess(site,[building],segments,()=>true);assert(result);assert(result.path[0][0]>=7);assert(result.length<=3.001);});
+test('selection boundary prevents an unauthorized detour',()=>{const result=planAccess({position:[0,0]},[building],segments,p=>Math.abs(p[1])<1);assert.equal(result,null);});
+test('rectangle crossing and outside parallel segment differ',()=>{assert(segmentHitsRect([0,0],[10,0],[4,6,-2,2]));assert(!segmentHitsRect([0,3],[10,3],[4,6,-2,2]));});

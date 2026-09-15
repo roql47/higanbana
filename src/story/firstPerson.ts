@@ -129,6 +129,11 @@ export class FirstPerson {
   }
   /** 지금 누군가 손을 잡고 있는가 */
   get holdingHand() { return this.handOn; }
+  /** Continuous release weight, so the companion arm does not snap on the final tick. */
+  get handStrength() {
+    if (!this.handOn) return 0;
+    return this.releaseT >= 0 ? 1 - THREE.MathUtils.smoothstep(this.releaseT, 0, this.releaseDur) : 1;
+  }
 
   /**
    * 장면마다 다른 리그 설정. ACT 1(달리는 여섯 살)과 ACT 2(앉아 있는 열여섯)는

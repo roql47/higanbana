@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { settings } from '@/core/settings';
 import type { Sfx } from './sfx';
-import type { LoopVoice } from './bank';
+import type { Voice } from './bank';
 
 /** 앰비언스가 알아야 하는 마을 정보 (Village 에서 뽑아 넘긴다) */
 export interface AmbienceWorld {
@@ -17,7 +17,7 @@ export interface AmbienceWorld {
 }
 
 interface Bed {
-  key: string; voice: LoopVoice | null; weight: (w: ZoneWeights) => number; cur: number;
+  key: string; voice: Voice | null; weight: (w: ZoneWeights) => number; cur: number;
   /** 느린 무작위 흔들림 [최소, 최대] — 합창이 밀려왔다 밀려가는 느낌. 일정한 벽처럼 들리지 않게 */
   wander: [number, number]; wv: number; wt: number; wtimer: number;
 }

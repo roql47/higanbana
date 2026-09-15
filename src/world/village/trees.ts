@@ -6,6 +6,7 @@ import { settings } from '@/core/settings';
 import { createSpatialInstancedMeshes, fogCullDistance, updateChunkDistanceVisibility } from '@/world/instancing';
 import { makeAxialBillboardMaterial, makeBillboardPlane, makeCedarBillboardTexture } from '@/world/billboard';
 import { Simplex2D } from '../noise';
+import { loadCedarAtlas } from '../cedarAtlas';
 import { normalize } from './landmarks';
 import type { VillageGround } from './ground';
 
@@ -179,10 +180,9 @@ export class Cedars {
     // 브라우저가 WebP 를 읽지 못하면 기존 절차 이미지 한 장으로 조용히 폴백한다.
     let farKinds = [fallbackBillboard, fallbackBillboard];
     try {
-      const textureLoader = new THREE.TextureLoader();
       const [farA, farB] = await Promise.all([
-        textureLoader.loadAsync('/textures/impostors/cedar-a-8.webp'),
-        textureLoader.loadAsync('/textures/impostors/cedar-b-8.webp'),
+        loadCedarAtlas('a'),
+        loadCedarAtlas('b'),
       ]);
       for (const tex of [farA, farB]) {
         tex.colorSpace = THREE.SRGBColorSpace;

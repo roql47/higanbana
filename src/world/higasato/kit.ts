@@ -27,7 +27,8 @@ export class PartsBuilder {
    * 폐여관의 「거울 속 세계」처럼 눈에만 있고 몸으로는 없는 층이 그렇다.
    * 옵션이 없으면 두 번째 벌의 벽이 현실 공간에 콜라이더를 겹겹이 깔아 통로가 막힌다.
    */
-  constructor(private physics: Physics, private opts: { ghost?: boolean } = {}) {}
+  constructor(private physics: Physics, private opts: { ghost?: boolean;
+    opaqueBox?: (x: number, y: number, z: number, w: number, h: number, d: number) => void } = {}) {}
 
   mat(c: number, rough = 0.85) { return new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: 0 }); }
 
@@ -51,6 +52,7 @@ export class PartsBuilder {
   }
 
   box(w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material, yaw = 0) {
+    if (!yaw && !m.transparent && m.opacity === 1 && !m.alphaTest) this.opts.opaqueBox?.(x, y, z, w, h, d);
     const g = new THREE.BoxGeometry(w, h, d);
     const rep = m.userData['worldUV'] as number | undefined;
     if (rep) remapBoxUV(g, w, h, d, rep, x, z);

@@ -36,6 +36,7 @@ export interface SayoPose {
   yaw: number;
   /** 잡힌 손이 있어야 할 자리 (월드). null 이면 팔을 놓는다 */
   hand: THREE.Vector3 | null;
+  handWeight?: number;
   /** 달리는 속도 (m/s) — 클립 배속을 여기서 낸다 */
   speed: number;
   /** 0~1 뒤를 흘끗 본다 (목만, 얼굴 윤곽이 드러나지 않는 범위) */
@@ -119,6 +120,12 @@ export class Sayo {
   /** 팔 흔들림 위상 — 팽팽한 팔이 죽은 막대가 되지 않게 목표를 조금 흔든다 */
   private phase = 0;
   private opacity = 1;
+  // Constant animation tracks may skip writing an unchanged quaternion. Restore
+  // the unmodified animation pose before applying this frame's IK/head offsets.
+  private animatedPose = new Map<THREE.Object3D, THREE.Quaternion>();
+  private restoreAnimatedPose() {
+    for (const [bone, rotation] of this.animatedPose) bone.quaternion.copy(rotation);
+  }
 
   private v1 = new THREE.Vector3();
   private v2 = new THREE.Vector3();
@@ -143,7 +150,25 @@ export class Sayo {
       m.castShadow = true;
       m.receiveShadow = true;
       m.frustumCulled = false;   // 스킨드 메시의 바운딩은 바인드 포즈 것이라 못 믿는다
-      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) this.materials.push(mat);
+      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+        if (this.materials.includes(mat)) continue;
+        this.materials.push(mat);
+        // All surfaces discard the SAME screen pixels: a discarded hair pixel
+        // must also discard the face behind it. Object-space alphaHash cannot do this.
+        mat.transparent = false;
+        mat.depthWrite = true;
+        mat.alphaHash = true;
+        const previousCompile = mat.onBeforeCompile;
+        mat.onBeforeCompile = (shader, renderer) => {
+          previousCompile.call(mat, shader, renderer);
+          shader.fragmentShader = shader.fragmentShader.replace('#include <alphahash_fragment>', `
+            float sayoCoverage = fract(52.9829189 * fract(dot(floor(gl_FragCoord.xy), vec2(0.06711056, 0.00583715))));
+            if (opacity <= sayoCoverage) discard;
+          `);
+        };
+        mat.customProgramCacheKey = () => 'sayo-screen-coverage-v1';
+        mat.needsUpdate = true;
+      }
     });
 
     // 정규화: **클립 기준 정면**(+X)을 +Z 로 돌린다 (위 `YAW_OFFSET` 주석)
@@ -188,11 +213,18 @@ export class Sayo {
 
   get clipNames() { return [...this.actions.keys()]; }
 
-  /** 클립 전환 (달리기 하나면 충분하지만 넘어짐 구간에서 걷기로 떨어뜨린다) */
+  /**
+   * 클립 전환 (달리기 하나면 충분하지만 넘어짐 구간에서 걷기로 떨어뜨린다).
+   *
+   * ⚠️ **아직 돌고 있는 클립을 `reset()` 하지 않는다.** `reset()` 은 `time` 을 0 으로 되감는다 —
+   * 달리기↔걷기가 한두 프레임 사이에 오가면 그때마다 **다리가 주기 처음으로 순간이동**한다.
+   * 페이드아웃 중이던 클립으로 되돌아오는 경우에는 그 자리에서 다시 페이드인하는 게 맞다.
+   */
   play(name: string, fade = 0.25) {
     const next = this.actions.get(name);
     if (!next || this.current === next) return;
-    next.reset().play();
+    if (!next.isRunning()) next.reset();
+    next.play();
     next.setEffectiveWeight(1);
     if (this.current) this.current.crossFadeTo(next, fade, true);
     this.current = next;
@@ -230,23 +262,14 @@ export class Sayo {
     if (import.meta.env.DEV) console.info('[sayo] grounded by run cycle, minY', +lo.toFixed(3));
   }
 
-  /**
-   * 투명도. `needsUpdate` 는 **투명 전환이 실제로 바뀔 때만** 건다 —
-   * 매 프레임 세우면 셰이더 프로그램 키를 다시 뽑는다(이 프로젝트가 히치로 여러 번 잡힌 자리다).
-   */
+  /** 같은 화면 픽셀을 함께 지워 앞뒤 가림을 유지한다. 페이드 중 셰이더는 바꾸지 않는다. */
   setOpacity(v: number) {
     const o = clamp(v, 0, 1);
-    if (Math.abs(o - this.opacity) < 1e-3) return;
-    const wasTransparent = this.opacity < 0.999;
+    if (o === this.opacity) return;
     this.opacity = o;
-    this.root.visible = o > 0.02;
-    const nowTransparent = o < 0.999;
-    for (const mat of this.materials) {
-      mat.transparent = nowTransparent;
-      mat.opacity = o;
-      mat.depthWrite = !nowTransparent;
-      if (nowTransparent !== wasTransparent) mat.needsUpdate = true;
-    }
+    this.root.visible = o > 0;
+    // Keep the shader variant fixed; beginning the fade only changes a uniform.
+    for (const mat of this.materials) mat.opacity = o;
   }
 
   show(v: boolean) {
@@ -261,12 +284,14 @@ export class Sayo {
   pose(name: string, t: number) {
     const a = this.actions.get(name);
     if (!a) return;
+    this.restoreAnimatedPose();
     for (const other of this.actions.values()) other.stop();
     a.reset().play();
     a.setEffectiveWeight(1);
     a.time = t;
     this.current = a;
     this.mixer.update(0);
+    this.animatedPose.clear();
     this.root.updateMatrixWorld(true);
   }
 
@@ -296,16 +321,23 @@ export class Sayo {
 
     // --- 클립 ---
     if (this.current) this.current.timeScale = clamp(p.speed / RUN_CLIP_SPEED, 0.55, RUN_MAX);
+    this.restoreAnimatedPose();
     this.mixer.update(dt);
+    for (const bone of [this.clav, this.upper, this.fore, this.head, ...this.neck]) {
+      if (!bone) continue;
+      let rotation = this.animatedPose.get(bone);
+      if (!rotation) { rotation = new THREE.Quaternion(); this.animatedPose.set(bone, rotation); }
+      rotation.copy(bone.quaternion);
+    }
     this.root.updateMatrixWorld(true);
     this.phase += dt * clamp(p.speed / RUN_CLIP_SPEED, 0.55, RUN_MAX) * 9;
 
     // --- 잡힌 손 ---
     if (p.hand) this.lastHand.copy(p.hand);
-    // 놓는 쪽이 잡는 쪽보다 빠르다 — 손가락이 풀리는 데는 시간이 안 걸린다.
-    // 천천히 풀면 팔이 **녹아 사라지는** 것처럼 보인다(0.9 초는 그랬다)
-    this.armW = damp(this.armW, p.hand ? 1 : 0, p.hand ? 6 : 9, dt);
-    if (this.armW > 0.02) {
+    // Release strength fades continuously; retain even the final residual IK
+    // rather than cutting back to the underlying clip at a visible threshold.
+    this.armW = damp(this.armW, p.hand ? clamp(p.handWeight ?? 1, 0, 1) : 0, p.hand ? 6 : 9, dt);
+    if (this.armW > 0) {
       // 팔이 팽팽하면 목표가 사거리 밖이라 결과가 매 프레임 똑같다 = 죽은 막대가 된다.
       // 달리기 위상으로 목표를 2 cm 흔들어 준다 — 어깨가 걸음마다 조금씩 밀린다
       this.target.copy(this.lastHand);

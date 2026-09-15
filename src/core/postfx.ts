@@ -13,7 +13,7 @@ import {
   HueSaturationEffect,
   BrightnessContrastEffect,
 } from 'postprocessing';
-import { N8AOPostPass } from 'n8ao';
+import { DisposableAOPass } from './aoPass';
 import { settings } from './settings';
 import type { QualityProfile } from './quality';
 
@@ -67,6 +67,8 @@ export function createPostFX(
   quality?: QualityProfile,
   options: PostFxOptions = {},
 ) {
+  // 정지 화면은 설정이나 크기가 바뀔 때만 다시 그린다.
+  let revision = 0;
   const support = options.support ?? probePostFxSupport(renderer);
   const hdrTargets = support.halfFloatColorBuffer && !options.forceCompatibility;
   const composer = new EffectComposer(renderer, {
@@ -77,22 +79,13 @@ export function createPostFX(
   const renderPass = new RenderPass(scene, camera);
   composer.addPass(renderPass);
 
-  const w = window.innerWidth, h = window.innerHeight;
-  // N8AO 자체가 HalfFloatType 누적 타깃을 만들기 때문에 RGBA8 호환 경로에서는 인스턴스도 만들지 않는다.
-  const ao = hdrTargets ? new N8AOPostPass(scene, camera, w, h) : null;
-  if (ao) {
-    ao.configuration.aoRadius = settings.render.aoRadius;
-    ao.configuration.intensity = settings.render.aoIntensity;
-    ao.configuration.distanceFalloff = 1.0;
-    ao.configuration.screenSpaceRadius = false;
-    ao.configuration.halfRes = quality?.aoHalfRes ?? false;
-    ao.configuration.gammaCorrection = false; // 톤매핑/색공간 변환은 뒤에서
-    ao.setQualityMode(quality && quality.ao !== 'off' ? quality.ao : 'Medium');
-  } else {
+  let ao: DisposableAOPass | null = null;
+  let aoQuality = quality;
+  if (!hdrTargets) {
     console.warn('[gpu] Half-float 렌더타깃 미지원/안전 모드 — RGBA8 후처리, AO off');
   }
   /** 품질 프리셋이 AO 를 허용하는가 (low·medium 은 'off') */
-  let aoAllowed = !!ao && quality?.ao !== 'off';
+  let aoAllowed = hdrTargets && quality?.ao !== 'off';
 
   const bloom = new BloomEffect({
     mipmapBlur: true,
@@ -122,6 +115,7 @@ export function createPostFX(
 
   function resize(width: number, height: number) {
     composer.setSize(width, height);
+    revision++;
   }
 
   /**
@@ -129,18 +123,30 @@ export function createPostFX(
    *
    * ⚠️ **`intensity = 0` 으로 끄면 안 된다.** N8AO 는 세기 0 에서도 자기 버퍼로 합성을 계속하는데,
    * 창 크기가 바뀐 뒤 그 버퍼가 화면과 어긋나 **오른쪽 4 분의 1 이 검게** 남았다(실측 재현).
-   * 끌 때는 패스 자체를 뺀다 — 비용도 그쪽이 정직하다.
+   * 끌 때는 패스를 빼고 전용 자원도 해제한다. 다시 켤 때 현재 렌더 해상도로 생성한다.
    */
   function setAO(on: boolean) {
-    if (!ao) return;
-    const has = composer.passes.includes(ao);
-    if (on === has) return;
-    if (on) { composer.removePass(effectPass); composer.addPass(ao); composer.addPass(effectPass); }
-    else composer.removePass(ao);
+    if (!on) {
+      if (ao) { composer.removePass(ao); ao.dispose(); ao = null; }
+      return;
+    }
+    if (ao) return;
+    const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+    ao = new DisposableAOPass(scene, camera, size.x, size.y);
+    ao.configuration.aoRadius = settings.render.aoRadius;
+    ao.configuration.intensity = settings.render.aoIntensity;
+    ao.configuration.distanceFalloff = 1.0;
+    ao.configuration.screenSpaceRadius = false;
+    ao.configuration.halfRes = aoQuality?.aoHalfRes ?? false;
+    ao.configuration.gammaCorrection = false;
+    ao.setQualityMode(aoQuality && aoQuality.ao !== 'off' ? aoQuality.ao : 'Medium');
+    // EffectPass를 빼고 다시 초기화하지 않고 Render와 Effect 사이에 삽입한다.
+    composer.addPass(ao, 1);
   }
 
   /** Tweakpane 등에서 값이 바뀌었을 때 호출 */
   function applySettings() {
+    revision++;
     if (ao) {
       ao.configuration.aoRadius = settings.render.aoRadius;
       ao.configuration.intensity = settings.render.aoIntensity;
@@ -159,11 +165,14 @@ export function createPostFX(
 
   /** 런타임 품질 변경 (AO on/off·해상도) */
   function applyQuality(q: QualityProfile) {
-    aoAllowed = !!ao && q.ao !== 'off';
+    revision++;
+    aoQuality = q;
+    aoAllowed = hdrTargets && q.ao !== 'off';
     const wantAO = aoAllowed && settings.render.aoIntensity > 0;
     if (ao && aoAllowed) { ao.configuration.halfRes = q.aoHalfRes; ao.setQualityMode(q.ao as 'Low' | 'Medium' | 'High'); }
+    smaa.applyPreset(q.level === 'ultra' ? SMAAPreset.HIGH : SMAAPreset.MEDIUM);
     setAO(wantAO);
   }
 
-  return { composer, resize, applySettings, applyQuality, ao, bloom, vignette, toneMapping };
+  return { composer, resize, applySettings, applyQuality, get ao() { return ao; }, bloom, vignette, toneMapping, get revision() { return revision; } };
 }

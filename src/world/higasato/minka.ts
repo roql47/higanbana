@@ -2,9 +2,12 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Physics } from '@/core/physics';
 import { makeHouseMaterials, type HouseMaterials } from '../village/houseMaterials';
-import { LANES, ROUTES, type HigasatoGround, type Path } from './ground';
+import { LANES, ROUTES, SETTLEMENT_LANES, type HigasatoGround, type Path } from './ground';
 import { makeHiganbanaFlower } from '@/world/village/higanbana';
 import { makeLantern } from '@/light/chochin';
+import { SETTLEMENT_LOTS, type SettlementLot } from './settlementPlan';
+import { textCanvas } from './kit';
+import { buildGasshoRoof, gasshoThatch, gasshoWood } from './gassho';
 
 /**
  * 민가(民家) — 골목에 늘어선 마을 집들.
@@ -36,7 +39,7 @@ export interface MinkaSpec {
   yaw: number;
   w: number;      // 정면 폭
   d: number;      // 깊이
-  roof: 'thatch' | 'board';
+  roof: 'thatch' | 'board' | 'gassho';
   /** 툇마루가 있는가 (없으면 판벽만 — 창고·헛간처럼 읽힌다) */
   engawa: boolean;
   /** 장지문이 빠져 검은 구멍이 된 칸 수 */
@@ -106,11 +109,53 @@ export class Hamlet {
     for (const lane of placementLanes) {
       placeAlongLane(lane, rng, ground, this.houses, placementLanes, rej);
     }
-    console.info(`[minka] ${this.houses.length}채 · 거절 부지${rej.site} 논${rej.paddy} 경사${rej.slope} 길${rej.road} 충돌${rej.clash}`);
-    for (const h of this.houses) buildMinka(h, tex, parts, physics, ground);
+    const originalHouseCount = this.houses.length;
+    for (const [i, lot] of SETTLEMENT_LOTS.entries()) this.houses.push({
+      ...lot, roof: lot.use === 'farm' && lot.id!=='south-barn' ? 'thatch' : 'board',
+      engawa: lot.id !== 'south-barn', missing: i % 3 === 0 ? 1 : 0, seed: 88100 + i * 137,
+    });
+    console.info(`[minka] ${this.houses.length}채 (기존 ${originalHouseCount} + 계획 부지 ${SETTLEMENT_LOTS.length}) · 거절 부지${rej.site} 논${rej.paddy} 경사${rej.slope} 길${rej.road} 충돌${rej.clash}`);
+    for (const [i,h] of this.houses.entries()) {
+      const lot=SETTLEMENT_LOTS[i-originalHouseCount];
+      if(i!==1 && lot?.use!=='shop' && lot?.id!=='south-barn') h.roof='gassho';
+      buildMinka(h, tex, parts, physics, ground);
+    }
 
     // --- 골목 소품: 판담·돌담·장작더미 ---
-    buildLaneProps(this.houses, tex, parts, physics, ground, rng);
+    buildLaneProps(this.houses.slice(0,originalHouseCount), tex, parts, physics, ground, rng);
+    const shopSign = new THREE.MeshStandardMaterial({ roughness: .94, map: textCanvas(256,96,ctx=>{
+      ctx.fillStyle='#b5a17a';ctx.fillRect(0,0,256,96);
+      ctx.strokeStyle='#584737';ctx.lineWidth=7;ctx.strokeRect(5,5,246,86);
+      ctx.fillStyle='#332c24';ctx.font='bold 54px serif';ctx.textAlign='center';ctx.fillText('米・雑穀',128,68);
+    }) });
+    for (const [i, lot] of SETTLEMENT_LOTS.entries()) {
+      buildSettlementYard(lot, this.houses[originalHouseCount+i]!, tex, parts, physics,shopSign,ground);
+    }
+    // One provision shop serves the existing street; keep the other houses domestic.
+    for (const i of [1]) {
+      const h=this.houses[i];
+      if(h && i<originalHouseCount) buildSettlementYard({...h,id:`main-shop-${i}`,use:'shop'},h,tex,parts,physics,shopSign,ground);
+    }
+    // Broken stone drainage edges follow the actual lane height and leave junctions open.
+    for(const lane of [...LANES,...SETTLEMENT_LANES]) {
+      const length=polyLength(lane.pts);
+      for(let distance=2;distance<length-2;distance+=1.7) {
+        const p=pointAt(lane.pts,distance);
+        for(const side of [1]) {
+          const x=p.x+p.nx*side*(lane.halfWidth+.22),z=p.z+p.nz*side*(lane.halfWidth+.22);
+          if(ground.inSiteZone(x,z,.8)) continue;
+          if([...LANES,...SETTLEMENT_LANES,...ROUTES].some(other=>other!==lane && rectToPoly(other.pts,x,z,0,.3,.3)<other.halfWidth+.35))continue;
+          // Shallow open stone channel: bottom and two lips, conforming to terrain at every vertex.
+          for(const [width,height,offset,material] of [[.32,.018,0,tex.plankDark],[.065,.11,-.19,tex.mud],[.065,.11,.19,tex.mud]] as const) {
+            const g=new THREE.BoxGeometry(width,height,1.72,1,1,3);
+            g.translate(offset,height/2,0);g.rotateY(Math.atan2(-p.nz,p.nx));g.translate(x,.008,z);
+            const vertices=g.attributes.position!;
+            for(let i=0;i<vertices.count;i++)vertices.setY(i,vertices.getY(i)+ground.heightAt(vertices.getX(i),vertices.getZ(i)));
+            g.computeVertexNormals();projectUV(g,1,1);grunge(g,1,true,Math.round(distance*100));parts.push({geo:g,mat:material});
+          }
+        }
+      }
+    }
 
     // --- 병합 ---
     const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
@@ -125,7 +170,9 @@ export class Hamlet {
       mesh.castShadow = false;   // 초칭 큐브 그림자 6면에 마을 전체가 다시 그려진다
       mesh.receiveShadow = true;
       this.group.add(mesh);
+      for(const geo of geos)geo.dispose();
     }
+    for(const p of parts) p.geo.dispose();
 
     // --- 처마 등불: 골목에 "여기가 마을이다"를 알리는 앵커. 그림자 없는 포인트라이트 소수 ---
     this.lanternMat = new THREE.MeshStandardMaterial({
@@ -135,8 +182,8 @@ export class Hamlet {
       color: 0x7a1115, emissive: new THREE.Color(0xff1018), emissiveIntensity: 1.35, roughness: 0.82,
     });
     const want = opts.lanterns ?? 5;
-    const step = Math.max(1, Math.floor(this.houses.length / want));
-    for (let i = 0; i < this.houses.length && this.lights.length < want; i += step) {
+    const step = Math.max(1, Math.floor(originalHouseCount / want));
+    for (let i = 0; i < originalHouseCount && this.lights.length < want; i += step) {
       const h = this.houses[i]!;
       const fx = Math.sin(h.yaw), fz = Math.cos(h.yaw);
       const gx = h.x + fx * (h.d / 2 + 0.35), gz = h.z + fz * (h.d / 2 + 0.35);
@@ -248,7 +295,7 @@ export class Hamlet {
  * 그래서 좌우를 **따로 훑는다** — 쪽마다 "직전 집 반폭 + 틈 + 이번 집 반폭"으로 간격을 잡는다.
  * 틈 1.2~2.6 m 가 골목을 골목으로 만든다: 틈이 없으면 벽이고, 넓으면 들판이다.
  */
-function placeAlongLane(lane: Path, rng: () => number, ground: HigasatoGround, out: MinkaSpec[], allLanes: Path[], rej: Record<string, number>) {
+export function placeAlongLane(lane: Path, rng: () => number, ground: HigasatoGround, out: MinkaSpec[], allLanes: Path[], rej: Record<string, number>) {
   const pts = lane.pts;
   const total = polyLength(pts);
   for (const side of [1, -1] as const) {
@@ -306,7 +353,7 @@ function placeAlongLane(lane: Path, rng: () => number, ground: HigasatoGround, o
  * 회전된 사각형(집 바닥)에서 폴리라인(길)까지 최단 거리.
  * 길을 1 m 간격으로 훑으며 각 점을 집 로컬 좌표로 옮겨 사각형까지의 거리를 잰다.
  */
-function rectToPoly(pts: [number, number][], cx: number, cz: number, yaw: number, w: number, d: number) {
+export function rectToPoly(pts: [number, number][], cx: number, cz: number, yaw: number, w: number, d: number) {
   const c = Math.cos(yaw), s = Math.sin(yaw);
   const hw = w / 2, hd = d / 2;
   let best = Infinity;
@@ -352,14 +399,15 @@ function pointAt(pts: [number, number][], s: number) {
 
 // ---------------------------------------------------------------- 집 한 채
 
-function buildMinka(m: MinkaSpec, tex: HouseMaterials, parts: Part[], physics: Physics, ground: HigasatoGround) {
+function buildMinka(m: MinkaSpec, sourceTex: HouseMaterials, parts: Part[], physics: Physics, ground: HigasatoGround) {
+  const tex=m.roof==='gassho'?{...sourceTex,...gasshoWood()}:sourceTex;
   const rng = seeded(m.seed);
   const gy = ground.heightAt(m.x, m.z);
   const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), m.yaw);
   const hw = m.w / 2, hd = m.d / 2;
   const FLOOR = rnd(rng, 0.42, 0.58);    // 주춧돌 위로 뜬 마루 높이
   const WALL = rnd(rng, 2.25, 2.55);     // 마루에서 처마 도리까지
-  const SILL = 1.02;                     // 널판(下見板)과 흙벽이 만나는 허리선
+  const SILL = m.roof==='gassho' ? WALL-.18 : 1.02;
   const EAVE = rnd(rng, 0.78, 1.0);      // 처마 내밀기
   // 생활 흔적(ACT 4)은 이 집의 툇마루·처마에 정확히 얹혀야 한다. 값을 밖에서 다시 뽑으면
   // 같은 시드라도 호출 순서가 어긋나는 순간 소품이 공중에 뜬다 — 그래서 여기서 되돌려 적는다
@@ -477,10 +525,14 @@ function buildMinka(m: MinkaSpec, tex: HouseMaterials, parts: Part[], physics: P
   // 좌·우·뒤: 아래 널판 + 위 흙벽 (이 수평선이 집의 허리다)
   for (const sx of [-1, 1]) {
     put(box(0.13, SILL, m.d, sx * hw, wallY0 + SILL / 2, 0), tex.plank, 2.2, 1.0);
-    put(box(0.13, WALL - SILL, m.d, sx * hw, wallY0 + SILL + (WALL - SILL) / 2, 0), tex.mud, 1.5, 1.5);
+    put(box(0.13, WALL - SILL, m.d, sx * hw, wallY0 + SILL + (WALL - SILL) / 2, 0), m.roof==='gassho'?tex.plankDark:tex.mud, 1.5, 1.5);
   }
   put(box(m.w, SILL, 0.13, 0, wallY0 + SILL / 2, -hd), tex.plank, 2.2, 1.0);
-  put(box(m.w, WALL - SILL, 0.13, 0, wallY0 + SILL + (WALL - SILL) / 2, -hd), tex.mud, 1.5, 1.5);
+  put(box(m.w, WALL - SILL, 0.13, 0, wallY0 + SILL + (WALL - SILL) / 2, -hd), m.roof==='gassho'?tex.plankDark:tex.mud, 1.5, 1.5);
+  if(m.roof==='gassho') {
+    for(let x=-hw+.15;x<hw;x+=.25)put(simpleBox(.025,WALL,.035,x,wallY0+WALL/2,-hd-.08),tex.timber,1,.5,true);
+    for(const side of [-1,1])for(let z=-hd+.15;z<hd;z+=.25)put(simpleBox(.035,WALL,.025,side*(hw+.08),wallY0+WALL/2,z),tex.timber,1,.5,true);
+  }
 
   // ---------- 기둥 (민가는 구조재가 드러난다) ----------
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
@@ -511,7 +563,23 @@ function buildMinka(m: MinkaSpec, tex: HouseMaterials, parts: Part[], physics: P
       }
     }
   };
-  if (m.roof === 'thatch') {
+  if(m.roof==='gassho') {
+    // Quarter-turn lots retain their street-facing entrances while their roof ridges align north–south.
+    const crosswise=Math.abs(Math.sin(m.yaw))>Math.abs(Math.cos(m.yaw));
+    for(const p of buildGasshoRoof(crosswise?rb:ra,crosswise?ra:rb,wallY1+.18,tex,m.seed)) {
+      if(p.mat!==gasshoThatch())projectUV(p.geo,1.3,1.3);
+      if(p.mat===gasshoThatch()) {
+        const vertices=p.geo.getAttribute('position'),color=new Float32Array(vertices.count*3);
+        for(let v=0;v<vertices.count;v++) {
+          const tone=.88+Math.sin(m.seed)*.045+Math.sin(vertices.getZ(v)*.37)*.018;
+          color.set([tone,tone,tone],v*3);
+        }
+        p.geo.setAttribute('color',new THREE.BufferAttribute(color,3));
+      } else grunge(p.geo,wallY1+5,false,m.seed);
+      if(crosswise)p.geo.rotateY(Math.PI/2);
+      p.geo.applyQuaternion(q);p.geo.translate(m.x,gy,m.z);parts.push(p);
+    }
+  } else if (m.roof === 'thatch') {
     // 茅葺 — 두껍고 가파르다(45°+). 억새는 모서리가 둥글어 처마 끝이 두껍다
     const rise = Math.min(rb, 3.4) * 1.15;
     const rg = hipRoof(ra, rb, rise, 0.34);
@@ -613,9 +681,143 @@ function buildLaneProps(houses: MinkaSpec[], tex: HouseMaterials, parts: Part[],
     if (rng() < 0.3) {
       const bx = h.x + fx * (h.d / 2 + 1.0) + rx * rnd(rng, -1.5, 1.5);
       const bz = h.z + fz * (h.d / 2 + 1.0) + rz * rnd(rng, -1.5, 1.5);
-      const g = new THREE.CylinderGeometry(0.3, 0.26, 0.42, 10);
+      const g = new THREE.CylinderGeometry(0.3, 0.26, 0.42, 12,1,true);
       g.translate(bx, gy + 0.21, bz);
       put(g, tex.plankDark, 1.4, 1.0);
+      const inner=new THREE.CylinderGeometry(.265,.23,.38,12,1,true);
+      inner.scale(-1,1,1);inner.translate(bx,gy+.23,bz);put(inner,tex.plankDark,1.4,1);
+      const bottom=new THREE.CylinderGeometry(.23,.23,.035,12);
+      bottom.translate(bx,gy+.035,bz);put(bottom,tex.plankDark,1.4,1);
+    }
+  }
+}
+
+/** Each authored frontage has a purpose; keep its middle open as a doorway. */
+function buildSettlementYard(lot: SettlementLot, house: MinkaSpec, tex: HouseMaterials, parts: Part[], physics: Physics,shopSign:THREE.Material,ground:HigasatoGround) {
+  const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),lot.yaw);
+  const origin = new THREE.Vector3(lot.x,house.gy!,lot.z);
+  const localGround=(x:number,z:number)=>{
+    const p=new THREE.Vector3(x,0,z).applyQuaternion(q).add(origin);
+    return ground.heightAt(p.x,p.z)-origin.y;
+  };
+  const put = (g: THREE.BufferGeometry, mat: THREE.Material) => {
+    projectUV(g,1.5,1.5); grunge(g,3,mat===tex.mud,house.seed);
+    g.applyQuaternion(q);g.translate(origin.x,origin.y,origin.z);parts.push({geo:g,mat});
+  };
+  const box = (w:number,h:number,d:number,x:number,y:number,z:number,mat:THREE.Material,solid=false) => {
+    const g=new THREE.BoxGeometry(w,h,d);g.translate(x,y,z);put(g,mat);
+    if(solid) physics.addStaticBox(new THREE.Vector3(x,y,z).applyQuaternion(q).add(origin),new THREE.Vector3(w/2,h/2,d/2),q);
+  };
+  // Retain a short raised edge at commercial plots. Domestic plots remain open to fields.
+  for(const side of (lot.use==='shop' ? [1] : [])) {
+    const x=side*(lot.w/2+.42);
+    box(.18,.55,lot.d*.65,x,.275,-lot.d*.12,tex.mud,true);
+    box(.24,.07,lot.d*.65+.1,x,.57,-lot.d*.12,tex.timber);
+  }
+  const front=lot.d/2;
+  if(lot.use==='shop') {
+    // Shuttered counter, framed signboard and empty produce crates under a shallow awning.
+    box(lot.w*.72,.09,.75,0,house.floor!+.68,front+.45,tex.plank);
+    box(lot.w*.83,.12,1.05,0,2.28,front+.5,tex.plankDark);
+    box(1.35,.38,.1,0,2.63,front+.08,tex.timber);
+    if(lot.id!=='east-workshop') {
+      const sign=new THREE.PlaneGeometry(1.25,.32);
+      sign.translate(0,2.63,front+.135);sign.applyQuaternion(q);sign.translate(origin.x,origin.y,origin.z);
+      parts.push({geo:sign,mat:shopSign});
+    } else {
+      // Repair shop: a tool board and hoe heads identify the trade without another retail sign.
+      for(const x of [-.4,0,.4]) {
+        box(.035,.55,.035,x,1.73,front+.22,tex.timber);
+        box(.19,.1,.035,x,1.48,front+.24,tex.plankDark);
+      }
+    }
+    for(const side of [-1,1]) {
+      box(.075,1.25,.075,side*lot.w*.35,1.6,front+.76,tex.timber);
+      const x=side*(lot.w/2-.6),y=house.floor!+.2,z=front+.4;
+      box(.67,.05,.55,x,y-.16,z,tex.plank);
+      for(const dx of [-.32,.32])box(.045,.3,.55,x+dx,y,z,tex.plank);
+      for(const dz of [-.25,.25])box(.64,.3,.045,x,y,z+dz,tex.plank);
+    }
+  } else if(lot.use==='home') {
+    // Side drying rack: beyond the wall, away from the doorway and street.
+    const z=-lot.d/2-.45;
+    for(const x of [-.85,.85])box(.065,1.4,.065,x,.7,z,tex.timber);
+    box(1.9,.055,.055,0,1.39,z,tex.timber);
+    for(const x of [-.5,0,.5]) box(.32,.56,.025,x,1.08,z+.025,tex.shojiMat);
+    box(.9,.12,.34,-lot.w/2+.7,.35,front+.42,tex.plank);
+  } else {
+    // Farm tool rack and stacked drying poles rather than urban shop fittings.
+    for(let i=0;i<5;i++) {
+      const pole=new THREE.CylinderGeometry(.025,.035,1.65,5);
+      pole.rotateZ(.12+i*.025);pole.translate(-lot.w/2+.35+i*.14,.84,front+.25);put(pole,tex.timber);
+    }
+    box(1.8,.1,.55,lot.w/2-.95,.35,front+.35,tex.plank);
+    for(const x of [lot.w/2-1.6,lot.w/2-.3])box(.09,.32,.09,x,.16,front+.35,tex.timber);
+  }
+  // Exterior rain shutters protect the paper doors; one panel is parked beside the opening.
+  if(lot.id!=='south-barn') {
+    const x=lot.w/2-.48;
+    box(.78,1.78,.055,x,house.floor!+.94,front+.15,tex.plankDark);
+    for(const y of [house.floor!+.2,house.floor!+1.7])box(.81,.075,.07,x,y,front+.19,tex.timber);
+    box(lot.w+.15,.065,.10,0,house.floor!+1.89,front+.19,tex.timber);
+  }
+  // Small domestic kitchen gardens sit behind the house, not as ornamental lawns.
+  if(lot.use!=='shop') {
+    const z=-lot.d/2-1.9;
+    for(const x of [-.75,.75]) {
+      const gy=localGround(x,z);
+      box(.9,.055,1.15,x,gy+.025,z,tex.dirt);
+      for(let row=0;row<3;row++) {
+        box(.64,.065,.075,x,gy+.065,z+(row-1)*.33,tex.dirt);
+        for(const column of [-1,1]) {
+          const leaf=new THREE.SphereGeometry(.105,5,3);
+          leaf.scale(1,.38,1.25);leaf.translate(x+column*.17,gy+.12,z+(row-1)*.33);
+          projectUV(leaf,1,1);
+          const color=new Float32Array(leaf.getAttribute('position').count*3);
+          for(let v=0;v<color.length;v+=3){color[v]=.4;color[v+1]=.58;color[v+2]=.24;}
+          leaf.setAttribute('color',new THREE.BufferAttribute(color,3));
+          leaf.applyQuaternion(q);leaf.translate(origin.x,origin.y,origin.z);parts.push({geo:leaf,mat:tex.mud});
+        }
+      }
+    }
+    // A hollow stave bucket, hoops and a dipper at the eave; no solid-cylinder lid.
+    const bx=-lot.w/2+.5,bz=front+.55;
+    for(let stave=0;stave<12;stave++) {
+      const angle=stave*Math.PI/6;
+      const g=new THREE.BoxGeometry(.12,.39,.035);
+      g.rotateY(angle);g.translate(bx+Math.sin(angle)*.225,.22,bz+Math.cos(angle)*.225);put(g,tex.plank);
+    }
+    for(const y of [.10,.34]) {
+      const hoop=new THREE.TorusGeometry(.24,.015,4,12);hoop.rotateX(Math.PI/2);hoop.translate(bx,y,bz);put(hoop,tex.timber);
+    }
+    const bottom=new THREE.CylinderGeometry(.21,.21,.025,12);bottom.translate(bx,.035,bz);put(bottom,tex.plankDark);
+    box(.035,.035,.65,bx,.43,bz,tex.timber);
+    const dipper=new THREE.CylinderGeometry(.085,.075,.09,8,1,true);
+    dipper.translate(bx,.45,bz+.28);put(dipper,tex.plank);
+    const dipperBase=new THREE.CylinderGeometry(.075,.075,.012,8);
+    dipperBase.translate(bx,.41,bz+.28);put(dipperBase,tex.plankDark);
+  }
+  if(lot.use==='farm') {
+    // Rice drying rack: cross-braced poles and tied sheaves in the farm work yard.
+    const z=-lot.d/2-.65;
+    for(const x of [-1.25,1.25]) {
+      for(const side of [-1,1]) {
+        const leg=new THREE.CylinderGeometry(.035,.045,1.7,6);
+        leg.rotateX(side*.22);leg.translate(x,.82,z+side*.18);put(leg,tex.timber);
+      }
+    }
+    box(2.8,.055,.055,0,1.52,z,tex.timber);
+    for(let i=0;i<8;i++) {
+      for(let stalk=0;stalk<9;stalk++) {
+        const angle=stalk*Math.PI*2/9;
+        const length=.58+(stalk%3)*.035;
+        const sheaf=new THREE.CylinderGeometry(.013,.029,length,4);
+        sheaf.rotateZ(Math.cos(angle)*.16);
+        sheaf.rotateX(Math.sin(angle)*.16);
+        sheaf.translate(-1.05+i*.3+Math.cos(angle)*.035,1.38-length/2,z+Math.sin(angle)*.035);
+        put(sheaf,tex.thatch);
+      }
+      const knot=new THREE.TorusGeometry(.045,.008,4,8);knot.rotateX(Math.PI/2);knot.translate(-1.05+i*.3,1.35,z);put(knot,tex.timber);
     }
   }
 }

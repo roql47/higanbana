@@ -39,7 +39,7 @@ import { dampAngle } from '@/core/math';
 
 export interface Act3Deps {
   tablet: StoneTablet;
-  ground: HigasatoGround;
+  ground: Pick<HigasatoGround, 'heightAt' | 'roadAt' | 'sAtZ'>;
   dialogue: Dialogue;
   sfx: Sfx;
   cam: ThirdPersonCamera;

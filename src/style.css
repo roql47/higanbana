@@ -9,14 +9,14 @@
    * 한국어 명조에는 가나가, 일본어 명조에는 한글이 온전히 없어서 **한 스택으로는 안 된다** —
    * 섞어 쓰면 글자마다 서체가 튀고, 그게 곧 이중표기처럼 보인다.
    */
-  --serif: "Noto Serif KR", "Apple SD Gothic Neo", serif;
-  --hand: "Nanum Pen Script", "Apple SD Gothic Neo", cursive;
+  --serif: "Higanbana Serif KR", "Apple SD Gothic Neo", serif;
+  --hand: "Higanbana Hand KR", "Apple SD Gothic Neo", cursive;
   /* 기계가 쓰는 글씨 — 폰 화면처럼 «그 나라의 기기» 로 보여야 하는 곳 */
   --ui: -apple-system, BlinkMacSystemFont, "Pretendard", "Noto Sans KR", sans-serif;
 }
 html[lang="ja"] {
-  --serif: "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif;
-  --hand: "Yomogi", "Hiragino Maru Gothic ProN", cursive;
+  --serif: "Higanbana Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif;
+  --hand: "Higanbana Hand JP", "Hiragino Maru Gothic ProN", cursive;
   --ui: "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif;
 }
 
@@ -983,7 +983,7 @@ body.touch .stats { display: none; }
 @media (max-width: 760px) {
   .journal { padding: 2vh 2vw; }
   .journal-book { width: 96vw; height: 92vh; }
-  .journal-pages { grid-template-columns: 1fr; overflow-y: auto; }
+  .journal-pages { display: block; overflow-y: auto; }
   .journal-evidence, .journal-theories { overflow: visible; }
   .journal-theories { border-left: 0; border-top: 1px solid rgba(75,46,31,.2); padding-left: 30px; }
   .journal-head { padding-inline: 20px; }
@@ -1075,6 +1075,18 @@ body.touch .stats { display: none; }
 .ending-title { color: #f5ead2; font-size: 3rem; letter-spacing: 1.5rem; text-indent: 1.5rem; font-weight: 300; }
 .ending-sub { color: rgba(245,234,210,0.7); font-size: 1rem; letter-spacing: 0.3rem; }
 .ending-hint { margin-top: 28px; color: rgba(245,234,210,0.45); font-size: 0.85rem; }
+.ending button { padding: 10px 26px; border: 1px solid #897859; background: #15171c; color: #f5ead2; font: inherit; cursor: pointer; }
+.new-game-confirm { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0,0,0,.82); padding: 24px; }
+.new-game-panel { width: min(460px, 100%); padding: 28px; border: 1px solid #897859; border-radius: 8px; background: #13151a; color: #f5ead2; box-shadow: 0 20px 80px #000; }
+.new-game-panel h2 { font-size: 20px; margin: 0 0 18px; }
+.new-game-panel p { font-size: 14px; line-height: 1.8; margin-bottom: 24px; }
+.new-game-panel > div { display: flex; flex-wrap: wrap; gap: 12px; justify-content: flex-end; }
+.new-game-panel button { padding: 10px 16px; background: #232832; color: #f5ead2; border: 1px solid #897859; border-radius: 4px; font: inherit; cursor: pointer; }
+.new-game-panel button:focus-visible, .ending button:focus-visible { outline: 2px solid #e8c17c; outline-offset: 3px; }
+.save-status { position: fixed; left: 16px; top: 16px; z-index: 1100; max-width: min(540px, calc(100vw - 32px)); padding: 10px 14px; border: 1px solid #71634d; border-radius: 5px; background: rgba(16,19,25,.95); color: #f5ead2; font-size: 13px; line-height: 1.6; }
+.save-status[hidden] { display: none; }
+.save-status.failed { border-color: #b97363; }
+.save-status button { margin-left: 12px; padding: 4px 10px; font: inherit; color: #f5ead2; background: #3a2826; border: 1px solid #b97363; border-radius: 3px; cursor: pointer; }
 
 /* --- 스태미나 · 은신 --- */
 .stamina { position: fixed; left: 50%; bottom: 42px; transform: translateX(-50%); width: 180px; height: 5px; background: rgba(255,255,255,0.12); border-radius: 3px; opacity: 0; transition: opacity 0.35s; pointer-events: none; z-index: 20; }
@@ -1369,7 +1381,7 @@ body.locked-aspect { background: #000; }
 }
 .lang-brand { display: flex; flex-direction: column; align-items: flex-start; }
 .lang-mark {
-  font-family: "Noto Serif JP", "Noto Serif KR", serif;
+  font-family: "Higanbana Serif JP", "Higanbana Serif KR", serif;
   font-size: clamp(4.4rem, 8.2vw, 8.7rem);
   line-height: 0.94;
   letter-spacing: 0.1em;
@@ -1498,16 +1510,17 @@ body.locked-aspect { background: #000; }
   font-size: 12px; letter-spacing: 0.34em; text-indent: 0.34em;
   color: rgba(243, 234, 214, 0.5); text-align: center; margin-bottom: 18px;
 }
-.pause-resume, .pause-restart {
+.pause-resume, .pause-restart, .pause-quit {
   display: block; width: 100%; padding: 11px; margin: 0;
   border-radius: 3px; border: 1px solid rgba(243, 234, 214, 0.3);
   background: rgba(243, 234, 214, 0.06); color: inherit;
   font-family: inherit; font-size: 14px; letter-spacing: 0.08em; cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
-.pause-resume:hover, .pause-restart:hover { background: rgba(243, 234, 214, 0.16); border-color: rgba(255, 200, 118, 0.7); }
+.pause-resume:hover, .pause-restart:hover, .pause-quit:hover { background: rgba(243, 234, 214, 0.16); border-color: rgba(255, 200, 118, 0.7); }
 .pause-resume { border-color: rgba(255, 200, 118, 0.55); color: #ffc876; }
 .pause-restart { margin-top: 16px; font-size: 12.5px; opacity: 0.65; }
+.pause-quit { margin-top: 8px; font-size: 12.5px; opacity: 0.8; }
 
 .pause-rows { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(243, 234, 214, 0.1); display: flex; flex-direction: column; gap: 9px; }
 .pause-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12.5px; }
@@ -1547,42 +1560,54 @@ body button:disabled {
 }
 
 /*
- * 손바닥의 원 (story/palmSign.ts) — ACT 12 의 복선. ACT 20·30 에서 회수된다.
- * 사진 뷰어와 같은 층(z 60)이지만 **가운데가 아니라 아래쪽**에 띄운다:
- * 얼굴 앞이 아니라 가슴 앞에 든 손이라야 「내려다본 내 손」으로 읽힌다.
+ * 손바닥 신호 — 아래에서 든 미오의 손과 오른쪽 위에서 다가오는 작은 손.
+ * 원의 선/잔상 없이, 실제 손 모델을 구운 이미지 두 장으로 접촉 동작을 보인다.
  */
 .palmsign {
   position: fixed; inset: 0; z-index: 60; pointer-events: none;
   display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
-  padding-bottom: 8vh;
-  background: radial-gradient(ellipse at 50% 82%, rgba(8, 10, 14, 0.55) 0%, rgba(4, 5, 8, 0.9) 70%);
+  padding: 0 20px 8vh; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 76%, rgba(8, 10, 14, 0.50) 0%, rgba(4, 5, 8, 0.86) 75%);
   opacity: 0; transition: opacity 0.42s ease;
 }
 .palmsign.show { opacity: 1; }
+.graveyard-fold {
+  position: fixed; inset: 0; z-index: 58; pointer-events: none;
+  background: #07090d; opacity: 0; transition: opacity 0.34s ease;
+}
+.graveyard-fold.show { opacity: 1; }
 .palmsign.hidden { display: none; }
-.ps-canvas {
-  width: min(300px, 46vw); height: auto;
-  transform: translateY(26px); opacity: 0;
-  transition: transform 0.62s cubic-bezier(0.25, 0.9, 0.3, 1), opacity 0.62s ease;
+.ps-stage {
+  position: relative; flex: 0 0 auto; width: min(420px, 72vw, 62vh); aspect-ratio: 1;
+  display: none; transform: translate(-10px, 36px) rotate(-3deg); opacity: 0;
+  transition: transform 0.7s cubic-bezier(0.25, 0.9, 0.3, 1), opacity 0.5s ease;
 }
-.palmsign.show .ps-canvas { transform: translateY(0); opacity: 1; }
+.palmsign.has-model .ps-stage { display: block; }
+.palmsign.show .ps-stage { transform: none; opacity: 1; }
+.ps-hand-img, .ps-tracing-hand {
+  position: absolute; display: block; width: 100%; height: auto; user-select: none;
+}
+.ps-hand-img {
+  inset: 0; transform-origin: 28% 82%;
+  filter: brightness(0.88) saturate(0.72);
+  mask-image: linear-gradient(35deg, transparent 2%, #000 19%);
+}
+.ps-tracing-hand {
+  left: 0; top: 0; transform-origin: 0 0; opacity: 0;
+  filter: brightness(0.81) saturate(0.62) drop-shadow(0 3px 3px rgba(0, 0, 0, 0.42));
+  mask-image: linear-gradient(to top, transparent 1%, #000 22%);
+}
+.palmsign.show .ps-tracing-hand { will-change: transform, opacity; }
 .ps-cap {
-  margin-top: 2.2vh; font-size: 15px; letter-spacing: 0.04em;
+  margin-top: 2.2vh; font-size: clamp(12px, 2.6vw, 15px); letter-spacing: 0.04em;
+  text-align: center; line-height: 1.7;
   color: rgba(243, 234, 214, 0.82); text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
-  opacity: 0; transition: opacity 0.5s ease 0.9s;
+  opacity: 0; transition: opacity 0.5s ease;
 }
-.palmsign.show .ps-cap { opacity: 1; }
+.palmsign.show .ps-cap { opacity: 1; transition-delay: 0.9s; }
 @media (prefers-reduced-motion: reduce) {
-  .ps-canvas { transition: opacity 0.2s ease; transform: none; }
+  .ps-stage { transition: opacity 0.2s ease; transform: none; }
 }
-/* 실물 손 스프라이트가 도착하면 SVG 손은 물러나고 원 궤적만 그 위에 남는다.
-   궤적 좌표는 viewBox(240×260) 기준이라, 스테이지를 겹쳐 두고 둘 다 같은 상자를 채우게 한다. */
-.ps-stage { position: relative; width: min(320px, 50vw); aspect-ratio: 240 / 260; }
-.ps-hand-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: none; }
-/* 손 스프라이트가 없으면 이미지가 비어 있을 뿐 — 원은 그대로 어둠 위에 그려진다.
-   가짜 손을 그려 넣느니 아무것도 없는 편이 낫다(이 장면의 알맹이는 손이 아니라 원이다) */
-.palmsign.has-model .ps-hand-img { display: block; }
-.ps-stage .ps-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 
 /* 손거울 (story/handMirror.ts) — 화면 오른쪽 아래. **전체 화면이면 대조가 안 된다**:
    눈앞의 현실과 손 안의 거울이 같은 화면에 있어야 「저기만 열려 있다」가 읽힌다. */
@@ -1655,3 +1680,5 @@ body button:disabled {
   color: var(--cream); font-size: 12.5px; letter-spacing: 0.04em;
 }
 .breakdown-actions button:hover { border-color: rgba(232, 223, 201, 0.6); background: rgba(44, 40, 36, 0.95); }
+.crypt-transition { position: fixed; inset: 0; background: #050302; opacity: 0; pointer-events: none; z-index: 85; transition: opacity .25s; }
+.crypt-transition.show { opacity: 1; }

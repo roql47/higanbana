@@ -35,6 +35,8 @@ import { Hamlet } from './minka';
 import { Speakers } from './speaker';
 import { ForeshadowProps } from './foreshadowProps';
 import { Undergrowth } from './undergrowth';
+import { TerrainDetails } from './terrainDetails';
+import { RuralLandscape } from './ruralLandscape';
 
 type RenderZone = 'outside' | 'threshold' | 'interior' | 'underground';
 
@@ -124,6 +126,9 @@ export class Higasato {
   readonly foreshadowProps: ForeshadowProps;
   /** 산자락에만 드물게 배치하는 돌. 덤불은 맵에서 제거했다. */
   readonly undergrowth: Undergrowth;
+  /** 평탄 선반의 인공적인 경계를 가리는 렌더 전용 저폴리 석축. */
+  readonly terrainDetails: TerrainDetails;
+  readonly ruralLandscape: RuralLandscape;
   /** 프롤로그가 끝난 뒤 플레이가 시작되는 자리 (금줄 게이트 안쪽) */
   readonly spawn = new THREE.Vector3();
   /**
@@ -143,6 +148,10 @@ export class Higasato {
     vegetationScale?: number;
   } = {}) {
     this.ground = new HigasatoGround(scene, physics, textures);
+    this.ruralLandscape=new RuralLandscape(this.ground);
+    scene.add(this.ruralLandscape.group);
+    this.terrainDetails = new TerrainDetails(this.ground);
+    scene.add(this.terrainDetails.group);
     const g = asGround(this.ground);
     const trees = opts.treeBudget ?? 420;
     const vegetationScale = opts.vegetationScale ?? 1;
@@ -238,7 +247,7 @@ export class Higasato {
     this.school = this.schoolInterior;
     this.wellShaft = new WellShaft(scene, physics, this.ground);
     this.inn = new Shell(scene, physics, this.ground, { id: 'inn', site: SITES.inn!, name: L('여관 히간장', '旅館 ひがん荘'), door: 'x-', h: 6.2 });
-    this.innInterior = new InnInterior(scene, physics, this.ground);
+    this.innInterior = new InnInterior(scene, physics, this.ground, this.inn.innFurnitureReady);
     /**
      * 촌장 저택 — `h` 를 넘기지 않아 기본값 3.4 를 쓰고 있었다. 그 결과 지붕까지 5.57 m 로
      * **마을에서 제일 낮은 집**이 됐다: 민가 용마루 7.48 · 할머니의 집 7.4 · 여관 8.7.
@@ -261,7 +270,7 @@ export class Higasato {
     // 물리 콜라이더와 스토리 객체는 건드리지 않는다. `visible` 은 렌더 트리만 끄므로
     // 우물 석실·저택 기록실·신사 지하에서 가려진 지상을 GPU가 계속 그리는 낭비만 없앤다.
     this.exteriorRenderGroups.push(
-      this.ground.mesh, this.ground.apron,
+      this.ground.mesh, this.ground.apron, this.ruralLandscape.group,
       this.paddy.group, this.torii.group, this.cedars.group, this.bamboo.group,
       this.graveyard.group, this.house.group, this.square.group, this.landmarks.group,
       this.shrine.group, this.higanbana.group, this.mist.group, this.tablet.group,
@@ -269,7 +278,7 @@ export class Higasato {
       this.inn.group, this.innInterior.group, this.manor.group,
       this.well.group, this.busStop.group, this.hamlet.group, this.signposts.group,
       this.speakers.group, this.eaveChochin.group, this.foreshadowProps.group,
-      this.undergrowth.group,
+      this.undergrowth.group, this.terrainDetails.group,
     );
 
     // 플레이 시작: 금줄 게이트 안쪽 (온 길로는 돌아갈 수 없다)
@@ -282,11 +291,41 @@ export class Higasato {
   async loadAssets() {
     await Promise.all([
       this.landmarks.load(), this.cedars.load(), this.bamboo.load(), this.undergrowth.load(),
-      this.busStop.loadAssets(),
+      this.busStop.loadAssets(), this.terrainDetails.load(),
     ]);
   }
 
+  /** 초기 진입·이어하기·텔레포트에서는 접근 구간을 즉시 준비한다. */
+  prepareDetails(center: THREE.Vector3) {
+    return Promise.all([
+      this.schoolInterior.detail.prepare(center), this.innInterior.detail.prepare(center),
+      this.manorInterior.detail.prepare(center),
+      this.crypt.detail.prepare(center),
+      this.graveyard.hollow.detail.prepare(center),
+    ]).then(() => undefined);
+  }
+
+  private shadowLights: THREE.Light[] = [];
+  applyInteriorVisibility(camera: THREE.Camera, scene: THREE.Scene, shadows: boolean) {
+    const interiors = [this.innInterior, this.manorInterior];
+    if (!interiors.some(interior => interior.detail.resident && interior.occlusion.nearby(camera))) return;
+    this.shadowLights.length = 0;
+    if (shadows) scene.traverseVisible(object => {
+      const light = object as THREE.Light;
+      if (light.isLight && light.castShadow && light.intensity > 0) this.shadowLights.push(light);
+    });
+    for (const interior of interiors)
+      interior.occlusion.apply(camera, interior.detail.renderRoots, this.shadowLights);
+  }
+  restoreInteriorVisibility() {
+    this.innInterior.occlusion.restore(); this.manorInterior.occlusion.restore();
+  }
+
   update(dt: number, center: THREE.Vector3, entryReveal = 1) {
+    this.schoolInterior.detail.update(dt, center);
+    this.innInterior.detail.update(dt, center);
+    this.manorInterior.detail.update(dt, center);
+    this.crypt.detail.update(dt, center);
     const zone = this.zoneAt(center);
     if (zone !== this.renderZone) {
       this.renderZone = zone;
@@ -323,7 +362,10 @@ export class Higasato {
     this.wellShaft.update(dt);
     this.well.update(dt);
     this.inn.update(dt);
+    this.innInterior.update(dt);
     this.manor.update(dt);
+    this.manorInterior.update(dt);
+    this.crypt.update(dt);
     const indoors = zone !== 'outside';
     this.mist.group.visible = !indoors;
     if (!indoors) this.mist.update(dt, center);
@@ -344,6 +386,7 @@ export class Higasato {
     // 지하 셋은 천장/벽으로 지상과 완전히 분리돼 있다. XZ만 보지 않고 높이도 함께 봐야
     // 지상에서 같은 좌표를 지날 때 마을이 사라지지 않는다.
     if (this.wellShaft.inChamber(p)) return 'underground';
+    if (this.graveyard.hollow.contains(p)) return 'underground';
     if (p.y < this.manorInterior.archiveFloorY + 2.7
       && p.distanceToSquared(this.manorInterior.archiveEnter) < 11 * 11) return 'underground';
     if (p.y < this.crypt.floorY + 3.2
@@ -374,11 +417,11 @@ export class Higasato {
 
 
   heightAt(x: number, z: number) { return this.ground.heightAt(x, z); }
-  surfaceAt(p: THREE.Vector3): Surface { return this.house.surfaceAt(p) ?? this.ground.surfaceAt(p); }
+  surfaceAt(p: THREE.Vector3): Surface { return this.crypt.contains(p) || this.graveyard.hollow.contains(p) ? 'gravel' : this.house.surfaceAt(p) ?? this.ground.surfaceAt(p); }
   get killY() {
     // 우물 지하(지형 −12 m)가 생기면서 킬 평면이 방 하나를 통째로 삼키면 안 된다.
     // 방 바닥보다 3 m 아래 — 진짜 낙사(지오메트리 틈)만 잡는다.
     // 신사 지하·저택 기록실도 같은 가드에 넣는다
-    return Math.min(PADDY_WATER - 3, this.wellShaft.chamber.floorY - 3, this.crypt.floorY - 3, this.manorInterior.archiveFloorY - 3);
+    return Math.min(PADDY_WATER - 3, this.wellShaft.chamber.floorY - 3, this.crypt.floorY - 3, this.manorInterior.archiveFloorY - 3, this.graveyard.hollow.floorY - 3);
   }
 }

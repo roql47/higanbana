@@ -1,9 +1,11 @@
 import * as THREE from 'three';
+import {createHigasatoGroundMaterial} from './groundMaterial';
 import type { Physics } from '@/core/physics';
 import type { Surface } from '@/audio/sfx';
 import { Simplex2D } from '../noise';
 import type { TerrainTextures } from '../terrain';
 import { clamp, lerp, smoothstep } from '@/core/math';
+import { SETTLEMENT_LOTS, SETTLEMENT_FIELDS, lotLocal, inSettlementLot, inSettlementField } from './settlementPlan';
 
 /**
  * 히가사토(彼ヶ里) — **스토리 맵**. 기존 `world/village` 는 그대로 두고 새로 설계했다.
@@ -77,7 +79,7 @@ export const SITES: Record<string, Site> = {
   // 오래된 사당 — 공물 1의 추격전 무대. 옛 10×10 m 선반/4.2 m 방은 목을 피해
   // 방향을 바꿀 거리조차 없었다. 건물(14.8×11.6) + 툇마루 + 동쪽 전정까지 한 번에
   // 평탄하게 받치도록 26×22 m 로 확보한다. 넓은 blend 는 산중턱에 사각 단차가 생기는 걸 막는다.
-  hokora: site('hokora', -55, -13, 26, 22, 1, 5.5),
+  hokora: site('hokora', -55, -13, 26, 22, 1, 14),
   /**
    * 신사 경내 — 북쪽 정점.
    *
@@ -100,6 +102,8 @@ export const SITES: Record<string, Site> = {
   altar: site('altar', 7, 24, 12, 11),
 };
 const SITE_LIST = Object.values(SITES);
+// 사당의 긴 진입 비탈을 인접 묘지 패드가 다시 5 m 폭으로 잘라내지 않게 마지막에 연결한다.
+const HEIGHT_SITES = [...SITE_LIST.filter(s => s.id !== 'hokora'), SITES.hokora!];
 
 // --- 길: 참배로(척추) 1 + 갈래길 4 ---
 const ROAD: [number, number][] = [[0, 94], [0, 78], [-2, 60], [0, 42], [0, 24], [1.5, 6], [0, -12], [0, -28], [0, -40], [0, -50]];
@@ -182,7 +186,22 @@ export const LANES: Path[] = [
 ];
 
 /** 지형·발밑·식재가 보는 길 전체 (갈래길 + 골목) */
-export const ALL_PATHS: Path[] = [...ROUTES, ...LANES];
+// 기존 액트의 골목 종점/민가 순서를 유지하면서 주거지와 농가를 연결한다.
+export const SETTLEMENT_LANES: Path[] = [
+  { id: 'residential-loop', name: '살림 골목', surface: 'dirt', halfWidth: 1.35, blend: 1.3, flatten: .9,
+    pts: [[17,21],[24,19],[31,16],[34,9],[28,1],[20,1],[12,2],[3,3]] },
+  { id: 'well-return', name: '우물 뒷길', surface: 'dirt', halfWidth: 1.15, blend: 1.2, flatten: .9,
+    pts: [[-10,22],[-17,18],[-19,9],[-15,1],[-4,4],[1,6]] },
+  { id: 'farm-lane', name: '농가 진입길', surface: 'dirt', halfWidth: 1.25, blend: 1.4, flatten: .85,
+    pts: [[20,58],[24,61],[34,61],[36,57]] },
+  { id: 'shop-front', name: '가게 앞길', surface: 'dirt', halfWidth: 1.15, blend: 1, flatten: .9,
+    pts: [[4,43],[6,47],[16,47],[20.5,47],[20.5,44.5]] },
+  { id:'east-farm-approach',name:'동쪽 농가 길',surface:'dirt',halfWidth:1.1,blend:1.1,flatten:.9,
+    pts:[[36,61],[44,66],[52,69]] },
+  { id:'west-farm-approach',name:'서쪽 농가 길',surface:'dirt',halfWidth:1.1,blend:1.1,flatten:.9,
+    pts:[[-58,64],[-53,61],[-51,61]] },
+];
+export const ALL_PATHS: Path[] = [...ROUTES, ...LANES, ...SETTLEMENT_LANES];
 
 const ROUTE_BOX = ALL_PATHS.map((r) => {
   let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
@@ -314,6 +333,12 @@ export class HigasatoGround {
         tmp.lerp(m > 0 ? mud : dirt, m > 0 ? 0.85 : 0.6);
       }
       // 부지는 다져진 흙·돌
+      for (const lot of SETTLEMENT_LOTS) {
+        if (Math.abs(x-lot.x)>8 || Math.abs(z-lot.z)>8) continue;
+        const p=lotLocal(lot,x,z);
+        const edge=Math.max(Math.abs(p.x)-lot.w/2-.7,Math.abs(p.z-.45)-lot.d/2-1.1);
+        if(edge<1.5)tmp.lerp(dirt,(1-smoothstep(0,1.5,edge))*.8);
+      }
       for (const s of SITE_LIST) {
         if (s.flatten <= 0) continue;
         const inset = Math.min(s.w / 2 - Math.abs(x - s.x), s.d / 2 - Math.abs(z - s.z));
@@ -326,28 +351,7 @@ export class HigasatoGround {
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
 
     geo.setAttribute('uv1', (geo.attributes['uv'] as THREE.BufferAttribute).clone());
-    const mat = new THREE.MeshStandardMaterial({
-      map: textures.map,
-      normalMap: textures.normalMap,
-      normalScale: new THREE.Vector2(1.0, 1.0),
-      aoMap: textures.armMap,
-      aoMapIntensity: 0.5,
-      roughnessMap: textures.armMap,
-      metalness: 0,
-      roughness: 1,
-      vertexColors: true,
-    });
-    // 안티타일링 — 같은 타일이 반복되는 게 보이지 않게 두 스케일을 섞는다 (기존 지형과 같은 수법)
-    mat.onBeforeCompile = (shader) => {
-      shader.fragmentShader = shader.fragmentShader.replace(
-        '#include <map_fragment>',
-        `#ifdef USE_MAP
-          vec4 texA = texture2D( map, vMapUv );
-          vec4 texB = texture2D( map, vMapUv * 0.29 + vec2( 0.41, 0.13 ) );
-          diffuseColor *= mix( texA, texB, 0.45 );
-        #endif`,
-      );
-    };
+    const mat = createHigasatoGroundMaterial(textures);
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.receiveShadow = true;
     this.mesh.castShadow = false;
@@ -402,7 +406,7 @@ export class HigasatoGround {
         const k = (r * M + j) * 3;
         pos[k] = x; pos[k + 1] = y; pos[k + 2] = z;
         // 높이가 올라갈수록 풀에서 바위로 — 원경은 실루엣과 명도만 있으면 된다
-        tmp.copy(grass).lerp(stone, clamp((y - 10) / 26, 0, 0.8));
+        tmp.copy(grass).multiplyScalar(.73).lerp(stone, clamp((y - 65) / 100, 0, 0.35));
         col[k] = tmp.r; col[k + 1] = tmp.g; col[k + 2] = tmp.b;
         const u = (r * M + j) * 2;
         uv[u] = (x + H) / 4; uv[u + 1] = (z + H) / 4;   // 월드 UV — 지형 판과 같은 4 m 타일
@@ -440,8 +444,12 @@ export class HigasatoGround {
     if (t <= 0) return 0;
     // 능선 하나면 충분하다 — 안개가 나머지를 지운다
     const ridge = 0.6 + 0.4 * this.noise.fbm(x / 150, z / 150, 2);
-    return t * (8 + 30 * ridge);
+    return t * (18 + 65 * ridge);
   }
+
+  /** Render-only outer slopes share the exact same surface as the apron mesh. */
+  backdropHeightAt(x:number,z:number) { return this.heightAt(x,z)+this.farLift(x,z); }
+  fieldWaterHeight(x:number,z:number) { return this.baseAt(x,z)-.025; }
 
   // ---------- 높이 ----------
   private baseAt(x: number, z: number) {
@@ -475,10 +483,26 @@ export class HigasatoGround {
       else if (m > -BUND) h += BUND_H * clamp(-m / BUND_BLEND, 0, 1) * (1 - w) * (1 - cut * 0.9);
     }
     // 부지 선반 — 마지막에 적용한다 (길·논보다 우선)
-    for (const s of SITE_LIST) {
+    for(const f of SETTLEMENT_FIELDS) {
+      const inset=Math.min(f.w/2-Math.abs(x-f.x),f.d/2-Math.abs(z-f.z));
+      if(inset<=-1)continue;
+      const edge=this.baseAt(f.x,f.z);
+      h=lerp(h,edge-.18*smoothstep(0,.65,inset),smoothstep(-1,0,inset));
+    }
+    for (const lot of SETTLEMENT_LOTS) {
+      if (Math.abs(x-lot.x)>10 || Math.abs(z-lot.z)>10) continue;
+      const p = lotLocal(lot,x,z);
+      const distance = Math.hypot(Math.max(0,Math.abs(p.x)-lot.w/2-.65),Math.max(0,Math.abs(p.z)-lot.d/2-1.1));
+      if (distance < 3.5) h = lerp(h,this.baseAt(lot.x,lot.z),1-smoothstep(0,3.5,distance));
+    }
+    for (const s of HEIGHT_SITES) {
       if (s.flatten <= 0) continue;
       const mx = s.w / 2 - Math.abs(x - s.x), mz = s.d / 2 - Math.abs(z - s.z);
-      const inset = Math.min(mx, mz);
+      // 사당 진입 비탈은 모서리에서도 둥글게 이어진다. max 축 거리만 쓰면
+      // 북동쪽에서 접근할 때 사각 선반의 대각선 능선이 급하게 꺾인다.
+      const inset = s.id === 'hokora'
+        ? -Math.hypot(Math.max(0, -mx), Math.max(0, -mz))
+        : Math.min(mx, mz);
       if (inset < -s.blend) continue;
       const k = clamp((inset + s.blend) / s.blend, 0, 1) * s.flatten;
       if (k > 0) h = lerp(h, s.y, smoothstep(0, 1, k));
@@ -489,6 +513,7 @@ export class HigasatoGround {
   private inPaddyRegion(x: number, z: number) { return x > PX0 && x < PX1 && z > PZ0 && z < PZ1; }
   /** 부지 안(+여유)인가 — 논·식재를 비우는 판정 */
   inSiteZone(x: number, z: number, margin = 2): boolean {
+    if (inSettlementLot(x,z,margin) || inSettlementField(x,z,margin)) return true;
     for (const s of SITE_LIST) {
       if (Math.abs(x - s.x) < s.w / 2 + margin && Math.abs(z - s.z) < s.d / 2 + margin) return true;
     }
@@ -676,6 +701,7 @@ export class HigasatoGround {
   }
 
   surfaceAt(p: THREE.Vector3): Surface {
+    for(const f of SETTLEMENT_FIELDS)if(Math.abs(p.x-f.x)<f.w/2-.6 && Math.abs(p.z-f.z)<f.d/2-.6 && p.y<this.fieldWaterHeight(f.x,f.z)+.2)return 'water';
     if (this.paddyMask(p.x, p.z) > 0 && p.y < PADDY_WATER + 0.35) return 'water';
     const np = this.nearestPathPoint(p.x, p.z);
     if (np.d < np.route.halfWidth + 0.5) return np.route.surface;

@@ -35,7 +35,7 @@ export class StoneTablet {
   private moss: { x: number; y: number; r: number; c: string; at: number }[] = [];
   private ink: { x: number; y: number; r: number; a: number; at: number }[] = [];
 
-  constructor(scene: THREE.Scene, physics: Physics, ground: HigasatoGround) {
+  constructor(scene: THREE.Scene, physics: Physics, ground: Pick<HigasatoGround, 'roadAt' | 'sAtZ' | 'heightAt'>) {
     // 참배로 동측, 금줄 게이트를 지나 마을로 내려가는 길목 — 반드시 지나친다
     const rp = ground.roadAt(ground.sAtZ(72));
     const x = rp.x + 2.7, z = rp.z;

@@ -33,6 +33,11 @@ export interface InspectPoint {
 
 export class Inspect {
   private points = new Map<string, InspectPoint>();
+  private cells = new Map<string, Set<InspectPoint>>();
+  private memberships = new Map<string, string[]>();
+  private order = new Map<string, number>();
+  private nextOrder = 0;
+  private readonly cellSize = 8;
   private near: InspectPoint | null = null;
   private lastPrompt: string | null = null;
   /** 현재 대상의 꾹 누르기 진행도 0~1 */
@@ -40,8 +45,35 @@ export class Inspect {
 
   constructor(private onPrompt: (t: string | null) => void) {}
 
-  add(p: InspectPoint) { this.points.set(p.id, p); }
-  remove(id: string) { this.points.delete(id); }
+  /** 조사 앵커는 고정 좌표다. 위치/반경을 바꿀 때는 같은 id로 add하여 공간 인덱스도 갱신한다. */
+  add(p: InspectPoint) {
+    const order = this.order.get(p.id) ?? this.nextOrder++;
+    this.remove(p.id);
+    this.points.set(p.id, p); this.order.set(p.id, order);
+    if (p.radius <= 0 || ![p.pos.x, p.pos.z, p.radius].every(Number.isFinite)) return;
+    const cells: string[] = [];
+    for (let x = Math.floor((p.pos.x - p.radius) / this.cellSize); x <= Math.floor((p.pos.x + p.radius) / this.cellSize); x++) {
+      for (let z = Math.floor((p.pos.z - p.radius) / this.cellSize); z <= Math.floor((p.pos.z + p.radius) / this.cellSize); z++) {
+        const key = x + ':' + z;
+        let bucket = this.cells.get(key);
+        if (!bucket) this.cells.set(key, bucket = new Set());
+        bucket.add(p); cells.push(key);
+      }
+    }
+    this.memberships.set(p.id, cells);
+  }
+  remove(id: string) {
+    const point = this.points.get(id);
+    if (!point) return;
+    for (const key of this.memberships.get(id) ?? []) {
+      const cell = this.cells.get(key)!;
+      cell.delete(point); if (!cell.size) this.cells.delete(key);
+    }
+    this.memberships.delete(id); this.order.delete(id); this.points.delete(id);
+    if (this.near === point) {
+      point.onHold?.(0); this.near = null; this.hold = 0; this.lastPrompt = null; this.onPrompt(null);
+    }
+  }
   /** HUD 게이지 — 대상이 없거나 꾹 누르기가 아니면 0 */
   get holdProgress() { return this.near?.hold ? this.hold : 0; }
   /** 월드 상호작용 표지자가 붙을 현재 조사점. 대상이 없으면 표시하지 않는다. */
@@ -59,10 +91,13 @@ export class Inspect {
     const prev = this.near;
     this.near = null;
     let bestD = Infinity;
-    for (const [, p] of this.points) {
-      if (p.enabled && !p.enabled()) continue;
-      const d = p.pos.distanceTo(playerPos);
-      if (d < p.radius && d < bestD) { bestD = d; this.near = p; }
+    let bestOrder = Infinity;
+    const key = Math.floor(playerPos.x / this.cellSize) + ':' + Math.floor(playerPos.z / this.cellSize);
+    for (const p of this.cells.get(key) ?? []) {
+      const d = p.pos.distanceToSquared(playerPos);
+      if (d >= p.radius * p.radius || (p.enabled && !p.enabled())) continue;
+      const order = this.order.get(p.id)!;
+      if (d < bestD || (d === bestD && order < bestOrder)) { bestD = d; bestOrder = order; this.near = p; }
     }
     // 대상이 바뀌면 진행도를 접는다 — 반쯤 닦다 자리를 뜨면 이끼는 그대로 있어야 한다
     if (this.near !== prev) { this.hold = 0; prev?.onHold?.(0); }
@@ -92,8 +127,9 @@ export class Inspect {
   private fire(p: InspectPoint) {
     const r = p.onUse();
     if (r !== false && p.once) {
-      this.points.delete(p.id);
-      this.near = null; this.lastPrompt = null;
+      // 완료한 닦기/열기 연출을 onHold(0)으로 되감지 않는다.
+      this.near = null; this.hold = 0; this.lastPrompt = null;
+      this.remove(p.id);
       this.onPrompt(null);
     }
   }

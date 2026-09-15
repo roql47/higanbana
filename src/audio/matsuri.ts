@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { settings } from '@/core/settings';
 import type { Sfx } from './sfx';
-import type { LoopVoice } from './bank';
+import type { Voice } from './bank';
 import { SpatialSource } from './space';
 
 /**
@@ -23,7 +23,7 @@ export class Matsuri {
   private src: SpatialSource | null = null;
   private bus: GainNode | null = null;
   private layers: { drum: GainNode; flute: GainNode; bells: GainNode; geta: GainNode; bed: GainNode } | null = null;
-  private bed: LoopVoice | null = null;
+  private bed: Voice | null = null;
   private bedLp: BiquadFilterNode | null = null;
   private started = false;
   private beatT = 0;

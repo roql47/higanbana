@@ -1,4 +1,18 @@
 import * as THREE from 'three';
+import { FrameClock } from '@/core/frameClock';
+import { GameClock } from '@/core/gameClock';
+import { modalInput } from '@/ui/modalInput';
+import { confirmNewGame } from '@/ui/confirmNewGame';
+import { SaveStatus } from '@/ui/saveStatus';
+import { Act17Conclusion } from '@/story/act17';
+import { Act18Revelation, CRYPT_TRACES } from '@/story/act18';
+import { isDesktop, toggleFullscreen, closeDesktop } from '@/core/desktop';
+import { TruthReconstruction, TRUTH_RECORDS } from '@/story/truthReconstruction';
+import { MirrorMemory } from '@/story/mirrorMemory';
+import { InvestigationCase, type InvestigationCaseDef } from '@/story/investigationCase';
+import { GRAVEYARD_CASE, INN_CASE, MANOR_CASE } from '@/story/actInvestigations';
+import { INN_AFTERIMAGE_CASE, innAfterimageActive } from '@/story/innAfterimage';
+import { ManorDispatch, DISPATCH_CLUES, DISPATCH_DIALS, DISPATCH_SETTING, dispatchRequired } from '@/story/manorDispatch';
 import { createRenderer, createCamera, enableExperimentalPointLightEarlyOut } from '@/core/renderer';
 import { createPostFX, probePostFxSupport } from '@/core/postfx';
 import { Physics } from '@/core/physics';
@@ -23,6 +37,8 @@ import { CharacterModel } from '@/character/model';
 import { CharacterAnimator } from '@/character/animator';
 import { CrouchPose } from '@/character/crouchPose';
 import { Sfx, type Surface } from '@/audio/sfx';
+import type { AudioRegion } from '@/audio/regions';
+import { PathQueue } from '@/ai/pathQueue';
 import { CHARACTER, MIO } from '@/character/config';
 import { ThirdPersonCamera } from '@/camera/thirdPerson';
 import { detectQuality, effectivePixelRatio, saveQuality, loadRenderScale, saveRenderScale, lowerLevel, profileFor, QUALITY_LEVELS, type QualityLevel, type QualityProfile } from '@/core/quality';
@@ -61,6 +77,8 @@ import { EvidenceJournal } from '@/story/evidenceJournal';
 import { Phone } from '@/story/phone';
 import { PhotoViewer } from '@/story/photoViewer';
 import { PalmSign } from '@/story/palmSign';
+import { GraveyardPassage, HOLLOW_CLUES } from '@/story/graveyardPassage';
+import { loadPalmGestureSprites } from '@/story/palmGestureSprites';
 import { WakyoView } from '@/story/wakyoView';
 import { modelSprite } from '@/story/modelSprite';
 import { Quests } from '@/story/quests';
@@ -278,6 +296,8 @@ async function main() {
   // --- 스토리 상태 + 체크포인트 저장 (PLAN-STORY S0). 재개 흐름은 스토리 챕터와 함께 연결한다 ---
   const storyFlags = defaultFlags();
   const storySave = new StorySave();
+  let started = false;
+  const saveStatus = new SaveStatus(() => { saveCheckpoint(); });
   const telemetry = new StoryTelemetry();
 
   /**
@@ -412,8 +432,27 @@ async function main() {
     await props.addPushables('/models/props/rock-mossy.glb', [[4, 4.5], [-4.5, 5], [5, -3]], 0.9);
   }
 
+  const detailsReady = village?.prepareDetails(spawn) ?? Promise.resolve();
   const sfx = new Sfx();
-  void sfx.preload(); // 샘플(public/audio) 선로드 — 로딩 바에 같이 잡힌다. 없으면 프로시저럴 폴백
+  const hunterPaths = new PathQueue();
+  let wellAudio = false, schoolAudio = false, audioRegionT = 0;
+  const syncAudioRegions = (p: THREE.Vector3) => {
+    const regions: AudioRegion[] = [isVillage ? 'village' : 'sandbox'];
+    if (village) {
+      if (!skipIntro && storyFlags.act <= 2) regions.push('prologue');
+      const well = village.wellShaft.landing;
+      wellAudio = Math.hypot(p.x - well.x, p.z - well.z) < (wellAudio ? 52 : 38);
+      const b = village.schoolInterior.bounds;
+      const dx = Math.max(b.minX - p.x, 0, p.x - b.maxX);
+      const dz = Math.max(b.minZ - p.z, 0, p.z - b.maxZ);
+      schoolAudio = Math.hypot(dx, dz) < (schoolAudio ? 38 : 24);
+      if (wellAudio) regions.push('well');
+      if (schoolAudio) regions.push('school');
+    }
+    void sfx.bank.setRegions(regions);
+  };
+  syncAudioRegions(spawn);
+  void sfx.preload(); // 초기 구간만 선로드. 다른 구간은 접근하면서 준비한다.
   const unlockAudio = () => sfx.unlock();
   window.addEventListener('pointerdown', unlockAudio);
   window.addEventListener('keydown', unlockAudio);
@@ -472,32 +511,31 @@ async function main() {
   let wellWoman: WellWoman | null = null;
   let suzuRingT = 0;
   try {
-    const head = await fetch(withBase(characterCfg.url), { method: 'HEAD' });
-    if (head.ok && (head.headers.get('content-type') ?? '').includes('gltf')) {
-      model = await CharacterModel.load({ ...characterCfg, url: preferGpuCompressedModel(characterCfg.url) }, renderer);
-      scene.remove((visual as PlaceholderCharacter).root);
-      scene.add(model.root);
-      visual = model;
-      if (model.clipNames.includes('idle')) model.play('idle', 0);
-      if (model.clipNames.length > 0) {
-        animator = new CharacterAnimator(model, {
-          onFootstep: (foot, speed, position) => {
-            // 1인칭 구간에서는 몸이 보이지 않고 클립 배속도 잘려 있어 소리가 어긋난다 —
-            // 그때는 카메라 흔들림에 물린 `FirstPerson.onStep` 이 대신 낸다
-            if (firstPerson?.active) return;
-            const surface = surfaceAt(position);
-            sfx.footstep(speed, surface, foot);
-            // 발소리 = 소음 이벤트. 논물 첨벙은 반경 2배 (기획 3.4)
-            const base = crouching ? settings.ai.noiseCrouch : speed > 2.5 ? settings.ai.noiseRun : settings.ai.noiseWalk;
-            const inWater = surface === 'water';
-            senses?.emitNoise(position, base * (inWater ? 2 : 1));
-          },
-          onJump: () => sfx.jump(),
-          onLand: (impact) => sfx.land(impact),
-        });
-      }
-      console.info('[character] loaded', characterCfg.url, 'clips:', model.clipNames);
+    // Native asset protocols can label GLB as application/octet-stream. Let the
+    // GLTF loader validate the actual bytes instead of rejecting a valid model by MIME.
+    model = await CharacterModel.load({ ...characterCfg, url: preferGpuCompressedModel(characterCfg.url) }, renderer);
+    scene.remove((visual as PlaceholderCharacter).root);
+    scene.add(model.root);
+    visual = model;
+    if (model.clipNames.includes('idle')) model.play('idle', 0);
+    if (model.clipNames.length > 0) {
+      animator = new CharacterAnimator(model, {
+        onFootstep: (foot, speed, position) => {
+          // 1인칭 구간에서는 몸이 보이지 않고 클립 배속도 잘려 있어 소리가 어긋난다 —
+          // 그때는 카메라 흔들림에 물린 `FirstPerson.onStep` 이 대신 낸다
+          if (firstPerson?.active) return;
+          const surface = surfaceAt(position);
+          sfx.footstep(speed, surface, foot);
+          // 발소리 = 소음 이벤트. 논물 첨벙은 반경 2배 (기획 3.4)
+          const base = crouching ? settings.ai.noiseCrouch : speed > 2.5 ? settings.ai.noiseRun : settings.ai.noiseWalk;
+          const inWater = surface === 'water';
+          senses?.emitNoise(position, base * (inWater ? 2 : 1));
+        },
+        onJump: () => sfx.jump(),
+        onLand: (impact) => sfx.land(impact),
+      });
     }
+    console.info('[character] loaded', characterCfg.url, 'clips:', model.clipNames);
   } catch (e) {
     console.warn('[character] GLB 로드 실패 → 캡슐 유지', e);
   }
@@ -597,6 +635,7 @@ async function main() {
       spawn: new THREE.Vector3(hs.x, 0, hs.z),
       patrolAnchors: anchors,
       events,
+      paths: hunterPaths,
     }));
     // 여우 요괴: 센본토리이·신사 언덕의 주인 — 참배로 상류만 배회
     // 여우 요괴: 참배로 상류 + 뒷산 오솔길·돌계단 뒷길 — 신사로 가는 **모든** 길을 지킨다
@@ -613,6 +652,7 @@ async function main() {
       spawn: new THREE.Vector3(ks.x + 2, 0, ks.z),
       patrolAnchors: shrineAnchors,
       events,
+      paths: hunterPaths,
     }));
     for (const h of hunters) scene.add(h.root);
     // 도로타보: 논의 주인 — 추격자가 아니라 영역 규칙 (논 은신 남용 → 출현 + 소음으로 추격자를 부른다)
@@ -744,21 +784,24 @@ async function main() {
   const missionEl = document.createElement('div'); missionEl.className = 'mission';
   missionEl.innerHTML =
     `<button class="mission-head" type="button" title="${L('O — 접기/펼치기', 'O — 畳む/開く')}">`
-    + `<span class="mission-title">${L('목표', '目標')}</span><span class="mission-caret">▾</span></button>`
-    + '<div class="mission-goal"></div><ul class="mission-list"></ul>';
+    + `<span class="mission-title">${L('현재 목표', '現在の目標')}</span><span class="mission-disclosure"><kbd>O</kbd><span class="mission-caret">▾</span></span></button>`
+    + '<div class="mission-goal"></div><ul class="mission-list" id="mission-offerings"></ul>';
   document.getElementById('hud')!.appendChild(missionEl);
   const missionGoal = missionEl.querySelector('.mission-goal') as HTMLElement;
   const missionList = missionEl.querySelector('.mission-list') as HTMLElement;
   const missionHead = missionEl.querySelector('.mission-head') as HTMLButtonElement;
   const MISSION_FOLD_KEY = '3dm.mission.folded';
-  let missionFolded = localStorage.getItem(MISSION_FOLD_KEY) === '1';
+  let missionFolded = true;
+  try { missionFolded = localStorage.getItem(MISSION_FOLD_KEY) !== '0'; } catch { /* 저장소 없이도 HUD를 만든다 */ }
   const applyMissionFold = () => {
     missionEl.classList.toggle('folded', missionFolded);
+    missionHead.setAttribute('aria-expanded', String(!missionFolded));
+    missionHead.setAttribute('aria-controls', 'mission-offerings');
     (missionEl.querySelector('.mission-caret') as HTMLElement).textContent = missionFolded ? '▸' : '▾';
   };
   const toggleMissionFold = () => {
     missionFolded = !missionFolded;
-    localStorage.setItem(MISSION_FOLD_KEY, missionFolded ? '1' : '0');
+    try { localStorage.setItem(MISSION_FOLD_KEY, missionFolded ? '1' : '0'); } catch { /* 이번 실행만 적용 */ }
     applyMissionFold();
   };
   missionHead.addEventListener('click', toggleMissionFold);
@@ -794,7 +837,7 @@ async function main() {
       return;
     }
     escHintEl.classList.remove('show');
-    if (!started || invUI.isOpen || photoViewer.isOpen || evidenceJournal.isOpen || deathT > 0) return;
+    if (!started || modalInput.active || invUI.isOpen || photoViewer.isOpen || palmSign.isOpen || evidenceJournal.isOpen || deathT > 0) return;
     pauseMenu.open();
   });
 
@@ -834,9 +877,32 @@ async function main() {
   });
   const quests = new Quests(missionGoal);
   const sequencer = new Sequencer(camera, dialogue);
-  const wellCinematics = new WellCinematics();
+  const wellCinematics = new WellCinematics(village?.wellShaft.chamber);
   const endEl = document.createElement('div'); endEl.className = 'ending';
   document.body.appendChild(endEl);
+  const gameClock = new GameClock();
+  const showChapterEnding = () => {
+      endEl.innerHTML = L(
+        '<div class="ending-title">퀘스트를 준 자</div><div class="ending-sub">ACT 18 완료 · 다음 장 「자매의 재회」는 개발 중입니다.</div>',
+        '<div class="ending-title">クエストを与えた者</div><div class="ending-sub">ACT 18 完了 · 次章「姉妹の再会」は開発中です。</div>');
+      const title = document.createElement('button');
+      title.textContent = L('타이틀로', 'タイトルへ');
+      title.addEventListener('click', () => location.reload());
+      const fresh = document.createElement('button');
+      fresh.textContent = L('처음부터', '最初から');
+      fresh.addEventListener('click', () => { void requestNewGame(true); });
+      const explore = document.createElement('button');
+      explore.textContent = L('계속 둘러보기', '探索を続ける');
+      explore.addEventListener('click', () => { endEl.classList.remove('show'); modalInput.close(endEl); renderHud(); });
+      endEl.append(explore, title, fresh);
+      endEl.classList.add('show');
+      if (document.pointerLockElement) document.exitPointerLock();
+      modalInput.open(endEl, () => location.reload());
+  };
+  const act17 = new Act17Conclusion({
+    dialogue, quests, wait: ms => gameClock.wait(ms), checkpoint: () => { saveCheckpoint(); },
+    onComplete: () => { beginAct18(); },
+  });
   const toastEl = document.createElement('div'); toastEl.className = 'pickup-toast'; document.body.appendChild(toastEl);
   let toastT = 0;
   /** 받침침 조사(을/를) — 이름 끝 글자의 받침 유무 */
@@ -886,6 +952,62 @@ async function main() {
   let guideZone = 'field';
   let graveyardPreludeHeard = false;
   const evidence = new Set(storyFlags.evidence);
+  const cryptFade = document.createElement('div'); cryptFade.className = 'crypt-transition'; document.body.appendChild(cryptFade);
+  let cryptItemsReady: Promise<void> | null = null;
+  const act18 = new Act18Revelation({
+    evidence, dialogue, quests,
+    canEnter: () => act17.state === 'complete' && !!rules?.carried.includes('fuda'),
+    inside: () => !!village?.crypt.contains(controller.position),
+    remember: id => { rememberEvidence(id); }, checkpoint: () => { saveCheckpoint(); },
+    wait: ms => gameClock.wait(ms),
+    travel: async down => {
+      if (!village) return;
+      const c = village.crypt;
+      cryptFade.classList.add('show');
+      try {
+        if (down) await c.revelation.prepare();
+        await gameClock.wait(350);
+        const destination = down ? c.landing.clone().add(new THREE.Vector3(0, 0.12, 0))
+          : c.entryTop.clone().add(new THREE.Vector3(1.15, 0.15, 0));
+        controller.teleport(destination); spawn.copy(destination);
+        c.setOpen(true); tpCam.yaw = down ? Math.PI / 2 : -Math.PI / 2; tpCam.pitch = 0.06;
+        await village.prepareDetails(destination);
+        await gameClock.wait(250); sfx.doorPush(c.entryTop.x, c.entryTop.y, c.entryTop.z);
+      } finally { cryptFade.classList.remove('show'); }
+      renderHud();
+    },
+    stage: stage => {
+      village?.crypt.revelation.setStage(stage);
+      if (stage !== 'hidden') void village?.crypt.revelation.prepare();
+      if (stage === 'waiting' && village?.crypt.contains(controller.position)) {
+        tpCam.setView('first'); tpCam.yaw = 0; tpCam.pitch = 0.06;
+      }
+    },
+    prepareOfferings: () => cryptItemsReady ??= (async () => {
+      if (!village || !rules) return;
+      const ids = ['suzu', 'kushi', 'coins', 'geta', 'kagami'];
+      const models = await Promise.all(ids.map(async id => {
+        const def = rules!.offerings.find(o => o.id === id)!;
+        const prototype = await rules!.prototype(def); return prototype?.clone(true) ?? null;
+      }));
+      village.crypt.revelation.setOfferings(models);
+    })(),
+    descendOfferings: progress => {
+      village?.crypt.revelation.setDescent(progress);
+      village?.pedestals.setRelocated(progress > 0);
+    },
+    finish: () => { renderHud(); showChapterEnding(); },
+  });
+  function beginAct18() {
+    if (storyFlags.act < 18) setStoryAct(storyFlags, 18);
+    setYokaiActive(false);
+    matsuri?.onOffered();
+    if (chochin) chochin.threat = 0;
+    village?.shrine.honden.setStage(4); village?.crypt.setOpen(true);
+    renderHud(); saveCheckpoint();
+    void act18.resume().catch(error => { console.warn('[act18] 복원 중단', error); renderHud(); });
+  }
+
   const VILLAGE_EVIDENCE = ['village:tea', 'village:tv', 'village:geta', 'village:furin', 'village:watcher'] as const;
   const SUZU_EVIDENCE = ['suzu:ema-left', 'suzu:ema-right', 'suzu:altar-back'] as const;
   /** 플레이어가 실제로 세 금줄을 푼 순서. 추격에서는 이 배열의 역순으로 되묶는다. */
@@ -920,13 +1042,14 @@ async function main() {
   };
   /** 우물 숏의 카메라·자막 수명을 묶고, 마지막 프레임을 3인칭 카메라에 인계한다. */
   const playWellCinematic = async (sequence: Sequence, lines: readonly DialogueLine[] = []) => {
+    const previousView = { yaw: tpCam.yaw, pitch: tpCam.pitch, distance: tpCam.currentDistance };
     wellCinematicPlaying = true;
     try {
       const playing: Promise<void>[] = [sequencer.play(sequence)];
       if (lines.length) playing.push(dialogue.say(...lines));
       await Promise.all(playing);
     } finally {
-      tpCam.adoptCurrentView(controller.position);
+      tpCam.adoptCurrentView(controller.position, previousView);
       wellCinematicPlaying = false;
     }
   };
@@ -952,8 +1075,196 @@ async function main() {
    * 우물만 `well:niche-` 라는 좁은 접두사로 우연히 피해 가고 있었다.
    */
   const countOf = (ids: readonly string[]) => ids.filter((id) => evidence.has(id)).length;
+  const truth = new TruthReconstruction(evidence, dialogue, (id) => rememberEvidence(id));
+  const mirrorMemory = new MirrorMemory({
+    evidence, dialogue,
+    begin: () => { setStoryAct(storyFlags, 14); village?.inn.showMirrorMemory(45); saveCheckpoint(); },
+    remember: (id) => rememberEvidence(id),
+  });
+  const reconstructingTruth = () => !!rules?.carried.includes('fuda') && !rules.fudaRefused && !truth.complete;
+  const makeCase = (def: InvestigationCaseDef) => new InvestigationCase(def, evidence, dialogue,
+    (id) => rememberEvidence(id), () => { if (storyFlags.act < def.act) setStoryAct(storyFlags, def.act); });
+  const graveyardCase = makeCase(GRAVEYARD_CASE), innCase = makeCase(INN_CASE), manorCase = makeCase(MANOR_CASE);
+  const innAfterimage = makeCase(INN_AFTERIMAGE_CASE);
+  let syncDispatchPrompts = () => {};
+  const manorDispatch = new ManorDispatch({
+    evidence, dialogue, remember: (id) => rememberEvidence(id),
+    begin: () => { if (storyFlags.act < 15) setStoryAct(storyFlags, 15); },
+    canUse: () => dispatchRequired(rules?.stateOf('fuda') === 'open', evidence)
+      && MANOR_EVIDENCE.every(id => evidence.has(id)),
+    saveSetting: (code) => {
+      for (const id of evidence) if (id.startsWith(DISPATCH_SETTING)) evidence.delete(id);
+      evidence.add(DISPATCH_SETTING + code); storyFlags.evidence = [...evidence];
+      saveCheckpoint(); syncDispatchPrompts(); renderHud();
+    },
+    proof: (values, matches) => {
+      const device = village?.manorInterior.dispatch;
+      device?.showProof(values, matches);
+      if (device) sfx.doorPush(device.pressPos.x, device.pressPos.y, device.pressPos.z);
+      if (matches) sfx.bellAfterimage(0.14);
+    },
+  });
+  const inGraveyardHollow = () => village?.graveyard.hollow.contains(controller.position) ?? false;
+  const graveyardFold = document.createElement('div'); graveyardFold.className = 'graveyard-fold'; document.body.appendChild(graveyardFold);
+  let graveyardGateHold = 0;
+  const graveyardPassage = new GraveyardPassage({
+    evidence, dialogue, remember: (id) => rememberEvidence(id), inside: inGraveyardHollow,
+    hasGeta: () => !!rules?.carried.includes('geta'),
+    canEnter: () => rules?.stateOf('geta') === 'open' && (graveyardCase.complete || evidence.has('graveyard:palm')),
+    travel: async (to) => {
+      if (!village) return;
+      graveyardFold.classList.add('show');
+      sfx.bellAfterimage(0.24);
+      try {
+        await gameClock.wait(380);
+        const grave = village.graveyard, hollow = grave.hollow;
+        const destination = to === 'outside' ? grave.returnPos : hollow.landing;
+        if (to !== 'outside') await hollow.detail.prepare(destination);
+        controller.teleport(destination);
+        spawn.copy(destination);
+        tpCam.snapBehind(destination, to === 'outside' ? grave.getaPos : hollow.getaPos);
+        village.update(0, controller.position);
+        graveyardGateHold = 0;
+        renderHud(); saveCheckpoint();
+        await gameClock.wait(180);
+      } finally { graveyardFold.classList.remove('show'); }
+      await gameClock.wait(340);
+    },
+    farewell: () => playGraveyardFarewell(),
+  });
+  async function playGraveyardFarewell() {
+    const vv = village;
+    if (!vv || evidence.has('graveyard:palm')) return;
+    vv.graveyard.beginHaunt();
+    vv.graveyard.disperse(controller.position);
+    sfx.bellAfterimage(0.2);              // 웃음이 끊긴 자리의 잔향
+    await dialogue.say(
+      { text: L('붉은 매듭을 건너 돌아오자 아이들의 웃음이 동시에 멎었다.', '赤い結び目を越えて戻ると、子供たちの笑い声が一斉に止んだ。') },
+      { text: L('둘은 붉은 꽃잎이 되어 흩어지고, 가장 어린 아이 하나만 남는다.', '二人は赤い花弁になって散り、いちばん幼い子だけが残る。') },
+    );
+    sfx.voice(0.3, 'girl');
+    await dialogue.say(
+      { who: L('아이', '子供'), text: L('사요 누나는?', 'サヨお姉ちゃんは?') },
+      { who: MIO_NAME, text: L('너…… 우리 언니 알아?', 'あなた……わたしの姉を知ってるの?') },
+      { who: L('아이', '子供'), text: L('사요 누나는 아직 신사에 있잖아.', 'サヨお姉ちゃんは、まだ社にいるじゃない。') },
+      { who: MIO_NAME, text: L('뭐?', 'なに?') },
+      // 이 사이에 아이가 발소리 없이 1.15 m 앞까지 와 있다 (graveyard.update)
+      { text: L('아이가 소리 없이 코앞까지 와 있다. 작은 손이 미오의 손을 펴게 한다.', '子供が音もなく目の前まで来ている。小さな手がミオの掌を開かせる。') },
+    );
+    await palmSign.play();
+    await dialogue.say(
+      { who: L('아이', '子供'), text: L('무서울 때 사요 누나가 해줬어.', '怖いとき、サヨお姉ちゃんがしてくれた。') },
+      ...(evidence.has('inn:mirror') ? [{ who: MIO_NAME, text: L('거울 속 언니도 똑같이 했어. 나한테만 해 준 게 아니었구나.', '鏡の中の姉も同じことをしてた。私にだけしてくれたんじゃなかったんだ。') }] : []),
+    );
+    rememberEvidence('graveyard:palm');
+    vv.graveyard.dismissLast();          // 고개를 들면 그 자리에 없다
+    sfx.bellAfterimage(0.14);
+    await dialogue.say(
+      { text: L('고개를 들자 아이는 없다. 붉은 꽃잎만 아직 떠 있다.', '顔を上げると子供はいない。赤い花弁だけがまだ漂っている。') },
+      { who: MIO_NAME, text: L('언니는 이 아이들도 달래 줬던 거구나. 아직 신사에 있다면…… 직접 확인해야 해.', '姉はこの子たちも慰めていたんだ。まだ社にいるなら……自分で確かめなきゃ。') },
+    );
+  }
+  const investigationsBusy = () => act18.busy || graveyardCase.busy || innCase.busy || innAfterimage.busy || manorCase.busy || manorDispatch.busy || graveyardPassage.busy;
+  // 이미 공물/통로를 얻은 구버전 저장에는 새로운 획득 조건을 소급하지 않는다.
+  const graveyardCaseActive = () => rules?.stateOf('geta') === 'open' && !evidence.has('graveyard:palm') && !graveyardCase.complete;
+  const innCaseActive = () => rules?.stateOf('kagami') === 'open' && !evidence.has('inn:passage') && !evidence.has('inn:mirror') && !innCase.complete;
+  const innWaitingActive = () => innAfterimageActive(rules?.stateOf('kagami') === 'open', evidence);
+  const manorDispatchActive = () => dispatchRequired(rules?.stateOf('fuda') === 'open', evidence)
+    && MANOR_EVIDENCE.every(id => evidence.has(id));
+  const manorCaseActive = () => !!rules && !rules.fudaRefused && !manorCase.complete
+    && (rules.stateOf('fuda') === 'open' || rules.carried.includes('fuda')) && MANOR_EVIDENCE.every((id) => evidence.has(id));
+  const inManorArchive = () => !!village && controller.position.y < village.manorInterior.archiveFloorY + 2
+    && controller.position.y > village.manorInterior.archiveFloorY - 1
+    && controller.position.distanceToSquared(village.manorInterior.archiveEnter) < 7 * 7;
+  const dispatchGuide = () => {
+    if (!village || !manorDispatchActive()) return null;
+    const mi = village.manorInterior, device = mi.dispatch, p = controller.position;
+    if (!village.manor.contains(p) && !inManorArchive()) return { pos: village.manor.doorPos, label: L('촌장집의 결재함을 조사하자', '村長の家の決裁箱を調べよう') };
+    const i = manorDispatch.nextClue;
+    let pos = manorDispatch.hasKey ? device.unlockPos : manorDispatch.printed ? device.keyPos
+      : i >= 0 ? device.cluePositions[i]! : device.pressPos;
+    let label = manorDispatch.hasKey ? L('열쇠로 대청 불단의 봉인패 덮개를 연다', '鍵で広間の仏壇の覆いを開く')
+      : manorDispatch.printed ? L('열린 결재함 서랍에서 불단 열쇠를 집는다', '開いた決裁箱の引き出しから仏壇の鍵を取る')
+      : i >= 0 ? DISPATCH_CLUES[i]!.prompt
+      : L('인장판 세 개를 최초 배부본에 맞추고 손잡이를 누른다', '三枚の印字板を最初の控えに合わせて取っ手を押す');
+    const below = p.y < mi.archiveFloorY + 2;
+    if (below !== (pos.y < mi.archiveFloorY + 2)) {
+      pos = below ? mi.archiveEnter : mi.hatchPos;
+      label = below ? L('사다리로 대청에 올라간다', '梯子で広間へ上がる') : L('마루 뚜껑을 열고 지하 기록실로 내려간다', '床の蓋を開けて地下の記録室へ下りる');
+    }
+    return { pos, label };
+  };
+  const investigationGuide = () => {
+    if (!village) return null;
+    const p = controller.position;
+    const selected = graveyardCaseActive() && village.graveyard.contains(p, 18)
+      ? { story: graveyardCase, clues: village.graveyard.playCluePositions, steps: village.graveyard.playResolvePositions }
+      : innCaseActive() && village.inn.contains(p)
+        ? { story: innCase, clues: village.innInterior.guestCluePositions, steps: village.innInterior.guestResolvePositions }
+        : innWaitingActive() && village.inn.contains(p)
+          ? { story: innAfterimage, clues: village.innInterior.memoryCluePositions, steps: village.innInterior.memoryResolvePositions }
+        : manorCaseActive() && (village.manor.contains(p) || inManorArchive()) && (manorCase.started || inManorArchive())
+          ? { story: manorCase, clues: village.manorInterior.orderCluePositions, steps: village.manorInterior.orderResolvePositions }
+          : null;
+    if (!selected) return null;
+    const { story, clues, steps } = selected;
+    const index = story.nextClue;
+    let pos = (index >= 0 ? clues[index] : steps[story.nextStep])!;
+    let label = index >= 0 ? story.def.clues[index]!.prompt : story.def.steps[story.nextStep]!.prompt;
+    if (story === innCase && index === 2 && !inventory.has('wakyo')) {
+      pos = village.innInterior.wakyoPos; label = L('객실의 와쿄를 찾는다', '客室の和鏡を探す');
+    }
+    if (story === innAfterimage) {
+      const inn = village.innInterior;
+      if ((p.x > inn.secretPos.x) !== (pos.x > inn.secretPos.x)) {
+        const inside = p.x > inn.secretPos.x;
+        pos = inside ? inn.passageReturnPos : inn.passageEntryPos;
+        label = inside ? L('안쪽 벽거울에 와쿄를 마주 대고 객실로 돌아간다', '内側の壁鏡に和鏡を合わせ、客室へ戻る')
+          : L('벽거울에 와쿄를 마주 대고 보관함으로 돌아간다', '壁鏡に和鏡を合わせ、預かり箱へ戻る');
+      }
+    }
+    if (story === manorCase) {
+      const below = p.y < village.manorInterior.archiveFloorY + 2;
+      const targetBelow = pos.y < village.manorInterior.archiveFloorY + 2;
+      if (below !== targetBelow) {
+        pos = below ? village.manorInterior.archiveEnter : village.manorInterior.hatchPos;
+        label = below ? L('서재로 올라간다', '書斎へ上がる') : L('지하 접수 대장을 확인한다', '地下の受理台帳を確かめる');
+      }
+    }
+    return { story, pos, label };
+  };
+  const graveyardGuide = () => {
+    if (!village || !rules) return null;
+    const h = village.graveyard.hollow;
+    if (inGraveyardHollow()) {
+      if (rules.carried.includes('geta')) return { pos: h.exit, label: L('게다를 가지고 붉은 매듭의 문으로 돌아가자', '下駄を持って赤い結び目の門へ戻ろう') };
+      if (graveyardPassage.matched) return { pos: h.getaPos, label: L('짝이 맞는 아이의 게다를 집는다', '揃った子供の下駄を拾う') };
+      const i = graveyardPassage.nextClue;
+      return i >= 0 ? { pos: h.clues[i]!, label: HOLLOW_CLUES[i]!.prompt }
+        : { pos: null, label: L('돌아오는 발자국을 따라 수선한 게다의 짝을 찾는다', '戻ってくる足跡を辿り、直した下駄の片割れを探す') };
+    }
+    if (rules.stateOf('geta') === 'open' && (graveyardCase.complete || evidence.has('graveyard:palm')) && village.graveyard.contains(controller.position, 22)) {
+      // 관찰 퍼즐의 정답 좌표를 화살표로 공개하지 않는다. 실제 여섯 얼굴의 방향을 읽는다.
+      return { pos: null, label: L('여섯 지장의 시선이 모이는 빈자리에 서 보자', '六体の地蔵の視線が集まる空きに立ってみよう') };
+    }
+    return null;
+  };
   const renderHud = () => {
     if (!rules) return;
+    const investigation = investigationGuide();
+    const graveGuide = graveyardGuide();
+    const manorGuide = dispatchGuide();
+    const innReturnGuide = village?.inn.contains(controller.position)
+      && controller.position.x > village.innInterior.secretPos.x + 0.12 && rules.carried.includes('kagami')
+      ? { pos: village.innInterior.passageReturnPos, label: L('안쪽 벽거울에 와쿄를 마주 대고 객실로 돌아가자', '内側の壁鏡に和鏡を合わせて客室へ戻ろう') } : null;
+    village?.graveyard.hollow.setProgress(graveyardPassage.matched, !!rules.carried.includes('geta') || rules.offeredSet.has('geta'));
+    village?.graveyard.setPlayReconstructed(graveyardCase.nextStep > 0 || graveyardCase.complete);
+    village?.innInterior.setGuestRouteKnown(innCase.complete || evidence.has('inn:passage'));
+    village?.innInterior.setMemoryProgress(innAfterimage.hasClue(0), innAfterimage.nextStep > 0 || innAfterimage.complete, innAfterimage.complete);
+    village?.manorInterior.dispatch.setProgress(manorDispatch.setting, DISPATCH_CLUES.map(c => evidence.has(c.id)),
+      manorDispatch.printed, manorDispatch.hasKey,
+      !dispatchRequired(true, evidence) || rules.carried.includes('fuda') || rules.offeredSet.has('fuda') || rules.fudaRefused,
+      evidence.has('manor:hatch'));
     // 목표 문구 = 히간누시의 명령문 (PLAN-STORY §4.1 — UI 가 히간누시다)
     if (!tutorialDone) {
       quests.set(L(`기본 조작을 익혀라  <b>${tutorialProgress}</b> / 3`, `基本操作を覚えよ  <b>${tutorialProgress}</b> / 3`), 'none');
@@ -964,6 +1275,13 @@ async function main() {
       quests.set(L('7개의 공물을 찾아라  <b>3</b> / 7', '七つの供物を探せ  <b>3</b> / 7'), 'gm');
     } else if (restoreWarningReady && !restoreFirstDone) {
       quests.set(L('놓아둔 공물을 되찾아라', '供えた供物を取り戻せ'), 'none');
+    } else if (act17.state === 'complete') {
+      if (!act18.busy) quests.set(act18.complete
+        ? L('ACT 18 완료 · 남은 흔적을 둘러볼 수 있다', 'ACT 18 完了 · 残された痕を探索できる')
+        : !rules.carried.includes('fuda') ? L('촌장집에서 봉인패를 되찾아라', '村長屋敷で封印札を取り戻せ')
+        : !village?.crypt.contains(controller.position) ? L('신사 동쪽 마루 아래로 내려가라', '社の東側、床下へ下りよ')
+        : act18.nextTrace >= 0 ? L(`지하에서 명령의 근원을 확인하라  <b>${3 - CRYPT_TRACES.filter(t => !evidence.has(t.id)).length}</b> / 3`, `地下で命令の根源を確かめよ  <b>${3 - CRYPT_TRACES.filter(t => !evidence.has(t.id)).length}</b> / 3`)
+        : L('검은 문 앞의 형체를 확인한다', '黒い門の前の姿を確かめる'), 'none');
     } else if (rules.fudaRefused) {
       // ACT 17 — 글리치 시퀀스가 목표를 잡고 있다. 여기서 덮지 않는다
     } else if (!rules.started) {
@@ -983,6 +1301,20 @@ async function main() {
       quests.set(L('열린 문으로 탈출하라', '開いた戸から逃げろ'), 'gm');
     } else if (rules.carried.includes('coins') && village?.wellShaft.inChamber(controller.position)) {
       quests.set(L(`물소리가 끊긴 틈에 밧줄로 돌아가라  ·  조약돌 ${wellPebbles}`, `水音が途切れた隙に縄へ戻れ  ·  小石 ${wellPebbles}`), 'none');
+    } else if (graveGuide) {
+      quests.set(graveGuide.label, 'none');
+    } else if (innReturnGuide) {
+      quests.set(innReturnGuide.label, 'none');
+    } else if (manorGuide) {
+      quests.set(`${L('세 겹의 결재인', '三重の決裁印')} · ${manorDispatch.nextClue >= 0 ? `${manorDispatch.clueCount}/3` : L('원본 복원', '原本の復元')}<br>${manorGuide.label}`, 'none');
+    } else if (investigation) {
+      const c = investigation.story;
+      const prefix = c.def.optional ? L('[선택 조사] ', '[任意調査] ') : '';
+      quests.set(`${prefix}${c.def.title} · ${c.nextClue >= 0 ? `${c.clueCount}/${c.def.clues.length}` : L('흔적 대조', '痕の照合')}<br>${investigation.label}`, 'none');
+    } else if (reconstructingTruth()) {
+      quests.set(L(`저택의 기록과 기억을 대조하자  <b>${truth.next}</b> / 3`, `屋敷の記録と記憶を照合しよう  <b>${truth.next}</b> / 3`), 'none');
+    } else if (rules.carried.includes('fuda')) {
+      quests.set(L('봉인패를 지닌 채 제단의 문양을 확인하자', '封印札を持ち、祭壇の紋を確かめよう'), 'none');
     } else if (rules.carrying) {
       const def = rules.offerings.find((o) => o.id === rules!.carried[0])!;
       quests.set(L(`${def.name}${eul(def.name)} 제단으로 가져와라`, `${def.name}を祭壇へ運べ`), 'gm');
@@ -1033,6 +1365,15 @@ async function main() {
       if (!tutorialDone) waypoint.set(null);
       else if (restoreWarningPlaying || restoreResolutionPlaying) waypoint.set(null);
       else if (restoreWarningReady && !restoreFirstDone) waypoint.set(vv2.pedestals.slots[0]!, L('붉은 방울', '赤い鈴'));
+      else if (act17.state === 'complete') {
+        const c = vv2.crypt;
+        waypoint.set(act18.busy || act18.complete ? null : !rules.carried.includes('fuda') ? vv2.manor.featurePos
+          : !c.contains(controller.position) ? c.entryTop : controller.position.x > c.gatePos.x + 1.1 && controller.position.z > c.entryTop.z - 1.1
+            ? new THREE.Vector3(c.gatePos.x, c.floorY + 0.3, c.entryTop.z)
+            : act18.nextTrace >= 0 ? c.revelation.traces[act18.nextTrace]! : c.revelation.encounterPos,
+        !rules.carried.includes('fuda') ? L('봉인패', '封印札') : !c.contains(controller.position)
+          ? L('신사 지하 입구', '社の地下入口') : L('명령이 내려오는 길', '命令の下りてくる道'));
+      }
       else if (rules.fudaRefused) waypoint.set(null);
       else if (!rules.started) {
         if (!tabletEventReady) {
@@ -1062,6 +1403,13 @@ async function main() {
         waypoint.set(next === undefined ? null : vv2.hokora.wardPositions[next]!, L('되묶을 매듭', '結び直す結び目'));
       }
       else if (rokuroTrialPhase === 'escape') waypoint.set(vv2.hokora.ejectPos, L('사당 밖', '祠の外'));
+      else if (graveGuide) waypoint.set(graveGuide.pos, graveGuide.label);
+      else if (innReturnGuide) waypoint.set(innReturnGuide.pos, innReturnGuide.label);
+      else if (manorGuide) waypoint.set(manorGuide.pos, manorGuide.label);
+      else if (investigation) waypoint.set(investigation.pos, investigation.label);
+      else if (inManorArchive()) waypoint.set(vv2.manorInterior.archiveEnter, L('사다리로 대청에 올라간다', '梯子で広間へ上がる'));
+      else if (reconstructingTruth()) waypoint.set(vv2.manor.contains(controller.position)
+        ? vv2.manor.recordPositions[truth.next]! : vv2.manor.doorPos, L('기억이 겹치는 기록', '記憶が重なる記録'));
       else if (rules.carrying) waypoint.set(vv2.pedestals.slabPos, L('제단', '祭壇'));
       else {
         const avail = rules.available();
@@ -1095,7 +1443,9 @@ async function main() {
           if (spot) { clue = spot; clueLabel = i >= 0 ? innerLabel : extra!.label; }
           else clueLabel = gateLabel;
         };
-        if (first === 'suzu') {
+        if (first === 'geta') {
+          clue = vv2.graveyard.playCluePositions[0]!; clueLabel = L('공동묘지의 돌탑', '墓地の石塔'); zonePuzzle = true;
+        } else if (first === 'suzu') {
           zoneStep(SUZU_EVIDENCE, vv2.hokora.contains(controller.position),
             vv2.hokora.ejectPos, L('오래된 사당 내부', '古い祠の内部'),
             vv2.hokora.wardPositions, L('금기 매듭', '禁の結び'));
@@ -1143,7 +1493,11 @@ async function main() {
    * 다른 ACT를 가리키므로, 플레이어 위치와 월드 요약을 항상 한 스냅숏으로 묶는다.
    */
   const saveCheckpoint = () => {
+    // 로딩 중 QA 스킵과 이어하기의 월드 복원 콜백은 아직 실행 중인 게임이 아니다.
+    // 초기 상태나 부분 복원 상태로 기존 체크포인트를 덮지 않는다.
+    if (!started) return false;
     const saved = storySave.checkpoint(storyFlags, {
+      act17: act17.state,
       offered: rules ? [...rules.offeredSet] : [],
       carried: rules ? [...rules.carried] : [],
       rulesStarted: rules?.started ?? false,
@@ -1168,6 +1522,7 @@ async function main() {
       wellNicheOrder: [...wellNicheOrder],
     });
     telemetry.flush();
+    saveStatus.update(saved, storySave.lastSavedAt);
     return saved;
   };
   const rememberEvidence = (id: string) => {
@@ -1186,14 +1541,14 @@ async function main() {
     const onGround = (v: THREE.Vector3) => { v.y = g.heightAt(v.x, v.z); return v; };
     // --- 7공물 — 위치는 스토리 고정 (PLAN-STORY §2.1, 각색 1·5. 랜덤화는 폐기) ---
     // `model`·`size` 는 실물 소품(Tripo). 없으면 발광 구슬 자리표시자가 남는다.
-    // `size` = **가장 긴 변**(m). 실물 치수에 맞춘다 — 아이 게다 18 cm · 얼레빗 12 cm · 손거울 20 cm
+    // `size` = **가장 긴 변**(m). 실물 치수에 맞춘다 — 아이 게다 23 cm · 얼레빗 12 cm · 손거울 20 cm
     const offerings: OfferingDef[] = [
       { id: 'suzu', name: L('붉은 방울', '赤い鈴'), where: L('오래된 사당', '古い祠'), color: 0xff4a3c, pos: vv.hokora.suzuPos.clone(), model: '/models/props/offer-suzu.glb', size: 0.12 },
       { id: 'kushi', name: L('붉은 머리빗', '赤い櫛'), where: L('폐교', '廃校'), color: 0xe06a8a, pos: vv.schoolInterior.kushiPos.clone(), model: '/models/props/offer-kushi.glb', size: 0.12 },
       { id: 'coins', name: L('동전 세 닢', '三枚の銭'), where: L('공동우물', '共同井戸'), color: 0xd8c25e, pos: vv.wellShaft.altarPos.clone(), model: '/models/props/offer-coins.glb', size: 0.09 },
-      // 게다는 **이름이 지워진 아이 무덤** 위다 — 좌표를 손으로 박아 두면 묘지를 넓힐 때마다 어긋난다.
-      // 지장 6구의 시선이 이 자리를 가리키므로, 무덤이 곧 퍼즐의 정답이다(§5.3.4)
-      { id: 'geta', name: L('아이의 게다', '子どもの下駄'), where: L('공동묘지', '無縁墓地'), color: 0xd08a4a, pos: onGround(vv.graveyard.getaPos.clone().add(new THREE.Vector3(0.34, 0, 0.1))), model: '/models/props/offer-geta.glb', size: 0.18 },
+      // 게다는 지장의 시선으로 건너간 숨은 묘역의 받침대 위에 있다.
+      // 지상의 시선은 진입 지점, 안쪽의 발자국과 수선 흔적은 짝을 고르는 단서다(§5.3.4).
+      { id: 'geta', name: L('아이의 게다', '子どもの下駄'), where: L('공동묘지', '無縁墓地'), color: 0xd08a4a, pos: vv.graveyard.hollow.getaPos.clone(), model: '/models/props/offer-geta.glb', size: 0.23 },
       { id: 'kagami', name: L('깨진 거울', '割れた鏡'), where: L('폐여관', '廃旅館'), color: 0x9ac8e0, pos: vv.inn.featurePos.clone(), model: '/models/props/offer-kagami.glb', size: 0.20 },
       { id: 'fuda', name: L('제문과 봉인패', '祭文と封印札'), where: L('촌장의 저택', '村長の屋敷'), color: 0xc05a2a, pos: vv.manor.featurePos.clone(), model: '/models/props/offer-fuda.glb', size: 0.28 },
       { id: 'sayo', name: '？？？', where: '', color: 0x8a8a9a, pos: null },
@@ -1249,14 +1604,16 @@ async function main() {
     };
     // 봉납 판정 = 받침대 반원의 석판
     rules = new Rules(scene, offerings, vv.pedestals.slabPos, {
+      canPresentFuda: () => truth.complete,
+      onFudaBlocked: () => void dialogue.say({ who: MIO_NAME, text: L('아직 저택의 기록에 이어지는 기억이 있어. 무슨 일이 있었는지 확인하고 와야 해.', 'まだ屋敷の記録に続く記憶がある。何があったのか確かめてこなきゃ。') }),
       canPickup: (o) => {
         if (o.id === 'suzu') return SUZU_EVIDENCE.every((id) => evidence.has(id));
         if (o.id === 'kushi') return evidence.has('school:called');
         if (o.id === 'coins') return WELL_EVIDENCE.every((id) => evidence.has(id)) && wellAnswer() !== null && !wellQuestionPlaying;
+        if (o.id === 'geta') return inGraveyardHollow() && graveyardPassage.matched;
         if (o.id === 'kagami') return evidence.has('inn:mirror');
-        // 개정 스토리보드 ACT 15: 대청의 세 문서를 읽으면 곧바로 봉인패를 얻고 ACT 16으로 간다.
-        // 지하 기록실은 내용을 보강하는 선택 조사이며 메인 진행의 열쇠가 아니다.
-        if (o.id === 'fuda') return MANOR_EVIDENCE.every((id) => evidence.has(id));
+        // 결재함의 원본 복원 → 열쇠 → 불단 덮개. 이미 운반 중인 저장에는 소급하지 않는다.
+        if (o.id === 'fuda') return MANOR_EVIDENCE.every((id) => evidence.has(id)) && !dispatchRequired(true, evidence);
         return true;
       },
       onPickupBlocked: (o) => {
@@ -1277,9 +1634,15 @@ async function main() {
             ? { text: L('동전 아래의 검은 물막이 세 벽감의 홈으로 이어진다. 모두 확인하기 전에는 손이 닿지 않는다.', '銭を覆う黒い水膜が三つの壁龕の溝へ続く。すべて確かめるまで手は届かない。') }
             : { text: L(`확인하지 않은 벽감이 ${WELL_EVIDENCE.length - countOf(WELL_EVIDENCE)}곳 남아 있다.`, `確かめていない壁龕があと${WELL_EVIDENCE.length - countOf(WELL_EVIDENCE)}か所ある。`) });
         }
-        if (o.id === 'kagami') void dialogue.say({ text: L('손거울 조각에는 방 안이 아니라 10년 전 축제가 비친다. 벽의 큰 거울부터 확인해야 한다.', '手鏡の欠片には部屋ではなく十年前の祭が映る。壁の大鏡を先に確かめなければ。') });
+        if (o.id === 'geta') void graveyardPassage.inspectGeta(1).finally(renderHud);
+        if (o.id === 'kagami') void dialogue.say({ text: innWaitingActive()
+          ? L('큰 거울 속 얼굴이 아직 보이지 않는다. 경대 보관함에서 이어진 네 흔적을 먼저 맞춰 보자.', '大鏡の顔はまだ見えない。鏡台の預かり箱から続く四つの痕を先に合わせよう。')
+          : L('손거울 조각에는 방 안이 아니라 10년 전 축제가 비친다. 벽의 큰 거울부터 확인해야 한다.', '手鏡の欠片には部屋ではなく十年前の祭が映る。壁の大鏡を先に確かめなければ。') });
         if (o.id === 'fuda') void dialogue.say({
-          text: L(`봉인패 아래 잠금 홈이 세 기록물과 이어져 있다. 확인하지 않은 문서가 ${MANOR_EVIDENCE.length - countOf(MANOR_EVIDENCE)}개다.`, `封印札の下の留め具は三つの記録に繋がっている。未確認の文書はあと${MANOR_EVIDENCE.length - countOf(MANOR_EVIDENCE)}つ。`),
+          text: countOf(MANOR_EVIDENCE) < MANOR_EVIDENCE.length
+            ? L(`먼저 대청의 기록을 확인하자. 읽지 않은 문서가 ${MANOR_EVIDENCE.length - countOf(MANOR_EVIDENCE)}개다.`, `先に広間の記録を確かめよう。未読の文書はあと${MANOR_EVIDENCE.length - countOf(MANOR_EVIDENCE)}つ。`)
+            : manorDispatch.hasKey ? L('불단 앞 자물쇠에 열쇠를 꽂아 덮개를 먼저 열자.', '仏壇の錠に鍵を差し、先に覆いを開こう。')
+            : L('봉인패 앞에 덮개가 잠겼다. 서재 압흔판과 지하 결재함에서 열쇠를 찾아야 한다.', '封印札の前の覆いは施錠されている。書斎の圧痕と地下の決裁箱から鍵を探そう。'),
         });
       },
       onPrompt: (t) => { rulesPrompt = t; renderPrompt(); },
@@ -1291,7 +1654,7 @@ async function main() {
           suzu: 6, kushi: 8, coins: 10, geta: 12, kagami: 13, fuda: 16,
         };
         const nextAct = pickupAct[o.id];
-        if (nextAct) setStoryAct(storyFlags, nextAct);
+        if (nextAct && nextAct > storyFlags.act) setStoryAct(storyFlags, nextAct);
         toastEl.textContent = L(`${o.name}${eul(o.name)} 손에 넣었다`, `${o.name}を手に入れた`);
         toastEl.classList.add('show'); toastT = 3.0;
         // 공물이 운다 — 줍는 순간 큰 소음 이벤트 = 운반 구간의 시작 (§3.2)
@@ -1341,65 +1704,18 @@ async function main() {
           })();
         }
         if (o.id === 'geta') {
-          /**
-           * ACT 12 의 끝 — **연출 순서가 곧 의미다.**
-           *   ① 소리가 먼저 끊긴다 (웃음·공기놀이). 조용해진 뒤에야 플레이어가 돌아본다
-           *   ② 둘은 꽃잎이 되어 흩어지고 **하나만 남는다** — 남은 하나가 곧 화자가 된다
-           *   ③ 남은 아이가 **말없이 다가온다** (graveyard.update 의 접근). 대사보다 이쪽이 무섭다
-           *   ④ 손바닥의 원 두 번 (ACT 20·30 회수 복선 — 화면에 남아야 한다)
-           *   ⑤ 오버레이가 걷히면 **그 자리에 없다**. 꽃잎만 떠 있다
-           */
-          vv.graveyard.disperse(controller.position);
-          sfx.bellAfterimage(0.2);              // 웃음이 끊긴 자리의 잔향
-          void (async () => {
-            await dialogue.say(
-              { text: L('게다를 집자 아이들의 웃음이 동시에 멎었다.', '下駄を拾うと、子供たちの笑い声が一斉に止んだ。') },
-              { text: L('둘은 붉은 꽃잎이 되어 흩어지고, 가장 어린 아이 하나만 남는다.', '二人は赤い花弁になって散り、いちばん幼い子だけが残る。') },
-            );
-            sfx.voice(0.3, 'girl');
-            await dialogue.say(
-              { who: L('아이', '子供'), text: L('사요 누나는?', 'サヨお姉ちゃんは?') },
-              { who: MIO_NAME, text: L('너…… 우리 언니 알아?', 'あなた……わたしの姉を知ってるの?') },
-              { who: L('아이', '子供'), text: L('사요 누나는 아직 신사에 있잖아.', 'サヨお姉ちゃんは、まだ社にいるじゃない。') },
-              { who: MIO_NAME, text: L('뭐?', 'なに?') },
-              // 이 사이에 아이가 발소리 없이 1.15 m 앞까지 와 있다 (graveyard.update)
-              { text: L('아이가 소리 없이 코앞까지 와 있다. 작은 손이 미오의 손을 펴게 한다.', '子供が音もなく目の前まで来ている。小さな手がミオの掌を開かせる。') },
-            );
-            await palmSign.play();
-            await dialogue.say(
-              { who: L('아이', '子供'), text: L('무서울 때 사요 누나가 해줬어.', '怖いとき、サヨお姉ちゃんがしてくれた。') },
-            );
-            vv.graveyard.dismissLast();          // 고개를 들면 그 자리에 없다
-            sfx.bellAfterimage(0.14);
-            await dialogue.say(
-              { text: L('고개를 들자 아이는 없다. 붉은 꽃잎만 아직 떠 있다.', '顔を上げると子供はいない。赤い花弁だけがまだ漂っている。') },
-              { who: MIO_NAME, text: L('……왜 이걸 알고 있지.', '……どうして、これを知っているの。') },
-            );
-          })();
+          void dialogue.say(
+            { text: L('게다를 들자 다른 두 받침대가 비어 버린다. 양쪽 문에서 누군가 이쪽으로 오라고 부른다.', '下駄を持つと他の二つの台が空になる。両脇の門から誰かがこちらへ来いと呼ぶ。') },
+            { who: MIO_NAME, text: L('들어올 때 붉은 매듭을 봤어. 소리 말고 그 문으로 돌아가자.', '入った時に赤い結び目を見た。声じゃなく、あの門へ戻ろう。') },
+          );
         }
         if (o.id === 'kagami') {
           // 공물이 곧 도구다 — 깨진 거울을 집는 순간부터 **현실-거울 대조**가 가능해진다(§5.3.5 파훼)
           vv.inn.showMirrorMemory(15);
           sfx.bellAfterimage();
-          void (async () => {
-            await dialogue.say({ text: L('깨진 거울에는 현재의 미오가 아니라 여섯 살 미오가 비친다.', '割れた鏡には、今のミオではなく六歳のミオが映っている。') });
-            // ACT 13의 거울 획득이 ACT 14의 긴 기억으로 끊김 없이 넘어간다.
-            setStoryAct(storyFlags, 14);
-            await dialogue.say(
-              { text: L('기억 속 피안제. 사요가 「여기서 기다려」라고 말하고 잠시 자리를 비운다.', '記憶の彼岸祭。サヨが「ここで待ってて」と言い、少し席を外す。') },
-              { who: L('할머니', 'おばあちゃん'), text: L('미오야. 이리 오렴.', 'ミオ。こっちへおいで。') },
-              { who: L('어린 미오', '幼いミオ'), text: L('할머니?', 'おばあちゃん?') },
-              { text: L('죽은 할머니를 따라 피안화 길을 걷는다. 작은 사당 안, 붉은 방울.', '死んだ祖母を追って彼岸花の道を歩く。小さな祠の中、赤い鈴。') },
-              { who: L('할머니', 'おばあちゃん'), text: L('그걸 가져오렴.', 'それを持っておいで。') },
-              { text: L('댕—. 어린 손이 방울을 드는 순간 할머니의 얼굴이 검게 갈라진다.', 'ゴーン—。幼い手が鈴を持ち上げた瞬間、祖母の顔が黒くひび割れる。') },
-              { who: MIO_NAME, text: L('내가…… 가져갔어.', 'わたしが……持っていった。') },
-              { who: '???', text: L('그래. 착한 아이였지. 시키는 대로 잘했으니까.', 'そう。いい子だったね。言われたとおりにしたから。') },
-              { who: MIO_NAME, text: L('이번에도 네가 시키고 있는 거야?', '今回も、あなたが命じているの?') },
-              { who: MIO_NAME, text: L('좋아. 그럼 네가 누군지 보러 갈게.', 'いい。なら、あなたが誰なのか見に行く。') },
-            );
-          })();
+          void mirrorMemory.play();
         }
-        if (o.id === 'fuda') {
+        if (o.id === 'fuda' && !rules!.fudaRefused) {
           // 봉인패 획득 순간 위 `pickupAct`가 ACT 16 진상편을 시작한다.
           // 지하 선택 조사가 ACT 번호를 선점하지 않는다.
           vv.manor.showPastEcho(14);
@@ -1408,6 +1724,9 @@ async function main() {
           void dialogue.say(
             { text: L('봉인패를 들어 올리는 순간 저택의 불탄 벽 위로 10년 전 복도가 겹친다.', '封印札を持ち上げた瞬間、屋敷の焼けた壁に十年前の廊下が重なる。') },
             { text: L('복도 밖에서 주민들의 목소리가 겹친다. 「미오를 찾아! 아이를 신사로 데려가!」', '廊下の外で住民の声が重なる。「ミオを探せ! 子供を社へ連れて行け!」') },
+            { who: MIO_NAME, text: truth.complete
+              ? L('그날의 기록은 확인했어. 이번에는 누구에게도 이 패를 넘기지 않을 거야.', 'あの夜の記録は確かめた。今度は誰にもこの札を渡さない。')
+              : L('글자를 읽었을 때와 달라. 패를 들고 세 기록을 다시 보면, 그날 일이 이어질 것 같아.', '文字を読んだ時と違う。札を持って三つの記録を見直せば、あの夜が繋がりそう。') },
           );
         }
         // 획득 뒤 강제 종료돼도 지역 퍼즐을 다시 하지 않게 운반 상태까지 저장한다.
@@ -1427,6 +1746,8 @@ async function main() {
           ...(n === 1 ? [
             { who: MIO_NAME, text: L('누구야?', '誰?') },
             { text: L('돌 틈이 벌어지며 붉은 피안화 새싹이 차례로 솟는다.', '石の隙間が割れ、赤い彼岸花の芽が順に伸びる。') },
+            { who: MIO_NAME, text: L('돌아갈 길이 열린다더니…… 왜 문 안쪽에서 세고 있지?', '帰る道が開くって……どうして戸の内側で数えてるの？') },
+            { who: MIO_NAME, text: L('한 개만으로는 모자란 건가. 다음에도 바뀌면, 어디가 변하는지 봐야겠어.', '一つでは足りないのかな。次も変わるなら、どこが変わるか見ておこう。') },
           ] : []),
         );
         // 봉인 해제 단계별 월드 반응 (PLAN-STORY §1.2) — S1 은 텍스트·AI 반응까지, 비주얼은 후속
@@ -1459,11 +1780,11 @@ async function main() {
             await new Promise((resolve) => setTimeout(resolve, 520));
             sfx.paVoice(horn.x, horn.y, horn.z, 22);
             const villageReaction = evidence.has('inference:village-complete')
-              ? { who: MIO_NAME, text: L('역시 누군가 듣게 만들고 있어. 흔적도, 목표도, 이 방송도 전부 같은 손이 배치했어.', 'やっぱり誰かが聞かせようとしてる。痕跡も、目標も、この放送も全部同じ手が並べた。') }
+              ? { who: MIO_NAME, text: L('흔적은 누군가 보여 주려는 것 같았어. 하지만 이 방송은 목표와 반대야. 같은 뜻으로 남은 게 아닐 수도 있어.', '痕跡は誰かが見せようとしていた。でも、この放送は目標と逆。同じ意図で残ったとは限らない。') }
               : evidence.has('inference:village-mimic')
                 ? { who: MIO_NAME, text: L('또 사람 목소리를 흉내 내고 있어. 어느 쪽도 바로 믿으면 안 돼.', 'また人の声を真似してる。どちらもすぐ信じちゃだめ。') }
                 : evidence.has('inference:village-simultaneous')
-                  ? { who: MIO_NAME, text: L('18시 12분에 한꺼번에 끊겼던 날의 방송이야. 지금 일어난 일이 아니야.', '十八時十二分に一斉に途切れた日の放送だ。今起きたことじゃない。') }
+                  ? { who: MIO_NAME, text: L('TV는 같은 시각에서 멎었는데, 이 방송은 내가 옮긴 공물 수를 알아. 녹음만 반복하는 게 아니야.', 'テレビは同じ時刻で止まっていたのに、この放送は私が動かした供物の数を知ってる。録音を繰り返しているだけじゃない。') }
                   : { who: MIO_NAME, text: L('마을 안에 붙잡힌 목소리들이 서로 다른 명령을 하고 있어.', '村に閉じ込められた声が、別々の命令をしてる。') };
             await dialogue.say(
               { who: BROADCAST, text: L('주민 여러분께 알려드립니다.', '住民の皆様にお知らせします.') },
@@ -1499,25 +1820,9 @@ async function main() {
       },
       onFudaRefused: () => {
         setStoryAct(storyFlags, 17);
-        saveCheckpoint();
-        // ACT 17 — 받침대가 봉인패를 받지 않는다 → UI 3단 변조 (수직 슬라이스의 끝)
+        // ACT 17 — 봉인패 거절과 UI 3단 변조 뒤 신사 지하로 이어진다
         renderHud();
-        void (async () => {
-          await dialogue.say(
-            { text: L('받침대가 봉인패를 받지 않는다.', '台座が封印札を受け取らない。') },
-            { who: MIO_NAME, text: L('……왜 안 놓이지?', '……どうして置けないの?') },
-          );
-          await quests.glitchTo(L('마지막 공물을 찾아라', '最後の供物を探せ'), 'gm', 1.0);
-          await new Promise((r) => setTimeout(r, 700));
-          await quests.glitchTo(L('마지막 봉인을 없애라', '最後の封を解け'), 'gm', 1.2);
-          await new Promise((r) => setTimeout(r, 700));
-          await quests.glitchTo(L('나를 꺼내줘', 'わたしを出して'), 'gm', 1.6);
-          await dialogue.say({ who: '???', text: L('미오.', 'ミオ。') }, { who: '???', text: L('여기까지 잘 왔구나.', 'よくここまで来たね。') });
-          endEl.innerHTML = L(
-            '<div class="ending-title">피안</div><div class="ending-sub">1부 수직 슬라이스는 여기까지 — 신사 지하는 다음 빌드에서.</div><div class="ending-hint">R — 처음부터</div>',
-            '<div class="ending-title">彼岸</div><div class="ending-sub">第一部の縦切りはここまで — 社殿の地下は次のビルドで。</div><div class="ending-hint">R — 最初から</div>');
-          endEl.classList.add('show');
-        })();
+        void act17.play();
       },
       onDrop: (o) => { inventory.remove(o.id); },
     });
@@ -1562,8 +1867,8 @@ async function main() {
       onViolate: () => { storyFlags.answered++; },
       onDone: () => {
         tabletRead = true;
-        // 방송을 먼저 들은 새 동선에서는 비석 종료가 ACT 3~4 도입부 전체의 완료점이다.
-        setStoryAct(storyFlags, act4?.done ? 5 : 4);
+        // 방송을 먼저 들어도 생활 흔적을 대조하는 ACT 4는 여기서 시작한다.
+        setStoryAct(storyFlags, 4);
         saveCheckpoint();
         renderHud();
       },
@@ -1589,6 +1894,37 @@ async function main() {
 
     // --- 조사 지점 (PLAN-STORY §4): 돌비석(ACT 3) · 공고판(ACT 4) · 석판(ACT 5 퀘스트 개시) ---
     inspect = new Inspect((t) => { inspectPrompt = t; renderPrompt(); });
+    const crypt = vv.crypt;
+    const cryptAction = (action: () => Promise<void>) => {
+      void action().catch(error => {
+        console.warn('[act18] 진행 중단 — 같은 지점에서 재시도 가능', error);
+        toast(L('잠시 멈췄다. 같은 지점을 다시 조사하자.', '一度止まった。同じ場所をもう一度調べよう。'));
+      }).finally(renderHud);
+    };
+    inspect.add({
+      id: 'crypt-descend', pos: crypt.entryTop, radius: 1.8, hold: 1.3, once: false, inputPriority: true,
+      prompt: L('격자 뚜껑 아래로 내려간다', '格子の蓋の下へ下りる'),
+      enabled: () => act17.state === 'complete' && !!rules?.carried.includes('fuda') && !act18.busy && !crypt.contains(controller.position),
+      onUse: () => { cryptAction(() => act18.enter()); },
+    });
+    inspect.add({
+      id: 'crypt-ascend', pos: crypt.landing.clone().add(new THREE.Vector3(0.65, 0.2, 0)), radius: 1.1, hold: 1.2, once: false,
+      prompt: L('사다리를 타고 신사로 올라간다', '梯子で社へ上がる'),
+      enabled: () => crypt.contains(controller.position) && !act18.busy,
+      onUse: () => { cryptAction(() => act18.leave()); },
+    });
+    CRYPT_TRACES.forEach((trace, i) => inspect!.add({
+      id: `crypt-trace-${i}`, pos: crypt.revelation.traces[i]!, radius: 1.75, once: false,
+      prompt: trace.prompt, inputPriority: true,
+      enabled: () => act17.state === 'complete' && crypt.contains(controller.position) && !act18.busy && !act18.complete && !evidence.has(trace.id),
+      onUse: () => { cryptAction(() => act18.read(i)); },
+    }));
+    inspect.add({
+      id: 'crypt-encounter', pos: crypt.revelation.encounterPos, radius: 1.65, once: false,
+      prompt: L('검은 문 앞에 선다', '黒い門の前に立つ'),
+      enabled: () => act18.nextTrace < 0 && crypt.contains(controller.position) && !act18.busy && !act18.complete,
+      onUse: () => { cryptAction(() => act18.encounter()); },
+    });
     // --- 선택 복선: 퀘스트·공물·ACT 플래그를 전혀 건드리지 않는 곁가지 조사 ---
     // 같은 세션의 중복 재생만 `OptionalForeshadows`가 별도 기록한다. StorySave/evidence에는 들어가지 않는다.
     const optionalForeshadows = new OptionalForeshadows(inspect, dialogue);
@@ -1755,7 +2091,7 @@ async function main() {
           if (found === VILLAGE_EVIDENCE.length && rememberEvidence('inference:village-complete')) {
             inferenceLines.push(
               { text: L('다섯 흔적의 날짜와 물자국을 다시 맞춰 본다. 어느 것도 자연스럽게 끝난 것이 없다.', '五つの痕跡の日付と水跡を照らし直す。自然に終わったものは一つもない。') },
-              { who: MIO_NAME, text: L('누군가 사건 뒤에 흔적을 배치했어. 내가 발견하도록.', '誰かが事件の後で痕跡を並べた。わたしに見つけさせるために。') },
+              { who: MIO_NAME, text: L('누군가 보여 주려는 것 같아. 하지만 경고를 남긴 쪽도 같은 존재일까?', '誰かが見せようとしてるみたい。でも警告を残したのも同じ者なの？') },
             );
           }
           void dialogue.say(...clue.lines, ...inferenceLines);
@@ -2266,6 +2602,8 @@ async function main() {
           else await new Promise((resolve) => setTimeout(resolve, 520));
           vv.wellShaft.setRitualProgress(wellNicheOrder);
           controller.teleport(vv.wellShaft.landing.clone().add(new THREE.Vector3(0, 0.3, 0)));
+          tpCam.snapBehind(controller.position, vv.wellShaft.altarPos);
+          vv.update(0, controller.position);
           const progress = countOf(WELL_EVIDENCE);
           if (progress > 0) wellWoman?.awakenFromEvidence(progress, controller.position);
           if (rules?.carried.includes('coins')) setTimeout(() => wellWoman?.activate(controller.position), 900);
@@ -2290,6 +2628,8 @@ async function main() {
         }
         wellClimbInProgress = true;
         const hasCoins = rules?.carried.includes('coins') ?? false;
+        // 매듭 대사 도중 지상 이동 대신 포획 숏이 끼어들지 않게, 등반 시작부터 AI를 멈춘다.
+        wellWoman?.holdForCinematic();
         void (async () => {
           if (hasCoins) {
             const ropeX = vv.wellShaft.chamber.cx + 0.3, ropeZ = vv.wellShaft.chamber.cz + 0.15;
@@ -2307,7 +2647,7 @@ async function main() {
             );
             rememberEvidence('well:child-call');
             vv.wellShaft.showFalseHaru(6.2);
-            wellWoman?.holdForCinematic();
+            wellWoman?.beginFinalKnot();
             const womanFocus = wellWoman?.cinematicFocus()
               ?? new THREE.Vector3(vv.wellShaft.chamber.cx, vv.wellShaft.chamber.waterY + 1.42, vv.wellShaft.chamber.cz);
             const ropeFocus = new THREE.Vector3(ropeX, vv.wellShaft.chamber.waterY + 1.2, ropeZ);
@@ -2320,11 +2660,14 @@ async function main() {
             ];
             if (wellPebbles > 0) actions.push({ id: 'well:escape-stone', label: L('돌을 던져 스스로 다른 물소리를 만든다.', '石を投げ、自分で別の水音を作る。') });
             if (wellSurfaceComplete()) actions.push({ id: 'well:escape-truth', label: L('목마를 내려놓고 “그 애는 하루가 아니에요”라고 외친다.', '木馬を置き「その子はハルじゃない」と叫ぶ。') });
-            const action = actions[await dialogue.choose(
+            // 준비물이 없으면 목소리 분기만 남는다. 2~4지선다 UI에 한 항목을 넘기면 등반이 멈춘다.
+            const choice = actions.length === 1 ? 0 : await dialogue.choose(
               L('여자가 가짜 목소리와 미오 사이에서 방향을 바꾼다.', '女が偽の声とミオの間で向きを変える。'),
               actions.map((entry) => entry.label),
-            )]!;
+            );
+            const action = actions[choice]!;
             rememberEvidence(action.id);
+            wellWoman?.releaseFromCinematic(6);
             if (action.id === 'well:escape-voice') {
               wellWoman?.lureToChildVoice(4.2);
               await dialogue.say({ text: L('여자가 미오에게서 등을 돌린다. 보이지 않는 아이를 안듯 두 팔이 깊은 물로 향한다.', '女がミオに背を向ける。見えない子を抱くように両腕が深い水へ向かう。') });
@@ -2351,6 +2694,8 @@ async function main() {
           controller.teleport(surfaceCheckpoint);
           wellWoman?.deactivate();
           tpCam.snapBehind(surfaceCheckpoint, vv.wellShaft.topPos);
+          vv.update(0, controller.position);
+          dreadEl.style.opacity = '0';
           if (hasCoins) {
             wellOutroPlaying = true;
             const horn = vv.speakers.nearestHorn(surfaceCheckpoint).clone();
@@ -2549,33 +2894,40 @@ async function main() {
     });
     /**
      * 合わせ鏡 통로 — 벽에 걸린 그을린 거울. **와쿄를 든 채 마주 보고 사용해야만** 건너간다.
-     * 같은 지점을 양쪽에서 쓴다(왕복) — 거울 방에 갇히는 설계는 §5.3.5 에 없다.
+     * 양쪽 실물 거울마다 조사점을 둔다. 돌아가는 쪽은 새 조사 조건으로 막지 않는다.
      * enabled 는 「와쿄를 들었고 + 그 거울을 보고 있다」 — 등지고 E 를 누르는 것은 마주 봄이 아니다.
      */
     const facingDir = new THREE.Vector3();
-    inspect.add({
-      id: 'inn-mirror-passage', pos: vv.innInterior.secretPos, radius: 2.3,
-      prompt: L('와쿄를 마주 대고 건너간다', '和鏡を向かい合わせて渡る'), once: false, inputPriority: true,
+    for (const returning of [false, true]) inspect.add({
+      id: returning ? 'inn-mirror-return' : 'inn-mirror-passage',
+      pos: returning ? vv.innInterior.passageReturnPos : vv.innInterior.passageEntryPos, radius: 2.3,
+      prompt: returning ? L('안쪽 벽거울에 와쿄를 대고 돌아간다', '内側の壁鏡に和鏡を合わせて戻る')
+        : L('와쿄를 마주 대고 건너간다', '和鏡を向かい合わせて渡る'), once: false, inputPriority: true,
       enabled: () => {
+        if (!returning && innCaseActive()) return false;
         if (!wakyoView.active) return false;
+        const side = controller.position.x - vv.innInterior.secretPos.x;
+        if (returning ? side <= 0.12 : side >= -0.12) return false;
         camera.getWorldDirection(facingDir);
-        const sp = vv.innInterior.secretPos;
+        const sp = returning ? vv.innInterior.passageReturnPos : vv.innInterior.passageEntryPos;
         const dx = sp.x - camera.position.x, dz = sp.z - camera.position.z;
         const dl = Math.hypot(dx, dz) || 1;
         return (facingDir.x * dx / dl + facingDir.z * dz / dl) > 0.55;
       },
       onUse: () => {
-        const sp = vv.innInterior.secretPos;
-        const side = controller.position.x < sp.x ? 1 : -1;   // 서→동이면 거울 방으로
-        controller.teleport(new THREE.Vector3(sp.x + side * 1.35, sp.y - 0.9, sp.z));
+        const destination = vv.innInterior.passageLandings[returning ? 0 : 1];
+        controller.teleport(destination);
+        tpCam.snapBehind(destination, destination.clone().add(new THREE.Vector3(returning ? -1 : 1, 0, 0)));
         sfx.bellAfterimage(0.18);
         if (!evidence.has('inn:passage')) {
           rememberEvidence('inn:passage');
           void dialogue.say(
             { text: L('와쿄와 벽거울이 마주 본 순간 — 두 거울 사이가 복도가 된다.', '和鏡と壁鏡が向かい合った瞬間 — 二枚の鏡の間が廊下になる。') },
             { who: MIO_NAME, text: L('……거울과 거울 사이는, 이어져 있어.', '……鏡と鏡の間は、つながっている。') },
+            { text: L('경대 위 작은 보관함에 손님 짐표와 같은 무늬가 있다. 뚜껑 틈으로 종이 한 귀퉁이가 나왔다.', '鏡台の小さな預かり箱に、客の荷札と同じ模様。蓋の隙間から紙の角が覗いている。') },
           );
         }
+        renderHud(); saveCheckpoint();
       },
     });
     /**
@@ -2603,6 +2955,7 @@ async function main() {
     inspect.add({
       id: 'inn-register', pos: vv.innInterior.registerPos, radius: 1.8,
       prompt: L('숙박부를 읽는다', '宿帳を読む'), once: true,
+      enabled: () => !evidence.has('inn:register'),
       onUse: () => { rememberEvidence('inn:register'); void dialogue.say(...INN_RECORDS.register); },
     });
     inspect.add({
@@ -2613,7 +2966,7 @@ async function main() {
     if (vv.inn.mirrorPos) inspect.add({
       id: 'inn-memory-mirror', pos: vv.inn.mirrorPos, radius: 2.0,
       prompt: L('큰 거울 속 축제를 본다', '大鏡の中の祭を見る'), once: true,
-      enabled: () => rules!.stateOf('kagami') === 'open' && !evidence.has('inn:mirror'),
+      enabled: () => rules!.stateOf('kagami') === 'open' && !evidence.has('inn:mirror') && !innWaitingActive(),
       onUse: () => void (async () => {
         vv.inn.showMirrorMemory(14);
         rememberEvidence('inn:mirror');
@@ -2621,6 +2974,10 @@ async function main() {
           { text: L('불타고 무너진 여관이 거울 속에서만 10년 전 모습으로 밝아진다.', '焼け落ちた旅館が、鏡の中だけ十年前の姿に明るく戻る。') },
           { text: L('웃는 주민과 금붕어 뜨기 아이들 사이로 어린 사요와 어린 미오가 지나간다.', '笑う住民と金魚すくいの子供たちの間を、幼いサヨとミオが通り過ぎる。') },
           { who: MIO_NAME, text: L('저건…….', 'あれは……。') },
+          ...(innAfterimage.complete ? [
+            { text: L('어린 미오의 무릎에 매화 무늬 손수건이 보인다. 병풍 안쪽 두 자리에 앉았던 아이들이 이제 얼굴을 든다.', '幼いミオの膝に梅模様の手ぬぐい。屏風の内側の二つの場所にいた子供たちが、顔を上げる。') },
+            { who: MIO_NAME, text: L('언니랑 나였어. 그 방을 우리에게 내줬던 거야.', '姉と私だった。あの部屋を、私たちに譲ってくれたんだ。') },
+          ] : []),
           { who: L('거울 속 어린 미오', '鏡の幼いミオ'), text: L('언니 어디 갔어?', 'お姉ちゃん、どこ?') },
           { text: L('어린 미오가 이쪽을 똑바로 보고 손바닥을 댄다. 유리 위에 작은 자국이 남는다.', '幼いミオがこちらを真っ直ぐ見て掌を当てる。硝子に小さな跡が残る。') },
           { text: L('사요는 아이의 손바닥에 손가락으로 원을 두 번 그린다.', 'サヨは子供の掌に指で円を二度描く。') },
@@ -2630,6 +2987,7 @@ async function main() {
         await palmSign.play();
         await dialogue.say(
           { text: L('미오도 모르게 같은 동작을 따라 한다.', 'ミオも知らず同じ動きをなぞる。') },
+          ...(evidence.has('graveyard:palm') ? [{ who: MIO_NAME, text: L('묘지의 아이가 그린 원…… 언니한테 배운 거였어.', '墓地の子が描いた円……姉に教わったものだった。') }] : []),
           { who: MIO_NAME, text: L('나…… 여기 와본 적 있어.', 'わたし……ここに来たことがある。') },
         );
       })(),
@@ -2664,7 +3022,20 @@ async function main() {
        */
       inputPriority: true,
       enabled: () => rules!.stateOf('fuda') === 'open' && !evidence.has(MANOR_EVIDENCE[i]!),
-      onUse: () => { rememberEvidence(MANOR_EVIDENCE[i]!); void dialogue.say(...manorRecordLines[i]!); },
+      onUse: () => {
+        if (storyFlags.act < 15) setStoryAct(storyFlags, 15);
+        rememberEvidence(MANOR_EVIDENCE[i]!);
+        void dialogue.say(...manorRecordLines[i]!, ...(countOf(MANOR_EVIDENCE) === MANOR_EVIDENCE.length
+          ? [{ text: L('불단의 덮개에는 작은 자물쇠가 걸렸다. 서재 문옆 압흔판에서 결재함 여는 법을 찾아보자. 책상 밑 명령 사본은 따로 더 대조할 수 있다.', '仏壇の覆いに小さな錠。書斎の戸脇の圧痕から決裁箱の開け方を探そう。机の下の命令控えは、別に詳しく照合できる。') }] : []));
+      },
+    }));
+    vv.manor.recordPositions.forEach((pos, i) => inspect!.add({
+      id: `truth-record-${i}`, pos, radius: 1.65, inputPriority: true, once: false,
+      prompt: TRUTH_RECORDS[i]!.prompt,
+      enabled: () => reconstructingTruth() && !truth.busy && truth.next === i,
+      onUse: () => {
+        void truth.read(i).finally(renderHud);
+      },
     }));
     /**
      * ---------- 지하 기록실 (ACT 15) ----------
@@ -2697,7 +3068,7 @@ async function main() {
       id: 'manor-hatch', pos: mi.hatchPos, radius: 2.0, once: false, hold: 1.6,
       prompt: L('마루 뚜껑을 연다', '床の蓋を開ける'),
       // 대청 문서 셋을 다 읽어야 열린다 — 지하는 그 셋의 **대가**를 보여 주는 곳이다
-      enabled: () => rules!.stateOf('fuda') === 'open'
+      enabled: () => !rules!.fudaRefused && (rules!.stateOf('fuda') === 'open' || rules!.carried.includes('fuda'))
         && countOf(MANOR_EVIDENCE) === MANOR_EVIDENCE.length
         && controller.position.y > mi.archiveFloorY + 2,
       onUse: () => {
@@ -2710,22 +3081,25 @@ async function main() {
         }
         controller.teleport(mi.archiveEnter.clone().add(new THREE.Vector3(0, 0.35, 0)));
         sfx.doorPush(mi.hatchPos.x, mi.hatchPos.y, mi.hatchPos.z);
+        renderHud(); saveCheckpoint();
       },
     });
     inspect.add({
       /**
-       * 반경 1.1 — 2.2 는 **기록실(4.5 × 4.8 m)을 통째로 덮었다.** 사다리 앵커는 바닥 높이라
+       * 반경 0.6 — 사다리 실제 발치에 한정한다. 큰 반경은 결재함 판과 열쇠보다 먼저 선택된다.
+       * 예전 2.2 는 **기록실(4.5 × 4.8 m)을 통째로 덮었다.** 사다리 앵커는 바닥 높이라
        * 거리가 순수 수평인데, 기록 앵커들은 상판(+1.05)·선반(+1.35) 높이라 늘 1.3 m 이상이다.
        * 그래서 `Inspect` 의 최근접 선택이 방 어디서나 사다리를 골랐다 — 실측에서 회의록·위패
        * 앞에 서도 「사다리를 오른다」가 떴고, 꾹 누르면 지상으로 튕겨 나갔다.
-       * 사다리는 발치에 서서 오르는 것이라 1.1 이면 충분하다(도착점이 곧 앵커).
+       * 도착점을 실제 사다리 바로 아래로 옮겨 결재함 앞에서는 사다리가 선택되지 않게 한다.
        */
-      id: 'manor-ascend', pos: mi.archiveEnter, radius: 1.1, once: false, hold: 1.2,
+      id: 'manor-ascend', pos: mi.archiveEnter, radius: 0.6, once: false, hold: 1.2,
       prompt: L('사다리를 오른다', '梯子を登る'),
       enabled: () => controller.position.y < mi.archiveFloorY + 2,
       onUse: () => {
         controller.teleport(mi.hatchPos.clone().add(new THREE.Vector3(0.9, 0.4, 0)));
         sfx.doorPush(mi.hatchPos.x, mi.hatchPos.y, mi.hatchPos.z);
+        renderHud(); saveCheckpoint();
       },
     });
     /**
@@ -2760,6 +3134,118 @@ async function main() {
         })();
       },
     }));
+    // 같은 장소에 이미 있던 기록을 먼저 읽고, 추가 조사로 자연스럽게 이어진다.
+    const bindCase = (story: InvestigationCase, clues: THREE.Vector3[], steps: THREE.Vector3[], active: () => boolean,
+      ready: (i: number) => boolean = () => true, mirrorAt = -1,
+      options: { holdAt?: number; reachable?: (pos: THREE.Vector3) => boolean } = {}) => {
+      const use = (action: () => Promise<boolean>, needsMirror: boolean) => {
+        if (needsMirror && !wakyoView.active) {
+          void dialogue.say({ text: inventory.has('wakyo')
+            ? L('[V]로 와쿄를 든 뒤 같은 흔적을 대조하자.', '[V]で和鏡を持ち、同じ痕を照合しよう。')
+            : L('객실 좌탁의 와쿄가 있어야 반대편을 대조할 수 있다.', '客室の座卓の和鏡があれば、向こう側を照合できる。') });
+          return;
+        }
+        void action().catch((e) => console.warn('[investigation]', e)).finally(renderHud);
+      };
+      clues.forEach((pos, i) => inspect!.add({
+        id: `${story.def.id}:clue-${i}`, pos, radius: 1.9, once: false, inputPriority: true,
+        hold: i === options.holdAt ? 0.7 : undefined,
+        prompt: story.def.clues[i]!.prompt,
+        enabled: () => active() && ready(i) && (options.reachable?.(pos) ?? true) && !story.busy && !story.hasClue(i),
+        onUse: () => use(() => story.read(i), i === mirrorAt),
+      }));
+      steps.forEach((pos, i) => inspect!.add({
+        id: `${story.def.id}:step-${i}`, pos, radius: 1.9, once: false, inputPriority: true,
+        prompt: story.def.steps[i]!.prompt,
+        enabled: () => active() && (options.reachable?.(pos) ?? true) && !story.busy && story.nextClue < 0 && story.nextStep === i,
+        onUse: () => use(() => story.resolve(i), story === innCase && i === 1),
+      }));
+    };
+    bindCase(graveyardCase, vv.graveyard.playCluePositions, vv.graveyard.playResolvePositions, graveyardCaseActive);
+    const hollow = vv.graveyard.hollow;
+    const passageAction = (action: () => Promise<boolean>) => {
+      void action().catch(e => console.warn('[graveyard passage]', e)).finally(renderHud);
+    };
+    vv.graveyard.jizoPositions.forEach((pos, i) => inspect!.add({
+      id: `graveyard-jizo-${i}`, pos, radius: 1.55, once: false,
+      prompt: L('지장의 얼굴이 향한 곳을 살핀다', '地蔵の顔が向く先を調べる'),
+      enabled: () => rules?.stateOf('geta') === 'open' && !inGraveyardHollow() && !graveyardPassage.busy,
+      onUse: () => passageAction(() => graveyardPassage.observeJizo(i)),
+    }));
+    hollow.clues.forEach((pos, i) => inspect!.add({
+      id: HOLLOW_CLUES[i]!.id, pos, radius: 1.65, once: false, inputPriority: true,
+      prompt: HOLLOW_CLUES[i]!.prompt,
+      enabled: () => inGraveyardHollow() && !graveyardPassage.busy && !evidence.has(HOLLOW_CLUES[i]!.id),
+      onUse: () => passageAction(() => graveyardPassage.readClue(i)),
+    }));
+    hollow.candidates.forEach((pos, i) => inspect!.add({
+      id: `graveyard-candidate-${i}`, pos, radius: 1.7, once: false, inputPriority: true,
+      prompt: L('이 게다가 남겨진 짝과 맞는지 대조한다', 'この下駄が残った片方と合うか照合する'),
+      enabled: () => inGraveyardHollow() && !graveyardPassage.busy && !graveyardPassage.matched && !rules?.carried.includes('geta'),
+      onUse: () => passageAction(() => graveyardPassage.inspectGeta(i)),
+    }));
+    inspect.add({
+      id: 'graveyard-hollow-exit', pos: hollow.exit, radius: 1.8, once: false, hold: 0.7, inputPriority: true,
+      prompt: L('붉은 매듭을 짚고 공동묘지로 돌아간다', '赤い結び目に触れて墓地へ戻る'),
+      enabled: () => inGraveyardHollow() && !graveyardPassage.busy,
+      onUse: () => passageAction(() => graveyardPassage.leave()),
+    });
+    // 가짜 귀환문도 행동으로 답한다. 게다를 빼앗거나 단서를 초기화하지 않고 방 입구로 접힌다.
+    for (const side of [-1, 1]) inspect.add({
+      id: `graveyard-false-exit-${side}`, pos: hollow.exit.clone().add(new THREE.Vector3(side * 7.5, 0, 0)), radius: 1.7,
+      once: false, inputPriority: true, prompt: L('목소리가 나는 문을 살핀다', '声がする門を調べる'),
+      enabled: () => inGraveyardHollow() && !graveyardPassage.busy,
+      onUse: () => passageAction(() => graveyardPassage.falseExit()),
+    });
+    bindCase(innCase, vv.innInterior.guestCluePositions, vv.innInterior.guestResolvePositions, innCaseActive,
+      (i) => i !== 0 || evidence.has('inn:register'), 2);
+    bindCase(innAfterimage, vv.innInterior.memoryCluePositions, vv.innInterior.memoryResolvePositions, innWaitingActive,
+      (i) => i === 0 || innAfterimage.hasClue(0), 1, { holdAt: 0,
+        reachable: (pos) => vv.inn.contains(controller.position)
+          && (pos.x > vv.innInterior.secretPos.x) === (controller.position.x > vv.innInterior.secretPos.x),
+      });
+    bindCase(manorCase, mi.orderCluePositions, mi.orderResolvePositions, manorCaseActive,
+      (i) => i !== 2 || evidence.has('manor:roster'));
+    const device = mi.dispatch;
+    const dispatchAction = (action: () => Promise<boolean>) => {
+      void action().catch(e => console.warn('[manor dispatch]', e)).finally(renderHud);
+    };
+    const dispatchReachable = (pos: THREE.Vector3) => manorDispatchActive() && !manorDispatch.busy
+      && (pos.y < mi.archiveFloorY + 2 ? inManorArchive() : vv.manor.contains(controller.position) && !inManorArchive());
+    device.cluePositions.forEach((pos, i) => inspect!.add({
+      id: DISPATCH_CLUES[i]!.id, pos, radius: 1.8, once: false, inputPriority: true, markerLift: 0.1,
+      prompt: DISPATCH_CLUES[i]!.prompt, hold: i < 2 ? 1.1 : undefined,
+      onHold: i === 0 ? progress => device.setRubbing(progress) : undefined,
+      enabled: () => dispatchReachable(pos) && !evidence.has(DISPATCH_CLUES[i]!.id),
+      onUse: () => dispatchAction(() => manorDispatch.read(i)),
+    }));
+    syncDispatchPrompts = () => device.dialPositions.forEach((pos, i) => inspect!.add({
+      id: `manor-dispatch-dial-${i}`, pos, radius: 1.55, once: false, inputPriority: true, markerLift: 0.14,
+      prompt: L(`${i + 1}번 ${DISPATCH_DIALS[i]!.title} 인장판을 돌린다 · 현재 ${DISPATCH_DIALS[i]!.labels[manorDispatch.setting[i]!]}`,
+        `${i + 1}番 ${DISPATCH_DIALS[i]!.title}の印字板を回す · 現在 ${DISPATCH_DIALS[i]!.labels[manorDispatch.setting[i]!]}`),
+      enabled: () => dispatchReachable(pos) && !manorDispatch.printed,
+      onUse: () => { if (manorDispatch.rotate(i)) sfx.doorPush(pos.x, pos.y, pos.z, 0.12); },
+    }));
+    syncDispatchPrompts();
+    inspect.add({
+      id: 'manor-dispatch-press', pos: device.pressPos, radius: 1.55, once: false, inputPriority: true, markerLift: 0.15,
+      prompt: L('결재함 손잡이를 눌러 인장을 맞물린다', '決裁箱の取っ手を押し、印を噛み合わせる'), hold: 1.2,
+      onHold: progress => device.setPress(progress),
+      enabled: () => dispatchReachable(device.pressPos) && !manorDispatch.printed,
+      onUse: () => dispatchAction(() => manorDispatch.press()),
+    });
+    inspect.add({
+      id: 'manor-dispatch-key', pos: device.keyPos, radius: 1.4, once: false, inputPriority: true, markerLift: 0.08,
+      prompt: L('열린 서랍에서 불단 열쇠를 집는다', '開いた引き出しから仏壇の鍵を取る'),
+      enabled: () => dispatchReachable(device.keyPos) && manorDispatch.printed && !manorDispatch.hasKey,
+      onUse: () => dispatchAction(() => manorDispatch.takeKey()),
+    });
+    inspect.add({
+      id: 'manor-dispatch-unlock', pos: device.unlockPos, radius: 1.8, once: false, inputPriority: true, markerLift: 0.08,
+      prompt: L('열쇠를 돌려 불단의 덮개를 연다', '鍵を回して仏壇の覆いを開く'), hold: 1.2,
+      enabled: () => dispatchReachable(device.unlockPos) && manorDispatch.hasKey,
+      onUse: () => dispatchAction(() => manorDispatch.unlock()),
+    });
     // 개정본 ACT 11의 핵심 통제 구간. 방송을 들은 뒤 세 공물을 직접 되찾아 보게 한다.
     // 시스템 문구가 플레이어의 행동을 거부해야 UI의 배신이 단순 대사가 아니라 경험이 된다.
     const restoreNames = [L('붉은 방울', '赤い鈴'), L('붉은 머리빗', '赤い櫛'), L('동전 세 닢', '三枚の銭')];
@@ -2807,13 +3293,17 @@ async function main() {
       id: 'slab', pos: vv.pedestals.slabPos, radius: 2.2, prompt: L('석판을 읽는다', '石板を読む'), once: true,
       enabled: () => tabletRead && evidenceCount('village:') >= 3 && !rules!.started,
       onUse: () => {
+        setStoryAct(storyFlags, 5);
+        saveCheckpoint();
         void (async () => {
           await dialogue.say(
+            { text: L('받침대 여섯에는 물건의 홈이 있다. 일곱 번째만 비어 있고, 다른 자리보다 넓다.', '六つの台座には物の溝がある。七つ目だけは空で、ほかより広い。') },
             { text: L('「피안의 문을 열고자 하는 자여.」', '「彼岸の門を開かんとする者よ。」') },
             { text: L('「일곱 공물을 모아 이곳에 바쳐라.」', '「七つの供物を集め、ここに捧げよ。」') },
             { text: L('「그러면 돌아갈 길이 열리리라.」', '「さすれば帰る道が開かれよう。」') },
             { who: MIO_NAME, text: L('일곱 개를 모으면…… 여기서 나갈 수 있어.', '七つ集めれば……ここから出られる。') },
             { who: MIO_NAME, text: L('언니도 저 안에 있다면.', '姉もあの中にいるなら。') },
+            { who: MIO_NAME, text: L('이번에는 얼굴을 보고 물어볼 거야. 왜 나를 기다린다고 했는지.', '今度は顔を見て訊く。なぜ私を待っていると書いたのか。') },
           );
           rules!.begin();
           setStoryAct(storyFlags, 6);
@@ -2850,17 +3340,16 @@ async function main() {
   const wakyoView = new WakyoView();
   (window as unknown as Record<string, unknown>)['__wk'] = wakyoView;
   /**
-   * 손바닥 스프라이트를 미리 구워 둔다 — ACT 12 한복판에서 구우면 GLB 로드가 연출을 끊는다.
-   * **한 번은 다시 시도한다**: 이제 폴백에 그려진 손이 없어서(가짜 손은 실물보다 나쁘다) 실패하면
-   * 어둠 위에 원만 남는다. 첫 실패가 일시적 네트워크 문제일 수 있으니 재시도가 값싼 보험이다.
+   * 두 손의 자세를 미리 구워 두고 임시 GPU 자원을 해제한다.
+   * 일시적 로드 실패는 한 번 재시도한다. 끝내 실패하면 접촉을 묘사하는 자막으로 이어진다.
    */
   void (async () => {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        palmSign.setHandSprite(await modelSprite(renderer, '/models/props/palm-a.glb', { size: 512, zoom: 1.02, faceThinAxis: true }));
+        await palmSign.setHandSprites(await loadPalmGestureSprites(renderer));
         return;
       } catch (e) {
-        if (attempt) console.warn('[palmSign] 손 모델 실패 — 원만 그린다:', e);
+        if (attempt) console.warn('[palmSign] 손 모델 실패 — 자막으로 진행:', e);
         else await new Promise((r) => setTimeout(r, 600));
       }
     }
@@ -2970,6 +3459,7 @@ async function main() {
     Object.assign(storyFlags, defaultFlags(), saved.flags);
     evidence.clear();
     for (const id of storyFlags.evidence) if (typeof id === 'string') evidence.add(id);
+    manorDispatch.restoreSetting(); syncDispatchPrompts();
     storyFlags.evidence = [...evidence];
     suzuWardOrder = (world.suzuWardOrder ?? [])
       .filter((i, at, all) => Number.isInteger(i) && i >= 0 && i < SUZU_EVIDENCE.length && all.indexOf(i) === at);
@@ -2992,6 +3482,12 @@ async function main() {
       .filter((id, i, all) => valid.has(id) && !offeredIds.includes(id) && all.indexOf(id) === i);
     const rulesStarted = world.rulesStarted ?? (storyFlags.act >= 6 || offeredIds.length > 0 || carriedIds.length > 0);
     rules.restoreProgress(offeredIds, carriedIds, { started: rulesStarted, fudaRefused: world.fudaRefused });
+    // 구 저장에서 이미 얻은 봉인패는 사망 후 제자리로 돌아가도 새 퍼즐로 다시 잠그지 않는다.
+    // 완료로 꾸미지 않고 호환용 내부 키만 남겨 새 조사 기록/대사를 만들지 않는다.
+    if (!manorDispatch.complete && (carriedIds.includes('fuda') || offeredIds.includes('fuda') || world.fudaRefused)) {
+      evidence.add('manor:dispatch-legacy'); storyFlags.evidence = [...evidence];
+    }
+    act17.restore(storyFlags.act >= 18 ? 'complete' : world.act17, storyFlags.act >= 17 || rules.fudaRefused);
     storyFlags.offered = offeredIds.length;
 
     tabletEventReady = world.tabletEventReady ?? storyFlags.act >= 4;
@@ -3018,6 +3514,8 @@ async function main() {
     village.hamlet.setStoryStage(offeredIds.length);
     lifesigns?.setStoryStage(offeredIds.length);
     village.pedestals.setRootsLocked(offeredIds.length >= 3);
+    village.pedestals.setRelocated(evidence.has('crypt:offerings-moved'));
+    act18.restoreVisuals();
     village.shrine.honden.setStage(offeredIds.length >= 5 ? 3 : offeredIds.length >= 4 ? 2 : offeredIds.length >= 2 ? 1 : 0);
     if (offeredIds.length >= 3) timeOfDay?.set('breach', 0);
 
@@ -3059,8 +3557,25 @@ async function main() {
     return true;
   };
 
-  /** 처음부터 — `R` 과 일시정지 메뉴가 같은 것을 부른다 */
+  let requestingNewGame = false;
+  async function requestNewGame(reload = false) {
+    if (requestingNewGame || (!reload && started)) return;
+    requestingNewGame = true;
+    try {
+      if (reload || storySave.peek()) {
+        if (!await confirmNewGame()) return;
+        if (!storySave.clear()) { saveStatus.deletionFailed(); return; }
+      }
+      if (reload) location.reload();
+      else start(false);
+    } finally { requestingNewGame = false; }
+  }
+
+  /** 메뉴의 새 게임은 확인 후 초기화하고, 개발용 sandbox 리셋은 저장에 손대지 않는다. */
   const resetRun = () => {
+    // 스토리는 플래그·증거·연출·AI를 함께 초기화해야 한다. 공물만 리셋하면 이전
+    // 단서와 열린 문이 남아 새 게임을 진행할 수 없으므로 부팅 경로에서 다시 만든다.
+    if (isVillage) { void requestNewGame(true); return; }
     rokuroWakeToken++;
     rokuroTrialPhase = 'idle';
     rokuroRebindStep = 0;
@@ -3086,10 +3601,11 @@ async function main() {
    * 실패하면 한 번 더 시도한다(그래도 안 되면 화면을 클릭하면 된다. `core/input.ts` 가 받는다).
    */
   const pauseMenu = new PauseMenu({
+    onQuit: isDesktop() ? () => { saveCheckpoint(); void closeDesktop(); } : undefined,
     onResume: () => {
       const grab = () => {
         // 되잡을 이유가 사라졌으면 조용히 그만둔다 — 재시도가 인벤토리 위에서 락을 뺏으면 안 된다
-        if (pauseMenu.isOpen || invUI.isOpen || photoViewer.isOpen || evidenceJournal.isOpen || document.pointerLockElement) return;
+        if (modalInput.active || document.pointerLockElement) return;
         try { void (canvas.requestPointerLock?.() as unknown as Promise<void> | undefined)?.catch?.(() => {}); }
         catch { /* 포인터락 불가 환경(자동화 등) — 드래그 오빗으로 대체된다 */ }
       };
@@ -3111,15 +3627,15 @@ async function main() {
    * 다른 오버레이가 열려 있으면 그 오버레이의 기존 Esc 닫기 동작을 우선한다.
    */
   window.addEventListener('keydown', (e) => {
-    if (e.code !== 'Escape' || e.repeat || document.pointerLockElement || !started || pauseMenu.isOpen
-      || invUI.isOpen || photoViewer.isOpen || evidenceJournal.isOpen || deathT > 0) return;
+    if (e.code !== 'Escape' || e.repeat || document.pointerLockElement || !started || modalInput.active
+      || invUI.isOpen || photoViewer.isOpen || palmSign.isOpen || evidenceJournal.isOpen || deathT > 0) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     pauseMenu.open();
   }, { capture: true });
-  invUI.canOpen = () => !pauseMenu.isOpen && !evidenceJournal.isOpen && !(act3?.controlsLocked ?? false);
+  invUI.canOpen = () => started && !modalInput.active && !palmSign.isOpen && !act17.running && !investigationsBusy() && !(act3?.controlsLocked ?? false);
   evidenceJournal.canOpen = () => isVillage && started && !pauseMenu.isOpen && !invUI.isOpen
-    && !photoViewer.isOpen && !(act3?.controlsLocked ?? false);
+    && !photoViewer.isOpen && !palmSign.isOpen && !modalInput.active && !act17.running && !investigationsBusy() && !(act3?.controlsLocked ?? false);
 
   /**
    * 타이틀 「설정」 모달에 그래픽 옵션(화질·렌더 해상도)을 붙인다. 모달 껍데기는 index.html /
@@ -3178,9 +3694,10 @@ async function main() {
     };
   })();
 
-  // --- 단축키: R 리셋, M 음소거, F 전체화면 ---
+  // --- 단축키: M 음소거, F 전체화면. R은 개발 sandbox 전용이다. ---
   let muted = false;
   window.addEventListener('keydown', (e) => {
+    if (!started || modalInput.active || e.defaultPrevented || e.repeat) return;
     // 키를 눌렀다는 사실을 월드 표지자 자체가 답한다. 꾹 누르기는 아래의 원형 진행도가 이어 받는다.
     if (e.code === 'KeyE' && !e.repeat && promptAnchor.classList.contains('in-view')) {
       promptAnchor.classList.remove('pressed');
@@ -3191,7 +3708,7 @@ async function main() {
     // 사진을 펼쳐 든 동안은 어떤 키도 게임으로 내려보내지 않는다 — Esc 닫기 · Space 뒤집기
     if (photoViewer.key(e.code)) { e.preventDefault(); return; }
     const cine = sequencer.active; // 시퀀스 중엔 게임 입력을 받지 않는다 (Space 는 스킵 홀드)
-    const gameplayLocked = cine || dialogue.choosing || wellQuestionPlaying || wellClimbInProgress || wellOutroPlaying || wellCinematicPlaying
+    const gameplayLocked = cine || palmSign.isOpen || investigationsBusy() || mirrorMemory.busy || truth.busy || act17.running || dialogue.choosing || wellQuestionPlaying || wellClimbInProgress || wellOutroPlaying || wellCinematicPlaying
       || (act3?.controlsLocked ?? false);
     if (e.code === 'KeyE' && !gameplayLocked && worldSword && controller.position.distanceTo(swordSpot) < 2.2) {
       worldSword.removeFromParent(); worldSword = null; promptEl.classList.add('hidden');
@@ -3236,7 +3753,7 @@ async function main() {
     }
     if (e.code === 'KeyC' && isVillage && !invUI.isOpen && !gameplayLocked) crouching = !crouching;
     if (e.code === 'Space' && crouching && !gameplayLocked) crouching = false; // 웅크림 중 스페이스 = 일어서기
-    if (e.code === 'KeyR' && !gameplayLocked) resetRun();
+    if (e.code === 'KeyR' && import.meta.env.DEV && !isVillage && !gameplayLocked) resetRun();
     // T (debug): 시퀀서 데모 — S0 스택 검증용 (PLAN-STORY §8)
     if (e.code === 'KeyT' && debug && !gameplayLocked && village && rules && deathT <= 0) {
       void sequencer.play(buildDemoSeq(village, quests)).then(() => renderHud());
@@ -3293,7 +3810,7 @@ async function main() {
     if (e.code === 'KeyM') { muted = !muted; sfx.setMaster(muted ? 0 : settings.audio.master); }
     // 닫는 쪽은 **진짜 Esc** 다 — 메뉴가 떠 있다는 건 이미 락이 풀렸다는 뜻이라 keydown 이 온다
     if (e.code === 'Escape' && pauseMenu.isOpen) { e.preventDefault(); pauseMenu.close(); }
-    if (e.code === 'KeyF') { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.(); }
+    if (e.code === 'KeyF' || isDesktop() && (e.code === 'F11' || e.code === 'Enter' && e.altKey)) { e.preventDefault(); void toggleFullscreen(); }
   });
 
   // --- 런타임 품질 적용 + 적응형(느리면 자동 하향) ---
@@ -3320,6 +3837,7 @@ async function main() {
   /** 메뉴·H 패널·타이틀에서 화질을 직접 골랐다 — 기능 단계 자동 하향만 끄고 미세 해상도는 유지한다. */
   function setQualityManually(lv: QualityLevel) {
     adaptiveProfile = false;
+    adaptiveRenderScale = 1;
     saveQuality(lv);
     applyQualityLive(profileFor(lv));
     syncQualityUI(lv);
@@ -3475,6 +3993,7 @@ async function main() {
   // ?noprewarm: 개발용 — 숨겨진 탭에서는 타이머가 1초/틱이라 이 루프가 로딩을 수십 초 붙잡는다.
   // 소품·연출 확인처럼 히치가 무관한 반복 재로드에서만 쓴다 (첫 전환 히치는 감수)
   const noPrewarm = forceGpuCompatibility || new URLSearchParams(location.search).has('noprewarm');
+  await detailsReady;
   if (chochin && !noPrewarm) {
     loadingPct.textContent = L('그림자를 준비하는 중…', '影を用意しています…');
     const bakeT0 = performance.now();
@@ -3614,7 +4133,6 @@ async function main() {
 
   loadingPct.textContent = totalItems ? `${loadedItems} / ${totalItems}  ·  ${L('로드 완료', '読み込み完了')}` : L('준비 완료', '準備完了');
   startBtn.hidden = false;
-  let started = false;
   /**
    * **첫 프레임이 실제로 그려질 때까지** 연출 시계를 붙잡아 둔다.
    *
@@ -3627,10 +4145,6 @@ async function main() {
   let firstFrameDone: (() => void) | null = null;
   const firstFrame = new Promise<void>((r) => {
     firstFrameDone = r;
-    // 안전판 — **화면이 보이는데도** 4 s 동안 프레임이 한 장도 안 오면 그냥 출발한다.
-    // (탭이 숨겨져 있으면 rAF 자체가 멈추는 게 정상이므로 그때는 계속 기다린다 — 돌아왔을 때
-    //  프롤로그가 이미 지나가 있으면 안 된다)
-    setTimeout(() => { if (!document.hidden) r(); }, 4000);
   });
   // 셰이더 프리워밍: 초칭 끔/약/강은 각각 다른 셰이더 변형이라 첫 전환 때 한 번 컴파일된다
   // (실측: 플레이 중 첫 Q 끔 = 120~1,000 ms 히치). 인트로 동안 세 상태를 한 프레임씩
@@ -3659,15 +4173,22 @@ async function main() {
   const titleCard = document.getElementById('title-card')!;
   const start = (wantContinue = false) => {
     if (started) return;
-    const resumed = wantContinue && !!storySave.peek() && restoreFromCheckpoint(storySave.peek()!);
+    const saved = wantContinue ? storySave.peek() : null;
+    const resumed = saved !== null && restoreFromCheckpoint(saved);
     if (wantContinue && !resumed) {
       continueBtn.disabled = true;
       continueBtn.title = L('저장된 진행을 읽을 수 없습니다', '保存された進行を読み込めません');
       return;
     }
-    if (!wantContinue) storySave.clear();
     if (resumed) controlsTutorial?.skip();
     started = true;
+    syncAudioRegions(controller.position);
+    void village?.prepareDetails(controller.position);
+    input.reset();
+    window.dispatchEvent(new Event('game-started'));
+    // 타이틀에서 기다린 시간이 아니라 시작 클릭부터 4초를 센다. 이전 위치에서는
+    // 메뉴에 오래 머물기만 해도 firstFrame이 미리 풀려 첫 렌더보다 연출이 먼저 흘렀다.
+    setTimeout(() => { if (!document.hidden) firstFrameDone?.(); }, 4000);
     telemetry.start(storyFlags.act, resumed);
     prewarmFrame = chochin ? 0 : -1;
     sfx.unlock();
@@ -3733,6 +4254,11 @@ async function main() {
       }
       if (tutorialRun) controlsTutorial?.begin(controller.position);
       if (resumed && village && rules) {
+        if (storySave.lastReadSource === 'backup') saveStatus.recovered();
+        void firstFrame.then(async () => {
+          if (rules.carried.includes('kagami') && !rules.fudaRefused) await mirrorMemory.play();
+          await act17.resume();
+        });
         // 순간 추격 상태는 저장하지 않는다. 다만 보스 구역 안에서 운반 중인 세이브라면
         // 충분한 예고 뒤 그 구역의 규칙만 다시 시작해 ‘멈춘 보스’를 만들지 않는다.
         if (rules.carried.includes('suzu') && village.hokora.contains(controller.position)) beginRokuroTrial('resume');
@@ -3750,12 +4276,9 @@ async function main() {
       }
     }
   };
-  startBtn.addEventListener('click', () => start(false));
+  startBtn.addEventListener('click', () => { void requestNewGame(); });
   continueBtn.addEventListener('click', () => start(true));
-  window.addEventListener('keydown', (e) => {
-    if (e.code !== 'Enter' && e.code !== 'Space') return;
-    start(document.activeElement === continueBtn);
-  }, { once: false });
+  // Enter/Space는 실제 포커스된 버튼의 기본 click을 사용한다. 설정 조작으로 게임을 시작하지 않는다.
 
   // 배포 빌드에서도 `?debug` 를 명시하면 QA 도구를 연다. 원격 프리뷰/정적 호스트에서
   // 개발 서버와 같은 사당·AI 상태 검증을 할 수 있어야 한다.
@@ -3763,7 +4286,7 @@ async function main() {
     // 사진 아이콘 재단용 — 크롭/얼룩 위치를 큰 해상도로 확인할 때 쓴다
     (window as unknown as Record<string, unknown>)['__photoThumb'] = (size = 1024, damaged = 1) =>
       photoThumbFromModel(renderer, '/models/props/photo-hands.glb', size, damaged);
-    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, crows, chochin, faceFill, hunters, get hunter() { return hunters[0]; }, dorotabo, get rokuro() { return rokuro; }, get yuri() { return yuri; }, get wellWoman() { return wellWoman; }, senses, matsuri, scares, rules, ambience, telemetry, get hiding() { return hiding; }, get crouching() { return crouching; }, setCrouch(v: boolean) { crouching = v; }, story: { acts: STORY_ACTS, phases: STORY_PHASES, quests, dialogue, sequencer, flags: storyFlags, save: storySave, phone, photoViewer, journal: evidenceJournal, fp: firstPerson, pursuers, lightning, bus, get sayo() { return sayo; }, get act1() { return act1; }, get act2() { return act2; }, get act3() { return act3; }, get act4() { return act4; }, get lifesigns() { return lifesigns; }, get speakers() { return village?.speakers; } }, get navgrid() { return navgridRef; }, get timeOfDay() { return timeOfDay; }, get audioSpace() { return sfx.space; }, get audioZone() { return audioZone; } };
+    (window as unknown as Record<string, unknown>)['__dbg'] = { controller, physics, tpCam, scene, settings, sky, postfx, input, camera, model, animator, sfx, island, water, inventory, equipment, combat, dummies, village, crows, chochin, faceFill, hunters, get hunter() { return hunters[0]; }, dorotabo, get rokuro() { return rokuro; }, get yuri() { return yuri; }, get wellWoman() { return wellWoman; }, senses, matsuri, scares, rules, ambience, telemetry, get hiding() { return hiding; }, get crouching() { return crouching; }, setCrouch(v: boolean) { crouching = v; }, story: { acts: STORY_ACTS, phases: STORY_PHASES, act17, act18, quests, dialogue, sequencer, flags: storyFlags, save: storySave, phone, photoViewer, journal: evidenceJournal, fp: firstPerson, pursuers, lightning, bus, get sayo() { return sayo; }, get act1() { return act1; }, get act2() { return act2; }, get act3() { return act3; }, get act4() { return act4; }, get lifesigns() { return lifesigns; }, get speakers() { return village?.speakers; } }, get navgrid() { return navgridRef; }, get timeOfDay() { return timeOfDay; }, get audioSpace() { return sfx.space; }, get audioZone() { return audioZone; } };
   }
 
   // --- 리사이즈 ---
@@ -3804,11 +4327,13 @@ async function main() {
     const y = viewRect.y + (-promptNdc.y * 0.5 + 0.5) * viewRect.h;
     anchor.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
     // 링은 대상에 고정하고 긴 문구만 화면 안으로 살짝 밀어 넣는다.
-    const half = Math.min(180, bubble.offsetWidth * 0.5);
+    const scale = settings.hud.scale;
+    const half = bubble.offsetWidth * scale * 0.5;
     const margin = 12;
     const shift = x - half < margin ? margin - (x - half)
       : x + half > window.innerWidth - margin ? window.innerWidth - margin - (x + half) : 0;
-    bubble.style.setProperty('--prompt-shift', `${Math.round(shift)}px`);
+    bubble.style.setProperty('--prompt-shift', `${Math.round(shift / scale)}px`);
+    anchor.classList.toggle('below', y - (bubble.offsetHeight + 14) * scale < margin);
     anchor.classList.add('in-view');
     return true;
   }
@@ -3817,10 +4342,11 @@ async function main() {
     const lock = settings.hud.lockAspect;
     lastW = winW; lastH = winH; lastDpr = dpr; lastLock = lock;
     // 비율 고정(선택): 렌더 영역을 aspect 로 묶고 남는 자리는 검게 둔다 (`core/settings.ts` hud.lockAspect)
-    let w = winW, h = winH;
+    let w = Math.max(1, winW), h = Math.max(1, winH);
     if (lock) {
       const a = settings.hud.aspect;
       if (winW / winH > a) w = Math.round(winH * a); else h = Math.round(winW / a);
+      w = Math.max(1, w); h = Math.max(1, h);
       document.body.style.setProperty('--view-w', `${w}px`);
       document.body.style.setProperty('--view-h', `${h}px`);
     }
@@ -3834,6 +4360,9 @@ async function main() {
     camera.updateProjectionMatrix();
     // ⚠️ 반드시 픽셀비·캔버스 크기를 정한 **뒤에** — 컴포저는 렌더러의 드로잉 버퍼 크기를 읽어 간다
     postfx.resize(w, h);
+    gpuTimer.reset();
+    adaptT = 0; adaptAcc = 0; adaptN = 0;
+    slowWindows = 0; fastWindows = 0;
   }
   /** 프레임마다 부르는 값싼 대조. 달라진 게 없으면 즉시 돌아간다 */
   function syncViewport() {
@@ -3846,29 +4375,51 @@ async function main() {
   onResize();
 
   // --- 루프 ---
-  let last = performance.now();
-  let fpsAcc = 0, fpsN = 0, fpsShown = 0, fpsTimer = 0;
+  const frameClock = new FrameClock(performance.now());
+  let fpsAcc = 0, fpsN = 0, fpsShown = 0;
   /** 연속으로 터진 프레임 수 — 한 번은 넘기고, 이어지면 안내를 띄운다 */
   let frameErrors = 0;
   const shadowTarget = new THREE.Vector3();
+  let wasPaused = false;
+  if (isDesktop()) window.addEventListener('blur', () => {
+    input.reset();
+    if (started && !endEl.classList.contains('show')) pauseMenu.open();
+  });
+  document.addEventListener('visibilitychange', () => {
+    frameClock.reset(performance.now());
+    input.reset();
+    gpuTimer.reset();
+    adaptT = 0; adaptAcc = 0; adaptN = 0;
+    slowWindows = 0; fastWindows = 0;
+    if (document.hidden && started && !endEl.classList.contains('show')) pauseMenu.open();
+  });
 
   function frame(now: number) {
     requestAnimationFrame(frame);
     // 메인 타이틀은 정적 키아트 + DOM UI 다. 새 게임 전에는 뒤의 3D 월드를 갱신하거나
     // 후처리 렌더링할 이유가 없다 — 불투명 타이틀 아래에서 매 프레임 전체 마을을 그리던 것이
-    // 타이틀 렉의 주원인이었다. last 만 따라가 시작 첫 프레임의 dt 폭주를 막는다.
-    if (!started) { last = now; return; }
-    // 프레임 상한: 아직 이를 때는 그리지 않고 돌려보낸다 (last 를 갱신하지 않아야 dt 가 이어진다).
-    // 여유 2 ms 는 vsync 지터용 — 60 Hz 화면에서 상한 60 이 30 fps 로 반토막 나는 것을 막는다
-    const cap = settings.render.maxFps;
-    if (cap > 0 && now - last < 1000 / cap - 2) return;
-    let dt = (now - last) / 1000;
-    last = now;
+    // 타이틀 렉의 주원인이었다. 시계만 맞춰 시작 첫 프레임의 dt 폭주를 막는다.
+    if (!started || document.hidden) { frameClock.reset(now); return; }
+    const elapsed = frameClock.sample(now, settings.render.maxFps);
+    if (elapsed === null) return;
+    let dt = elapsed;
     if (dt > 1 / 20) dt = 1 / 20; // 탭 전환 등 큰 dt 방지
     if (dt <= 0) return;
     if (import.meta.env.DEV && (window as unknown as { __dbg?: { paused?: boolean } }).__dbg?.paused) return; // 테스트용 일시정지
     syncViewport();
-    adaptiveQuality(dt);
+    const paused = pauseMenu.isOpen || evidenceJournal.isOpen || endEl.classList.contains('show');
+    if (paused !== wasPaused) {
+      gpuTimer.reset();
+      adaptT = 0; adaptAcc = 0; adaptN = 0;
+      slowWindows = 0; fastWindows = 0;
+      fpsAcc = 0; fpsN = 0;
+      wasPaused = paused;
+    }
+    if (!paused) {
+      adaptiveQuality(elapsed); // 물리용 50 ms 제한값으로 실제 부하를 숨기지 않는다
+      fpsAcc += elapsed; fpsN++;
+      if (fpsAcc > 0.5) { fpsShown = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
+    }
     // 루프가 매 프레임 터지면 화면만 멈추고 소리·자막은 계속 흐른다 — 그 침묵을 안내로 바꾼다
     // (`showBreakdown` 주석). 한 번의 사고는 넘기고, 이어서 세 번 터지면 말한다.
     try { step(dt, true); frameErrors = 0; } catch (e) {
@@ -3935,24 +4486,39 @@ async function main() {
   }
 
   /** 한 프레임 시뮬레이션+렌더. 테스트에서 rAF 없이 결정적으로 호출 가능 (`__dbg.step(dt, render)`) */
+  let pausedRevision = -1;
   function step(dt: number, render = true) {
     /**
      * 일시정지 — **시뮬레이션을 통째로 건너뛴다.** 인벤토리(`uiOpen`)는 입력만 막고 세계는
      * 계속 도는데, 이 메뉴는 그러면 안 된다: 알트탭 한 사이에 요괴가 다가와 있으면 그건
-     * 일시정지가 아니다. 화면은 계속 그린다(마지막 프레임이 그대로 남는다).
+     * 일시정지가 아니다. 정지 화면은 진입·해상도·그래픽 설정 변경 때만 다시 그린다.
      */
-    if (pauseMenu.isOpen || evidenceJournal.isOpen) {
-      if (render) postfx.composer.render(dt);
+    if (pauseMenu.isOpen || evidenceJournal.isOpen || endEl.classList.contains('show')) {
+      if (render && pausedRevision !== postfx.revision) {
+        renderScene(0);
+        pausedRevision = postfx.revision;
+      }
+      input.consumeMouseDelta();
+      input.consumeWheel();
       input.endFrame();
       return;
     }
+    pausedRevision = -1;
+    gameClock.update(dt);
+    if (truth.busy) village?.manor.showPastEcho(0.5);
+    if (mirrorMemory.busy) village?.inn.showMirrorMemory(0.5);
+    audioRegionT -= dt;
+    if (audioRegionT <= 0) { audioRegionT = 0.5; syncAudioRegions(controller.position); }
     telemetry.update(dt, storyFlags.act);
+    // AI가 비활성이어도 소음의 시계는 흘러야 한다. 프롤로그의 발소리가 나중에
+    // 한꺼번에 들리거나 선택지 대기 중 배열에 계속 쌓이지 않게 한다.
+    senses?.update(dt);
     // 히트스톱: 잠깐 세상을 느리게
     if (hitstop > 0) { hitstop -= dt; dt *= 0.12; }
-    const uiOpen = invUI.isOpen || photoViewer.isOpen || evidenceJournal.isOpen || dialogue.choosing;
+    const uiOpen = invUI.isOpen || photoViewer.isOpen || palmSign.isOpen || evidenceJournal.isOpen || dialogue.choosing;
     // 시퀀서 활성 = 카메라·이동 입력을 가져간다 (B등급 연출, PLAN-STORY §8.2). 월드 시뮬은 계속 돈다
     const cine = sequencer.active || titleCard.classList.contains('show');
-    const eventLocked = (act3?.controlsLocked ?? false) || dialogue.choosing
+    const eventLocked = palmSign.isOpen || investigationsBusy() || mirrorMemory.busy || truth.busy || act17.running || (act3?.controlsLocked ?? false) || dialogue.choosing
       || wellQuestionPlaying || wellClimbInProgress || wellOutroPlaying || wellCinematicPlaying;
     // ACT 1: 조작은 살아 있고 카메라만 스토리 1인칭 리그가 가져간다 (컷신이 아니라 플레이 구간)
     const fpOn = firstPerson?.active ?? false;
@@ -4039,8 +4605,7 @@ async function main() {
     dummies?.update(dt);
 
     // --- 요괴 ---
-    if (hunters.length && senses && matsuri && village && yokaiActive && !dialogue.choosing) {
-      senses.update(dt);
+    if (hunters.length && senses && matsuri && village && yokaiActive && !inGraveyardHollow() && !dialogue.choosing && !palmSign.isOpen && !act17.running && !mirrorMemory.busy && !truth.busy && !investigationsBusy()) {
       if (deathT > 0) {
         // 사망 연출: 3 s 후 리스폰
         deathT -= dt;
@@ -4060,6 +4625,7 @@ async function main() {
         else if (tr === 'out') sfx.hideOut();
         hiddenEl.classList.toggle('show', spot !== null);
         for (const h of hunters) h.update(dt, controller.position, controller.horizontalSpeed, hiding?.hiddenFor(h) ?? false);
+        hunterPaths.update();
         if (dorotabo) {
           dorotabo.update(dt, controller.position, controller.horizontalSpeed);
           if (dorotabo.pushVelocity.lengthSq() > 0.01) controller.externalPush.copy(dorotabo.pushVelocity);
@@ -4090,6 +4656,8 @@ async function main() {
     if (equipment?.hasWeapon) equipment.setDrawn(combat!.sinceLastAttack < 8);
     // 낙사/익사 방지
     const killY = village ? village.killY : island ? island.waterLevel - 1.6 : -20;
+    const hollowRecovery = village?.graveyard.hollow.recoverPosition(controller.position);
+    if (hollowRecovery) controller.teleport(hollowRecovery);
     if (controller.position.y < killY) controller.teleport(spawn);
     water?.update(dt);
     props?.update();
@@ -4110,7 +4678,7 @@ async function main() {
        * 인파에 2.2 m 안으로 들어가면 **돌아보고 이름을 부른다**. 6초 안에 [E] 를 누르면 위반.
        * 프롬프트를 띄우는 것 자체가 이 시스템이다 — 문서 표현대로 「UI(=히간누시)가 버튼을 들이민다」.
        */
-      if (wakyoView.active && gazeIdx < 0 && !cine && !uiOpen) {
+      if (wakyoView.active && gazeIdx < 0 && !cine && !uiOpen && !eventLocked) {
         village.innInterior.crowdSpots.forEach((sp2, i) => {
           if (gazeDone.has(i) || gazeIdx >= 0) return;
           // 2.2 m — 방이 12×9 라 3.5 로는 옆방 인파까지 닿아 이벤트가 연쇄된다(실측)
@@ -4154,9 +4722,13 @@ async function main() {
         const sp = village.innInterior.secretPos;
         const near = Math.hypot(controller.position.x - sp.x, controller.position.z - sp.z) < 2.6;
         if (near) {
-          mirrorHintEl.textContent = wakyoView.active
-            ? L('거울이 마주 보고 있다 — [E] 로 건너간다', '鏡が向かい合っている — [E] で渡る')
-            : L('벽에 거울이 있다 — [V] 로 와쿄를 든다', '壁に鏡がある — [V] で和鏡をかざす');
+          const returning = controller.position.x > sp.x;
+          mirrorHintEl.textContent = !returning && innCaseActive()
+            ? L('먼저 손님의 짐표와 피난도를 대조하자', '先に客の荷札と避難図を照合しよう')
+            : wakyoView.active
+              ? returning ? L('안쪽 벽거울을 마주 보고 [E] — 객실로 돌아간다', '内側の壁鏡を向いて [E] — 客室へ戻る')
+                : L('벽거울을 마주 보고 [E] — 거울 방으로 건너간다', '壁鏡を向いて [E] — 鏡の間へ渡る')
+              : L('벽에 거울이 있다 — [V] 로 와쿄를 든다', '壁に鏡がある — [V] で和鏡をかざす');
           mirrorHintEl.classList.add('on');
         }
       }
@@ -4165,7 +4737,23 @@ async function main() {
     // **요괴 갱신 블록 밖이어야 한다**: 그쪽은 `yokaiActive && hunters.length` 게이트라
     // 파수꾼이 아직 안 깬 상태에서는 통째로 건너뛴다 — 미로가 조용히 죽어 있었다(실측).
     // 되돌린 자리의 지면 높이는 다시 잡는다: 묘지는 flatten 0.55 라 반대편 고도가 다르다
-    if (village?.graveyard.mazeActive && !cine && !uiOpen) {
+    if (village && rules && started && deathT <= 0 && !cine && !uiOpen && !eventLocked && !dialogue.busy) {
+      if (graveyardPassage.needsFarewell) {
+        void graveyardPassage.resumeFarewell().catch(e => console.warn('[graveyard farewell]', e)).finally(renderHud);
+      } else {
+        const gp = village.graveyard.gazePoint;
+        const nearGate = !inGraveyardHollow() && rules.stateOf('geta') === 'open'
+          && (graveyardCase.complete || evidence.has('graveyard:palm'))
+          && Math.abs(controller.position.y - gp.y) < 1.1
+          && Math.hypot(controller.position.x - gp.x, controller.position.z - gp.z) < 0.95;
+        graveyardGateHold = nearGate ? graveyardGateHold + dt : 0;
+        if (graveyardGateHold >= 0.55) {
+          graveyardGateHold = 0;
+          void graveyardPassage.enter().catch(e => console.warn('[graveyard passage]', e)).finally(renderHud);
+        }
+      }
+    } else graveyardGateHold = 0;
+    if (village?.graveyard.mazeActive && !inGraveyardHollow() && !cine && !uiOpen && !eventLocked && !graveyardPassage.busy) {
       const back = village.graveyard.loopCheck(controller.position, dt);
       if (back) {
         back.y = village.heightAt(back.x, back.z) + 0.1;
@@ -4205,7 +4793,7 @@ async function main() {
     const cameraLocked = eventLocked || (act3?.controlsLocked ?? false);
     // 시퀀스 중엔 시퀀서가 카메라를 쓴다 — 마우스·휠은 소비만 하고 버린다 (끝났을 때 튀지 않게)
     if (fpOn) firstPerson!.update(dt, uiOpen || cameraLocked ? { x: 0, y: 0 } : mouse, controller);
-    else if (!cine) tpCam.update(dt, uiOpen || cameraLocked ? { x: 0, y: 0 } : mouse, uiOpen || cameraLocked ? 0 : wheel, controller.position, controller.horizontalSpeed, controller.grounded);
+    else if (!cine && !wellCinematicPlaying) tpCam.update(dt, uiOpen || cameraLocked ? { x: 0, y: 0 } : mouse, uiOpen || cameraLocked ? 0 : wheel, controller.position, controller.horizontalSpeed, controller.grounded);
     controlsTutorial?.update(dt, controller.position, {
       cameraReady: !tpCam.inIntro && !cine,
       lookDelta: uiOpen || cameraLocked ? 0 : Math.abs(mouse.x) + Math.abs(mouse.y),
@@ -4223,13 +4811,17 @@ async function main() {
          * 이 목록도 같이 늘어나야 한다. 둘은 **한 몸**이다.
          */
         const p2 = controller.position;
-        const nextGuideZone = village.wellShaft.inChamber(p2) ? 'well'
+        const nextGuideZone = village.crypt.contains(p2)
+          ? p2.x > village.crypt.gatePos.x + 1.1 && p2.z > village.crypt.entryTop.z - 1.1 ? 'crypt-shaft' : 'crypt-corridor'
+          : inGraveyardHollow() ? 'graveyard-hollow'
+          : village.wellShaft.inChamber(p2) ? 'well'
           : village.schoolInterior.contains(p2) ? 'school'
             : village.hokora.contains(p2) ? 'hokora'
               : village.inn.contains(p2) ? 'inn'
                 // 저택은 **두 층**이다 — 지하로 내려가면 안내가 바뀌어야 하므로 층까지 구역으로 센다
-                : p2.y < village.manorInterior.archiveFloorY + 2 ? 'archive'
-                  : village.manor.contains(p2) ? 'manor' : 'field';
+                : inManorArchive() ? 'archive'
+                  : village.manor.contains(p2) ? 'manor'
+                    : village.graveyard.contains(p2, 18) ? 'graveyard' : 'field';
         if (nextGuideZone !== guideZone) {
           guideZone = nextGuideZone;
           renderHud();
@@ -4263,17 +4855,20 @@ async function main() {
           crouching,
           ringing,
         });
-        if (!graveyardPreludeHeard && village && rules?.stateOf('geta') === 'open'
+        if (village && rules?.stateOf('geta') === 'open' && !village.graveyard.mazeActive
           && village.graveyard.contains(controller.position, 14.5)) {
-          graveyardPreludeHeard = true;
           village.graveyard.beginHaunt();
-          sfx.voice(0.34, 'girl');
-          void dialogue.say(
-            { text: L('공기놀이 돌이 부딪히는 소리. 묘석 사이의 작은 길 표식들이 서로 다른 방향으로 옮겨 간다.', 'お手玉の石がぶつかる音。墓石の間の小さな道標が、別々の方向へ移っていく。') },
-            { who: L('아이 1', '子供 1'), text: L('누나도 죽었어?', 'お姉ちゃんも死んだの?') },
-            { who: L('아이 2', '子供 2'), text: L('누나는 언제 죽었어?', 'お姉ちゃんはいつ死んだの?') },
-            { who: L('아이 3', '子供 3'), text: L('왜 아직 살아 있어?', 'どうしてまだ生きてるの?') },
-          );
+          // 중간 저장은 미로와 아이들을 되살리되 이미 본 첫 대사는 반복하지 않는다.
+          if (!graveyardPreludeHeard) {
+            graveyardPreludeHeard = true;
+            sfx.voice(0.34, 'girl');
+            void dialogue.say(
+              { text: L('공기놀이 돌이 부딪히는 소리. 묘석 사이의 작은 길 표식들이 서로 다른 방향으로 옮겨 간다.', 'お手玉の石がぶつかる音。墓石の間の小さな道標が、別々の方向へ移っていく。') },
+              { who: L('아이 1', '子供 1'), text: L('누나도 죽었어?', 'お姉ちゃんも死んだの?') },
+              { who: L('아이 2', '子供 2'), text: L('누나는 언제 죽었어?', 'お姉ちゃんはいつ死んだの?') },
+              { who: L('아이 3', '子供 3'), text: L('왜 아직 살아 있어?', 'どうしてまだ生きてるの?') },
+            );
+          }
           // 미로의 규칙은 대사가 아니라 **지장의 시선**으로 가르친다. 다만 한 줄은 필요하다 —
           // 「움직이는 것은 전부 거짓」이 없으면 플레이어는 표식을 따라가는 것이 정답인 줄 안다
           village.graveyard.onLoop = (n) => {
@@ -4373,13 +4968,16 @@ async function main() {
             toastEl.classList.add('show'); toastT = recalledOnExit ? 4.5 : 3.0;
           }
         } else if (!dialogue.choosing) yuri?.update(dt, controller.position, camera, controller.body, schoolHidden);
-        wellWoman?.update(dt, controller.position, rules?.carried.includes('coins') ?? false);
       }
       // 폰을 한 번이라도 켰으면 플래그로 남긴다 — 공고판의 마지막 한 줄이 이걸 읽고,
       // 세이브에도 실려야 로드 뒤에 그 줄이 사라지지 않는다
       if (phone.seen && !storyFlags.phone) storyFlags.phone = true;
       lifesigns?.update(dt, controller.position, camera);
     }
+    // 대면 숏에서도 스킨 애니메이션은 돌리고 추격·포획만 동결한다.
+    if (wellClimbInProgress && dialogue.choosing) village?.wellShaft.showFalseHaru(1.5);
+    wellWoman?.update(dt, controller.position, rules?.carried.includes('coins') ?? false,
+      cine || fpOn || wellCinematicPlaying || dialogue.choosing);
     act2?.update(dt);
     village?.torii.update(camera.position); // 카메라가 확정된 뒤 코앞의 토리이를 접는다
     updateAudioSpace(dt);                    // 리스너가 확정된 뒤 존·오클루전 갱신
@@ -4462,9 +5060,36 @@ async function main() {
         chochin.setHeld(storyFlags.chochin);
       }
     }
-    if (render) {
-      gpuTimer?.begin();
-      postfx.composer.render(dt);
+    if (render) renderScene(dt);
+    input.endFrame();
+
+    if (import.meta.env.DEV) {
+      const dbg = (window as unknown as { __dbg?: { trace?: unknown[] } }).__dbg;
+      if (dbg?.trace) dbg.trace.push({ dt: +dt.toFixed(4), spd: +controller.horizontalSpeed.toFixed(2), vy: +controller.velocity.y.toFixed(2), y: +controller.position.y.toFixed(3), g: controller.grounded });
+    }
+
+    // HUD
+    // 튜토리얼은 포인터락 뒤에도 남아야 한다. 기존 안내는 클릭하는 순간 사라져 읽을 틈이 없었다.
+    const tutorialHint = !!controlsTutorial?.active && !tpCam.inIntro && started;
+    hint.classList.toggle('hidden', tutorialHint ? false : input.locked || tpCam.inIntro || !started || hintExpired);
+    if (debug) statsEl.textContent =
+      `${fpsShown.toFixed(0)} fps\n` +
+      `speed ${controller.horizontalSpeed.toFixed(2)} m/s  ${controller.grounded ? 'ground' : 'air'}\n` +
+      `pos ${controller.position.x.toFixed(1)}, ${controller.position.y.toFixed(1)}, ${controller.position.z.toFixed(1)}\n` +
+      (lightPool ? `${lightPool.debugLine()} · gpuopt ${losslessGpu ? 'on' : 'off'}\n` : '') +
+      (gpuTimer.available ? `gpu ${gpuTimer.ms.toFixed(2)} ms · dyn ${Math.round(adaptiveRenderScale * 100)}%\n` : '') +
+      `${telemetry.debugLine()}\n` +
+      (rokuro ? `rokuro ${rokuro.state}  ${rokuro.root.position.x.toFixed(1)}, ${rokuro.root.position.z.toFixed(1)}\n` : '') +
+      L('H: 튜닝 패널(개발)', 'H: チューニング(開発)');
+  }
+
+  function renderScene(dt: number) {
+    gpuTimer.begin();
+    try {
+      try {
+        village?.applyInteriorVisibility(camera, scene, renderer.shadowMap.enabled);
+        postfx.composer.render(dt);
+      } finally { village?.restoreInteriorVisibility(); }
       // 와쿄 렌즈 — 현실 위에 원 거울만 따로 굽는다 (내리면 비용 0).
       // 초칭 빛을 거울 속에도 복사한다 — 반사에 내 등불이 없으면 조명이 「다른 세계」가 된다
       if (wakyoView.active && village) {
@@ -4478,30 +5103,9 @@ async function main() {
         }
         wakyoView.update(renderer, village.innInterior.mirrorScene, camera);
       }
-      gpuTimer?.end();
+    } finally {
+      gpuTimer.end(); // 렌더 예외 뒤에도 열린 query가 다음 프레임까지 남지 않는다
     }
-    input.endFrame();
-
-    if (import.meta.env.DEV) {
-      const dbg = (window as unknown as { __dbg?: { trace?: unknown[] } }).__dbg;
-      if (dbg?.trace) dbg.trace.push({ dt: +dt.toFixed(4), spd: +controller.horizontalSpeed.toFixed(2), vy: +controller.velocity.y.toFixed(2), y: +controller.position.y.toFixed(3), g: controller.grounded });
-    }
-
-    // HUD
-    // 튜토리얼은 포인터락 뒤에도 남아야 한다. 기존 안내는 클릭하는 순간 사라져 읽을 틈이 없었다.
-    const tutorialHint = !!controlsTutorial?.active && !tpCam.inIntro && started;
-    hint.classList.toggle('hidden', tutorialHint ? false : input.locked || tpCam.inIntro || !started || hintExpired);
-    fpsAcc += 1 / dt; fpsN++; fpsTimer += dt;
-    if (fpsTimer > 0.5) { fpsShown = fpsAcc / fpsN; fpsAcc = 0; fpsN = 0; fpsTimer = 0; }
-    if (debug) statsEl.textContent =
-      `${fpsShown.toFixed(0)} fps\n` +
-      `speed ${controller.horizontalSpeed.toFixed(2)} m/s  ${controller.grounded ? 'ground' : 'air'}\n` +
-      `pos ${controller.position.x.toFixed(1)}, ${controller.position.y.toFixed(1)}, ${controller.position.z.toFixed(1)}\n` +
-      (lightPool ? `${lightPool.debugLine()} · gpuopt ${losslessGpu ? 'on' : 'off'}\n` : '') +
-      (gpuTimer.available ? `gpu ${gpuTimer.ms.toFixed(2)} ms · dyn ${Math.round(adaptiveRenderScale * 100)}%\n` : '') +
-      `${telemetry.debugLine()}\n` +
-      (rokuro ? `rokuro ${rokuro.state}  ${rokuro.root.position.x.toFixed(1)}, ${rokuro.root.position.z.toFixed(1)}\n` : '') +
-      L('H: 튜닝 패널(개발)', 'H: チューニング(開発)');
   }
   requestAnimationFrame(frame);
   if (import.meta.env.DEV) {

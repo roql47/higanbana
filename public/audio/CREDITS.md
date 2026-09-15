@@ -56,3 +56,6 @@ CC BY 항목은 배포 시 이 파일(또는 게임 내 크레딧)에 표기를 
 - CC BY 3.0: https://creativecommons.org/licenses/by/3.0/
 - CC BY 4.0: https://creativecommons.org/licenses/by/4.0/
 - CC BY 2.1 JP: https://creativecommons.org/licenses/by/2.1/jp/
+# Streaming derivatives
+
+The `amb/frogs/stream/*.flac` and `amb/higurashi/stream/*.flac` files are six-second segments of the corresponding credited recordings below. They preserve the decoded source at 24-bit PCM precision and retain the same authors and licenses. The original MP3 files remain available as a decoder fallback.

@@ -41,6 +41,7 @@ export class Pedestals {
   private lit = 0;
   private t = 0;
   private placed = Array.from({ length: 7 }, () => false);
+  private relocated = false;
 
   constructor(scene: THREE.Scene, physics: Physics, ground: HigasatoGround, center: THREE.Vector3) {
     const C = center.clone();
@@ -259,7 +260,7 @@ export class Pedestals {
       // 실물이 올라가면 표식은 그 위에 작게, 자리표시자면 표식 자체가 공물 노릇을 한다
       mk.scale.setScalar(model ? 1 : 2);
       mk.position.copy(s).add(new THREE.Vector3(0, model ? 0.22 : 0.1, 0));
-      mk.visible = true;
+      mk.visible = !this.relocated;
     }
     if (model) {
       // 저장 복원은 자리표시자를 먼저 놓고 모델 로드 뒤 같은 슬롯을 갱신한다.
@@ -270,6 +271,7 @@ export class Pedestals {
       model.position.copy(s).add(new THREE.Vector3(0, 0.02, 0));
       model.name = 'offered';
       model.userData['offeringSlot'] = i;
+      model.visible = !this.relocated;
       model.traverse((c) => { const m = c as THREE.Mesh; if (m.isMesh) m.castShadow = true; });
       this.group.add(model);  // clone(true) 은 재질을 공유하므로 새 프로그램이 안 생긴다
     }
@@ -284,6 +286,7 @@ export class Pedestals {
 
   /** 리셋 — 놓인 공물 제거. **라이트와 표식은 상주시킨 것이므로 지우지 않고 끈다** */
   clear() {
+    this.relocated = false;
     for (const c of [...this.group.children]) {
       if (c.name === 'offered') c.removeFromParent();
     }
@@ -297,6 +300,13 @@ export class Pedestals {
   }
 
   setRootsLocked(locked: boolean) { this.lockRoots.visible = locked; }
+
+  /** Keep logical offerings intact while their physical objects travel to the crypt. */
+  setRelocated(relocated: boolean) {
+    this.relocated = relocated;
+    for (let i = 0; i < this.marks.length; i++) this.marks[i]!.visible = !relocated && this.placed[i]!;
+    for (const child of this.group.children) if (child.name === 'offered') child.visible = !relocated;
+  }
 
   update(dt: number) {
     this.t += dt;

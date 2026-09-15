@@ -72,28 +72,35 @@ export class ThirdPersonCamera {
 
   // --- 카메라 흔들림(타격 피드백) ---
   private shakeAmt = 0;
+  private returnT = 0;
+  private readonly returnPosition = new THREE.Vector3();
+  private readonly returnRotation = new THREE.Quaternion();
   shake(intensity: number) { this.shakeAmt = Math.min(1, this.shakeAmt + intensity); }
 
   /**
    * 시퀀서가 놓고 간 마지막 카메라를 다음 3인칭 프레임의 시작점으로 받아들인다.
    * 이 동기화가 없으면 컷 종료 프레임에 예전 yaw·거리로 순간 복귀해 숏 전체가 점프컷처럼 보인다.
    */
-  adoptCurrentView(targetPos: THREE.Vector3) {
+  adoptCurrentView(targetPos: THREE.Vector3, previous?: { yaw: number; pitch: number; distance: number }) {
+    this.returnPosition.copy(this.camera.position);
+    this.returnRotation.copy(this.camera.quaternion);
+    this.returnT = 0.55;
     const c = settings.camera;
     this.curDrop = this.pivotDrop;
     this.pivot.set(targetPos.x, targetPos.y + c.pivotHeight - this.curDrop, targetPos.z);
     this.pivotInit = true;
     const offset = this.camera.position.clone().sub(this.pivot);
     const len = Math.max(0.001, offset.length());
-    this.yaw = Math.atan2(offset.x, offset.z);
-    this.pitch = clamp(Math.asin(offset.y / len), c.minPitch, c.maxPitch);
-    this.distance = clamp(len, c.minDistance, c.maxDistance);
+    this.yaw = previous?.yaw ?? Math.atan2(offset.x, offset.z);
+    this.pitch = clamp(previous?.pitch ?? Math.asin(offset.y / len), c.minPitch, c.maxPitch);
+    this.distance = clamp(previous?.distance ?? len, c.minDistance, c.maxDistance);
     this.targetDistance = this.distance;
     this.introT = 0;
   }
 
   /** 암전 텔레포트 뒤 새 위치에서 목표를 향한 정상 3인칭 구도로 즉시 재설정한다. */
   snapBehind(targetPos: THREE.Vector3, lookAt: THREE.Vector3) {
+    this.returnT = 0;
     const c = settings.camera;
     this.curDrop = this.pivotDrop;
     this.pivot.set(targetPos.x, targetPos.y + c.pivotHeight - this.curDrop, targetPos.z);
@@ -180,9 +187,11 @@ export class ThirdPersonCamera {
         0, wanted, true,
         undefined, undefined, undefined, this.excludeBody,
       );
-      if (hit) allowed = Math.max(c.minCollisionDistance, hit.time_of_impact - 0.05);
+      // Collision clearance takes precedence over the preferred minimum distance.
+      // A near wall must never push the camera beyond the obstruction.
+      if (hit) allowed = Math.min(wanted, Math.max(0, hit.time_of_impact - 0.05));
       const lambda = allowed < this.distance ? c.collisionPullSpeed : c.collisionReleaseSpeed;
-      this.distance = damp(this.distance, allowed, Math.max(lambda, c.zoomLag), dt);
+      this.distance = Math.min(allowed, damp(this.distance, allowed, Math.max(lambda, c.zoomLag), dt));
 
       this.camera.position.copy(pivotOff).addScaledVector(this.tmpDir, this.distance);
       if (this.introT > 0) {
@@ -198,6 +207,12 @@ export class ThirdPersonCamera {
         this.camera.position.copy(pivotOff).addScaledVector(this.tmpDir, dist);
       }
       this.camera.lookAt(pivotOff);
+    }
+    if (this.returnT > 0) {
+      this.returnT = Math.max(0, this.returnT - dt);
+      const t = 1 - this.returnT / 0.55, blend = t * t * (3 - 2 * t);
+      this.camera.position.lerp(this.returnPosition, 1 - blend);
+      this.camera.quaternion.slerp(this.returnRotation, 1 - blend);
     }
     if (this.shakeAmt > 0.001) {
       const a = this.shakeAmt * 0.06;

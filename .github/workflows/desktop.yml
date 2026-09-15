@@ -1,0 +1,43 @@
+name: Build Windows Steam package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: x86_64-pc-windows-msvc
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: cargo fetch --locked --manifest-path src-tauri/Cargo.toml
+      - run: npm run desktop:build -- --target x86_64-pc-windows-msvc --no-bundle -- --locked
+      - run: npm run desktop:test
+      - run: node scripts/package-desktop.mjs fetch-redist
+      - name: Verify Microsoft installer signature
+        shell: pwsh
+        run: |
+          $signature = Get-AuthenticodeSignature .build-tools/redist/MicrosoftEdgeWebview2Setup.exe
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation(?:,|$)') {
+            throw 'WebView2 installer signature verification failed'
+          }
+      - run: npm run package:steam -- --platform windows-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Higanbana-Windows-x64-unsigned-preview
+          path: release/windows-x64/
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 14

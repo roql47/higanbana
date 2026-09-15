@@ -3,6 +3,7 @@ import {
   normalizeStoryProgress,
   type StoryPhaseId,
 } from './phases';
+import type { Act17State } from './act17';
 
 /**
  * 스토리 플래그 + 체크포인트 저장 (PLAN-STORY §6.2, §7.1)
@@ -33,7 +34,7 @@ export interface StoryFlags {
   banished: number;
   /** 금기 三 위반(이름 부름에 대답) 횟수 */
   answered: number;
-  /** ACT 1~11 조사 퍼즐에서 확보한 단서 id. 공물 획득 게이트와 이어하기에 사용한다. */
+  /** 조사·기억 대조에서 확인한 단서와 해석 id. 획득/진행 게이트와 이어하기에 사용한다. */
   evidence: string[];
   /** 사망 횟수 */
   deaths: number;
@@ -74,6 +75,7 @@ export function defaultFlags(): StoryFlags {
 
 /** 체크포인트에서 되살릴 수 있는 최소 월드 상태. 추격 AI·소음처럼 순간적인 값은 저장하지 않는다. */
 export interface StoryWorldState {
+  act17?: Act17State;
   offered?: string[];
   carried?: string[];
   rulesStarted?: boolean;
@@ -101,39 +103,124 @@ export interface SavePayload {
   world?: StoryWorldState;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? [...new Set(value.filter((v): v is string => typeof v === 'string'))] : [];
+}
+
+/** 저장 JSON은 구버전·부분 저장일 수 있으므로 런타임 타입을 그대로 신뢰하지 않는다. */
+function readFlags(raw: Record<string, unknown>): StoryFlags {
+  const flags = defaultFlags();
+  for (const key of ['offered', 'seals', 'banished', 'answered', 'deaths', 'bell'] as const) {
+    const v = raw[key];
+    if (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0) flags[key] = v;
+  }
+  flags.offered = Math.min(6, flags.offered);
+  flags.seals = Math.min(6, flags.seals);
+  flags.bell = Math.min(7, flags.bell);
+  for (const key of ['diary', 'chochin', 'phone'] as const) {
+    if (typeof raw[key] === 'boolean') flags[key] = raw[key];
+  }
+  flags.phoneBattery = typeof raw.phoneBattery === 'number' && Number.isFinite(raw.phoneBattery)
+    ? Math.max(0, Math.min(100, raw.phoneBattery)) : flags.phone ? 86 : 92;
+  flags.roster = strings(raw.roster);
+  flags.evidence = strings(raw.evidence);
+  if (isRecord(raw.regrets)) {
+    flags.regrets = Object.fromEntries(Object.entries(raw.regrets)
+      .filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean'));
+  }
+  // 기본 act=2를 먼저 섞으면 chapter만 있는 구버전 저장의 진행을 잃는다.
+  const progress = normalizeStoryProgress({
+    chapter: typeof raw.chapter === 'string' ? raw.chapter : flags.chapter,
+    ...(typeof raw.act === 'number' && Number.isFinite(raw.act) ? { act: raw.act } : {}),
+  });
+  return Object.assign(flags, progress);
+}
+
+function readWorld(raw: Record<string, unknown>): StoryWorldState {
+  const world: StoryWorldState = { offered: strings(raw.offered), carried: strings(raw.carried) };
+  if (raw.act17 === 'unseen' || raw.act17 === 'pending' || raw.act17 === 'complete') world.act17 = raw.act17;
+  for (const key of ['rulesStarted', 'fudaRefused', 'tabletRead', 'tabletEventReady', 'restoreWarningReady',
+    'restoreFirstDone', 'photoMessageRevealed', 'wellPreludeHeard', 'schoolPreludeHeard', 'graveyardPreludeHeard'] as const) {
+    if (typeof raw[key] === 'boolean') world[key] = raw[key];
+  }
+  for (const key of ['suzuWardOrder', 'wellNicheOrder'] as const) {
+    const value = raw[key];
+    world[key] = Array.isArray(value)
+      ? [...new Set(value.filter((v): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0))] : [];
+  }
+  const p = raw.player;
+  if (isRecord(p) && typeof p.x === 'number' && typeof p.y === 'number' && typeof p.z === 'number'
+    && [p.x, p.y, p.z].every((n) => Number.isFinite(n) && Math.abs(n) < 500)) {
+    world.player = { x: p.x, y: p.y, z: p.z };
+    if (typeof p.yaw === 'number' && Number.isFinite(p.yaw)) world.player.yaw = p.yaw;
+    if (typeof p.cameraYaw === 'number' && Number.isFinite(p.cameraYaw)) world.player.cameraYaw = p.cameraYaw;
+  }
+  return world;
+}
+
 export class StorySave {
   constructor(private slot = 0) {}
   private get key() { return `higanbana.save.${this.slot}`; }
+  private get backupKey() { return `${this.key}.backup`; }
+  lastReadSource: 'primary' | 'backup' | null = null;
+  lastSavedAt: number | undefined;
 
   /** @returns 저장 성공 여부 (시크릿 모드 등 localStorage 불가 환경은 조용히 false) */
   checkpoint(flags: StoryFlags, world?: StoryWorldState): boolean {
-    // 호출 뒤 flags/evidence가 바뀌어도 저장 스냅숏이 따라 변하지 않도록 JSON 직렬화 가능한 값만 복제한다.
-    const frozenFlags = { ...flags, regrets: { ...flags.regrets }, roster: [...flags.roster], evidence: [...flags.evidence] };
-    const frozenWorld = world ? JSON.parse(JSON.stringify(world)) as StoryWorldState : undefined;
-    const payload: SavePayload = { v: 1, t: Date.now(), flags: frozenFlags, ...(frozenWorld ? { world: frozenWorld } : {}) };
-    try { localStorage.setItem(this.key, JSON.stringify(payload)); return true; }
+    // 동기 JSON 직렬화 자체가 스냅숏을 만든다. 복제→파싱→재직렬화를 할 필요가 없다.
+    const payload: SavePayload = { v: 1, t: Date.now(), flags, ...(world ? { world } : {}) };
+    try {
+      const next = JSON.stringify(payload);
+      const previous = localStorage.getItem(this.key);
+      // 손상된 최신 저장으로 정상 백업을 덮지 않는다.
+      if (parseSave(previous)) localStorage.setItem(this.backupKey, previous!);
+      localStorage.setItem(this.key, next);
+      this.lastSavedAt = payload.t;
+      return true;
+    }
     catch { return false; }
   }
 
   peek(): SavePayload | null {
-    try {
-      const s = localStorage.getItem(this.key);
-      if (!s) return null;
-      const p = JSON.parse(s) as SavePayload;
-      if (!p || p.v !== 1 || !p.flags) return null;
-      if (!Array.isArray(p.flags.evidence)) p.flags.evidence = [];
-      if (!Number.isFinite(p.flags.phoneBattery)) p.flags.phoneBattery = p.flags.phone ? 86 : 92;
-      // 초창기 저장은 chapter만 갖고 있다. 읽는 순간 phase/act를 보강해 이후 코드는 한 계약만 쓴다.
-      normalizeStoryProgress(p.flags);
-      if (p.world) {
-        if (!Array.isArray(p.world.offered)) p.world.offered = [];
-        if (!Array.isArray(p.world.carried)) p.world.carried = [];
-        if (!Array.isArray(p.world.suzuWardOrder)) p.world.suzuWardOrder = [];
-        if (!Array.isArray(p.world.wellNicheOrder)) p.world.wellNicheOrder = [];
-      }
-      return p;
-    } catch { return null; }
+    this.lastReadSource = null;
+    for (const [key, source] of [[this.key, 'primary'], [this.backupKey, 'backup']] as const) {
+      try {
+        const payload = parseSave(localStorage.getItem(key));
+        if (payload) {
+          this.lastReadSource = source;
+          this.lastSavedAt = payload.t > 0 ? payload.t : undefined;
+          return payload;
+        }
+      } catch { /* 기본 저장 접근 실패 시에도 백업을 시도한다 */ }
+    }
+    return null;
   }
 
-  clear() { try { localStorage.removeItem(this.key); } catch { /* noop */ } }
+  clear(): boolean {
+    try {
+      // 백업 삭제 실패 시 최신 저장은 남겨 둔다. 새 게임은 실패를 확인하고 취소한다.
+      localStorage.removeItem(this.backupKey);
+      localStorage.removeItem(this.key);
+      this.lastReadSource = null;
+      this.lastSavedAt = undefined;
+      return true;
+    } catch { return false; }
+  }
+}
+
+function parseSave(raw: string | null): SavePayload | null {
+  if (!raw) return null;
+  try {
+    const p: unknown = JSON.parse(raw);
+    if (!isRecord(p) || p.v !== 1 || !isRecord(p.flags)) return null;
+    return {
+      v: 1, t: typeof p.t === 'number' && Number.isFinite(p.t) ? p.t : 0,
+      flags: readFlags(p.flags),
+      ...(isRecord(p.world) ? { world: readWorld(p.world) } : {}),
+    };
+  } catch { return null; }
 }

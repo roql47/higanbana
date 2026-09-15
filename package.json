@@ -4,7 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test": "node --import ./tests/register.mjs --test tests/*.test.mjs",
     "dev": "vite",
+    "dev:ogimachi": "vite --config vite.ogimachi.config.ts",
+    "build:ogimachi": "vite build --config vite.ogimachi.config.ts",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc -p scripts/tsconfig.json",
@@ -16,11 +19,19 @@
     "impostor:build": "node scripts/build-impostors.ts",
     "texture:ktx2": "node scripts/compress-ktx2.ts",
     "audio:fetch": "node scripts/audio/fetch.ts",
+    "audio:segment": "node scripts/audio/segment-loops.mjs",
     "audio:search": "node scripts/audio/fetch.ts --search",
-    "tripo:fetch": "node scripts/tripo/fetch.ts"
+    "tripo:fetch": "node scripts/tripo/fetch.ts",
+    "build:desktop": "node scripts/package-desktop.mjs build",
+    "desktop:dev": "node scripts/desktop.mjs dev",
+    "desktop:build": "node scripts/desktop.mjs build",
+    "desktop:test": "node scripts/desktop.mjs test",
+    "package:steam": "node scripts/package-desktop.mjs stage",
+    "steam:config": "node scripts/steam-config.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",
+    "@tauri-apps/api": "2.11.1",
     "n8ao": "^2.0.1",
     "postprocessing": "^6.39.4",
     "three": "^0.185.1",
@@ -30,11 +41,12 @@
     "@gltf-transform/core": "^4.4.2",
     "@gltf-transform/extensions": "^4.4.2",
     "@gltf-transform/functions": "^4.4.2",
+    "@tauri-apps/cli": "2.11.4",
     "@tweakpane/core": "^2.0.5",
     "@types/node": "^24.13.3",
     "@types/three": "^0.185.4",
     "meshoptimizer": "^1.2.0",
-    "sharp": "^0.35.3",
+    "sharp": "0.35.4",
     "typescript": "^5.9.3",
     "vite": "^8.2.1"
   }

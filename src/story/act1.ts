@@ -3,6 +3,7 @@ import { L, lang } from '@/core/i18n';
 
 /** 이 ACT 의 화자 — 자막에 반복해서 나온다 */
 const SAYO = L('사요', 'サヨ');
+const EXIT_SPEED = 2.0;
 import type { Dialogue } from './dialogue';
 import type { FirstPerson } from './firstPerson';
 import type { Pursuers } from './pursuers';
@@ -39,7 +40,9 @@ import { damp } from '@/core/math';
  */
 
 export interface Act1Deps {
-  village: Higasato;
+  /** Survey polyline projections can jump at corners; keep the held companion relative to the player. */
+  companionFollowsPlayer?: boolean;
+  village: { ground: Pick<Higasato['ground'], 'sAtZ' | 'roadAt' | 'roadLength' | 'heightAt' | 'nearestRoad'> };
   controller: CharacterController;
   fp: FirstPerson;
   pursuers: Pursuers;
@@ -205,6 +208,15 @@ export class Act1 {
   private nearZ = 0;
   private sayoPos = new THREE.Vector3();
   private sayoHand = new THREE.Vector3();
+  /**
+   * **걸음 속도**(m/s) — 사요의 클립 배속과 걷기/달리기 선택이 보는 값.
+   *
+   * `horizontalSpeed` 는 *직전 물리 스텝의 이동량 / dt* 라 한 스텝만 막혀도 0 으로 떨어진다
+   * (벽에 스치거나, 고정 스텝 루프에서 끌기가 한 스텝 비거나). 그 한 프레임 때문에
+   * 사요가 걷기로 넘어갔다가 달리기를 다시 트는 일이 없도록 여기서 한 번 걸러 준다.
+   * 0.1 초쯤의 시정수 — 넘어짐(2~3 초)은 그대로 따라가고 한 프레임짜리 구멍만 메운다.
+   */
+  private pace = 0;
   /** 손 높이 — 넘어지면 내려갔다가 일어나면서 돌아온다 */
   private handY = HAND_Y;
   /** 사요가 뒤를 흘끗 보는 남은 시간(초) */
@@ -470,7 +482,7 @@ export class Act1 {
     const d = this.d, g = d.village.ground, fp = d.fp, ctrl = d.controller;
 
     const p0 = ctrl.position;
-    if (this.released) this.goneLead += dt * 1.2;
+    if (this.released) this.goneLead += dt * EXIT_SPEED;
     const lead = Math.max(LEAD_MIN, LEAD + fp.tugging * LEAD_TUG - (fp.stumbling ? LEAD_TRIP : 0)) + this.goneLead;
     const rp = g.roadAt(THREE.MathUtils.clamp(this.nearS + lead, 0, g.roadLength - 1), this.roadBuf);
     // 진행 방향(dirX, dirZ) 기준 오른쪽 = (−dirZ, dirX)
@@ -483,7 +495,8 @@ export class Act1 {
      * 잡은 손이 끌고 가는 사이니, 옆으로 흐르면 언니도 같이 흐르는 게 맞기도 하다.
      */
     const lat = THREE.MathUtils.clamp((p0.x - this.nearX) * rx + (p0.z - this.nearZ) * rz, -0.9, 0.9);
-    const x = rp.x + rx * (SIDE + lat), z = rp.z + rz * (SIDE + lat);
+    const x = d.companionFollowsPlayer ? p0.x + rp.dirX * lead + rx * SIDE : rp.x + rx * (SIDE + lat);
+    const z = d.companionFollowsPlayer ? p0.z + rp.dirZ * lead + rz * SIDE : rp.z + rz * (SIDE + lat);
     this.sayoPos.set(x, g.heightAt(x, z), z);
 
     // 미오의 손은 **몸**에 매단다(카메라가 아니라). 카메라에 매달면 고개를 돌릴 때 손이 따라 돌아서
@@ -496,17 +509,22 @@ export class Act1 {
       p.z + rp.dirZ * HAND_FWD + rz * HAND_SIDE,
     );
 
-    const speed = ctrl.horizontalSpeed;
-    // 넘어져 있는 동안에는 달리기가 아니다 — 언니는 서서 팔을 당기고 있다
-    s.play(speed < 1.6 ? 'walk' : 'run');
+    // Once the ending starts, Mio stopping must not change Sayo's clip.
+    const exiting = this.state === 'end';
+    this.pace = damp(this.pace, exiting ? EXIT_SPEED : ctrl.horizontalSpeed, 10, dt);
+    const speed = this.pace;
+    // 넘어져 있는 동안에는 달리기가 아니다 — 언니는 서서 팔을 당기고 있다.
+    // 판정은 **넘어짐 상태**가 먼저다: 속도만 보면 경계(1.6)에서 클립이 떨린다
+    s.play(!exiting && (fp.stumbling || speed < 1.6) ? 'walk' : 'run');
     this.glanceT = Math.max(0, this.glanceT - dt);
     s.update(dt, {
       pos: this.sayoPos,
       // 이 리그는 정면이 +Z 다 → yaw = atan2(dirX, dirZ). 카메라 yaw 와는 π 만큼 다르다
       yaw: Math.atan2(rp.dirX, rp.dirZ),
       hand: fp.holdingHand ? this.sayoHand : null,
+      handWeight: fp.handStrength,
       speed,
-      glance: this.glanceT > 0 ? 1 : 0,
+      glance: !this.released && this.glanceT > 0 ? 1 : 0,
     });
     // 손이 빠진 뒤에도 언니는 멈추지 않고 몇 걸음 더 달린다. 종이 울리면 `finish()`가
     // 짧은 페이드를 시작한다. 이동과 투명도가 함께 진행돼 정지한 판을 지우는 화면효과로 보이지 않는다.
@@ -591,6 +609,7 @@ export class Act1 {
     await d.dialogue.say({ who: SAYO, text: L('미오야.', 'ミオ。'), dur: 2.0 });
     await wait(900);   // 잠시 침묵
     await d.dialogue.say({ who: SAYO, text: L('피안화가 피어 있는 길은 절대로 따라오면 안 돼.', '彼岸花の咲いている道は、絶対についてきちゃだめ。'), dur: 4.0 });
+    await d.dialogue.say({ who: SAYO, text: L('내 목소리가 들려도…… 여기로 오라는 말은 믿지 마.', '私の声がしても……ここへ来てという言葉は信じないで。'), dur: 3.8 });
 
     this.state = 'done';
     d.sayo?.show(false);

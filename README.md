@@ -5,6 +5,10 @@
 
 > 3D_motion v0.8(초원 섬 3인칭 캐릭터)에서 이어진다. 초원 버전은 `?scene=sandbox` 로 그대로 남아 있다.
 
+현재 스토리 빌드는 **ACT 18 「퀘스트를 준 자」까지** 이어진다. 신사 지하 조사·히간누시 대면·공물 이동을 구현했다. ACT 16~17은 원안의 일부 구현이며 ACT 19~35는 제작 전이다. 최신 범위와 검증 결과: [전체 재점검 및 ACT 18](docs/act18-review-2026-09-08.md).
+
+Windows x64 / Mac Apple Silicon 데스크톱 패키징을 추가했다. 실행 파일·오프라인 폰트·SteamPipe 준비와 남은 출시 검증: [Steam 패키징 안내](docs/steam-packaging-2026-09-09.md). 현재는 개발 프리뷰이며 Windows 실기기 검증과 Steam 업로드는 별도다.
+
 ## 실행
 ```bash
 npm install
@@ -12,6 +16,7 @@ npm run dev      # http://localhost:5173
                  # ?scene=sandbox 초원 섬(v0.8) · ?scene=playground 테스트 지형
                  # ?quality=low|medium|high|ultra · ?debug 통계/패널
 npm run typecheck
+npm test         # 길찾기·프레임 제한·입력·조명·오디오·저장 회귀 테스트 (Node 24.12+)
 npm run build    # dist/ (정적 배포: Vercel/Netlify/GitHub Pages 어디든)
 npm run preview  # dist/ 미리보기 http://localhost:4173
 ```
@@ -40,7 +45,7 @@ npm run audio:search -- "taiko hit" --max-dur 3     # Freesound 검색 (.env 에
 ## 조작
 - 캔버스 클릭 → 포인터락(마우스 시점). 드래그 → 오빗. `Esc` 해제
 - `W A S D` 이동(기본 걷기) · `Shift` 달리기 · `P` 1인칭/3인칭 전환 · **`Q` 초칭 밝기(끔·약·강)** · 휠 줌
-- `R` 리셋 · `M` 음소거 · `F` 전체화면 · `H` 튜닝 패널(dev/?debug)
+- `M` 음소거 · `F` 전체화면 · `H` 튜닝 패널(dev/?debug). 새 게임은 메뉴에서 저장 삭제 확인 후 시작한다. `R`은 개발 sandbox에서만 리셋한다.
 - `?scene=sandbox` 에서는 v0.8 조작 그대로 (Shift 걷기 · Space 점프 · 좌클릭/J 공격 · Tab 인벤토리 · E 줍기)
 
 ## 구조

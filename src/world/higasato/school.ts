@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Physics } from '@/core/physics';
-import { Props } from '@/world/props';
+import { StreamedDetail } from '@/world/streamedDetail';
 import { makeHouseMaterials } from '../village/houseMaterials';
 import { SITES, type HigasatoGround } from './ground';
 import { MIO_CLEAR_DOOR_HEIGHT, PartsBuilder, textCanvas, tileTex } from './kit';
@@ -33,6 +33,7 @@ const LEAF_W = DOOR_W * 1.06;
  */
 export class SchoolInterior {
   readonly group = new THREE.Group();
+  readonly detail: StreamedDetail;
   /** 머리빗 — 음악실 피아노 안 */
   readonly kushiPos: THREE.Vector3;
   /** 교무실 일지 (조사 지점) */
@@ -80,8 +81,8 @@ export class SchoolInterior {
   private apparitionsActive = false;
   private t = 0;
 
-  constructor(scene: THREE.Scene, private physics: Physics, ground: HigasatoGround) {
-    const s = SITES.school!;
+  constructor(scene: THREE.Scene, private physics: Physics, ground: Pick<HigasatoGround, 'heightAt'>, site: {x:number;z:number;w:number;d:number} = SITES.school!) {
+    const s = site;
     const cx = s.x, cz = s.z;
     const w = s.w - 5, d = s.d - 5;           // 건물 발자국 (27 × 14)
     const gy = ground.heightAt(cx, cz);
@@ -200,8 +201,8 @@ export class SchoolInterior {
     k.gable(cx, cz, w / 2 + 0.85, d / 2 + 0.7, gy + HB + 0.3, 2.3, mRoof, 0);
     // 현관 포치: 디딤단 3 + 캐노피 + 문패
     for (let i = 0; i < 3; i++) {
-      tput(2.4, 0.12, 0.5, x0 - 0.35 - i * 0.42, gy + 0.25 - i * 0.11, cz, tex.mud, 0.8, 0.8);
-      k.collide(x0 - 0.35 - i * 0.42, gy + 0.25 - i * 0.11, cz, 1.2, 0.06, 0.25);
+      tput(0.5, 0.12, 2.4, x0 - 0.35 - i * 0.42, gy + 0.25 - i * 0.11, cz, tex.mud, 0.8, 0.8);
+      k.collide(x0 - 0.35 - i * 0.42, gy + 0.25 - i * 0.11, cz, 0.25, 0.06, 1.2);
     }
     for (const sgn of [-1, 1]) tput(0.14, 2.6, 0.14, x0 - 1.15, gy + 1.3, cz + sgn * 1.25, tex.timber, 1.4, 0.5);
     k.gable(cx - w / 2 - 0.55, cz, 1.15, 1.65, gy + 2.62, 0.55, mRoof, Math.PI / 2);
@@ -271,12 +272,14 @@ export class SchoolInterior {
     // ---------- 책상 열 — 교실마다 3×2, 넓어진 방에 맞춘 간격 (통로 1.5 m+) ----------
     const kFurn = new PartsBuilder(physics);
     const deskSpots: { x: number; z: number; yaw: number }[] = [];
+    // Both classrooms face their west wall. World coordinates must not change furniture alignment.
+    const deskYaw = -Math.PI / 2;
     const desk = (dx: number, dz: number) => {
-      kFurn.box(0.62, 0.5, 0.42, dx, FLOOR + 0.25, dz, mDesk);
-      kFurn.box(0.72, 0.05, 0.5, dx, FLOOR + 0.53, dz, mDeskTop);
-      kFurn.collide(dx, FLOOR + 0.28, dz, 0.36, 0.28, 0.25);
+      kFurn.box(0.62, 0.5, 0.42, dx, FLOOR + 0.25, dz, mDesk, deskYaw);
+      kFurn.box(0.72, 0.05, 0.5, dx, FLOOR + 0.53, dz, mDeskTop, deskYaw);
+      kFurn.collide(dx, FLOOR + 0.28, dz, 0.36, 0.28, 0.25, deskYaw);
       this.deskPositions.push(new THREE.Vector3(dx, FLOOR + 0.25, dz));
-      deskSpots.push({ x: dx, z: dz, yaw: -Math.PI / 2 + ((((dx * 7 + dz * 13) | 0) % 5) - 2) * 0.07 });
+      deskSpots.push({ x: dx, z: dz, yaw: deskYaw });
     };
     for (let ix = 0; ix < 3; ix++) for (let iz = 0; iz < 2; iz++) desk(x0 + 3.0 + ix * 2.5, z0 + 1.6 + iz * 2.1);
     this.deskNamePos = new THREE.Vector3(x0 + 3.0, FLOOR + 0.58, z0 + 1.6);
@@ -720,7 +723,7 @@ export class SchoolInterior {
       new THREE.PlaneGeometry(1.02, 1.58),
       new THREE.MeshPhysicalMaterial({
         color: 0x26313a, roughness: 0.18, metalness: 0.72, transparent: true, opacity: 0.62,
-        clearcoat: 0.55, clearcoatRoughness: 0.2, side: THREE.DoubleSide, depthWrite: false,
+        clearcoat: 0.55, clearcoatRoughness: 0.2, side: THREE.DoubleSide, depthWrite: false, forceSinglePass: true,
       }),
     );
     mirrorPane.position.set(mirrorX, FLOOR + 1.35, mirrorZ + 0.012);
@@ -772,17 +775,19 @@ export class SchoolInterior {
     this.group.add(furnProc);
 
     /**
-     * 가구 실물 (Tripo 6종) — 도착하면 절차 가구(kFurn)를 통째로 감춘다.
+     * 가구 실물 (Tripo 4종) — 접근 시 준비하고 도착하면 절차 가구(kFurn)를 통째로 감춘다.
      * 칠판은 실물 위에 **분필 캔버스**를 얹는다 — 낙서 내용은 SCHOOL_RECORDS.attendance 의
      * 단서(「23」 위에 「24」, 24만 세게 지운 흔적)와 같은 사건을 그린다. 글자는 캔버스가 정답
      * (로컬라이즈·훼손 연출은 코드가 다시 그릴 수 있어야 한다 — 비석 각인과 같은 원칙).
      */
-    void Promise.all([
-      Props.loadNormalized('/models/props/school-desk.glb', 0.78, 0.55),
-      Props.loadNormalized('/models/props/teacher-desk.glb', 0.75, 0.5),
-      Props.loadNormalized('/models/props/shelf.glb', 1.85, 0.5),
-      Props.loadNormalized('/models/props/blackboard.glb', 1.35, 0.6),
-    ]).then(([deskM, tdeskM, shelfM, boardM]) => {
+    this.detail = new StreamedDetail(this.group, { minX: x0, maxX: x1, minZ: z0, maxZ: z1 }, async (detail) => {
+      const [deskM, tdeskM, shelfM, boardM] = await detail.models([
+        ['/models/props/school-desk.glb', 0.78, 0.55],
+        ['/models/props/teacher-desk.glb', 0.75, 0.5],
+        ['/models/props/shelf.glb', 1.85, 0.5],
+        ['/models/props/blackboard.glb', 1.35, 0.6],
+      ]);
+
       const clampXZ = (m: THREE.Group, max: number) => {
         const sz = new THREE.Box3().setFromObject(m).getSize(new THREE.Vector3());
         m.scale.multiplyScalar(Math.min(1, max / Math.max(sz.x, sz.z)));
@@ -792,32 +797,32 @@ export class SchoolInterior {
         const m = deskM.clone(true);
         m.position.set(sp.x, FLOOR, sp.z);
         m.rotation.y = sp.yaw;
-        this.group.add(m);
+        detail.root.add(m);
       }
       clampXZ(tdeskM, 1.6);
       tdeskM.position.set(x0 + 2.2, FLOOR, corrZ1 + 1.9);
       // 교사용 책상은 긴 축을 교실의 X축에 맞춘다.
       tdeskM.rotation.y = Math.PI / 2;
-      this.group.add(tdeskM);
+      detail.root.add(tdeskM);
       const micTable = tdeskM.clone(true);
       micTable.position.set(micX, FLOOR, micZ);
       micTable.rotation.y = Math.PI / 2;
-      this.group.add(micTable);
+      detail.root.add(micTable);
       // 교무실의 마주 본 책상 섬 — 같은 실물을 네 벌 더 놓는다 (콜라이더·의자는 kFix 가 이미 깔았다)
       for (const sp of staffDeskSpots) {
         const m = tdeskM.clone(true);
         m.position.set(sp.x, FLOOR, sp.z);
         m.rotation.y = Math.PI / 2;
-        this.group.add(m);
+        detail.root.add(m);
       }
       clampXZ(shelfM, 2.4);
       shelfM.position.set(sSplit2 - 0.35, FLOOR, corrZ1 + 1.7);
       // 선반도 원본 긴 축이 Z다. X방향 칸막이 옆에서는 무회전이 벽과 평행이다.
       shelfM.rotation.y = 0;
-      this.group.add(shelfM);
+      detail.root.add(shelfM);
       const shelf2 = shelfM.clone(true);
       shelf2.position.set(sSplit2 - 0.35, FLOOR, corrZ1 + 4.1);
-      this.group.add(shelf2);
+      detail.root.add(shelf2);
       // 칠판 실물 — 벽에 걸린 높이(판 중심 1.5)로 맞추고, 분필 낙서를 판면 위에 얹는다
       clampXZ(boardM, 3.1);
       const bb = new THREE.Box3().setFromObject(boardM);
@@ -843,14 +848,14 @@ export class SchoolInterior {
         // 기존 +90°는 폭 1.9 m를 X축으로 눕혀 칠판이 벽을 가로질러 튀어나오게 했다.
         m.rotation.y = 0;
         m.position.set(bd2.x - 0.02, FLOOR + 1.5 - bh / 2, bd2.z);
-        this.group.add(m);
+        detail.root.add(m);
         const chalk = new THREE.Mesh(chalkGeo, chalkMat);
         chalk.position.set(bd2.x - 0.02 + bdep * (PANEL_X - 0.5) + 0.009, FLOOR + 1.5 + bh * 0.03, bd2.z);
         chalk.rotation.y = Math.PI / 2;
-        this.group.add(chalk);
+        detail.root.add(chalk);
       }
-      furnProc.visible = false;
-    }).catch((e) => console.warn('[school] 가구 모델 로드 실패 — 절차 가구 유지:', e));
+
+    }, [furnProc], 'school');
     scene.add(this.group);
   }
 

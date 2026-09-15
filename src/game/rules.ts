@@ -42,7 +42,10 @@ export interface RulesEvents {
   onOffer?: (o: OfferingDef, offeredCount: number, slotIndex: number) => void;
   /** 사망·리셋으로 운반품이 원래 자리로 돌아갔을 때. */
   onDrop?: (o: OfferingDef) => void;
-  /** 봉인패를 받침대에 놓으려 함 — ACT 17 트리거. 1회만 */
+  /** 봉인패로 진상을 확인한 뒤에만 마지막 받침대와 대조할 수 있다. */
+  canPresentFuda?: () => boolean;
+  onFudaBlocked?: () => void;
+  /** 봉인패와 받침대의 문양을 대조함 — ACT 17 트리거. 1회만 */
   onFudaRefused?: () => void;
   onPrompt?: (text: string | null) => void;
 }
@@ -229,8 +232,8 @@ export class Rules {
 
   private spawnPickup(o: OfferingDef) {
     const g = new THREE.Group();
-    // 머리빗은 피아노 건반 위에 직접 놓인다. 공통 받침대를 넣으면 피아노 위에 작은 제단이 생긴다.
-    const onSurface = o.id === 'kushi';
+    // 건반·묘역·불단에 놓인 물건은 해당 가구의 받침을 쓴다.
+    const onSurface = o.id === 'kushi' || o.id === 'geta' || o.id === 'fuda';
     if (!onSurface) {
       const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.16, 12), new THREE.MeshStandardMaterial({ color: 0x3a2f25, roughness: 0.9 }));
       pedestal.position.y = 0.08; pedestal.castShadow = true; g.add(pedestal);
@@ -245,7 +248,7 @@ export class Rules {
     this.scene.add(g);
     this.pickups.set(o.id, g);
     const l = this.pickupLights.get(o.id);
-    if (l) l.intensity = 1.1;
+    if (l) l.intensity = o.id === 'geta' ? 0.001 : 1.1;
     // 실물이 오면 구슬을 치운다. **떠서 도는 대신 받침대 위에 놓인다** —
     // 이 게임에서 공물은 전리품이 아니라 **누가 놓고 간 물건**이다. 찾게 만드는 건 옆의 불빛이다
     void this.prototype(o).then((proto) => {
@@ -253,7 +256,7 @@ export class Rules {
       const item = proto.clone(true);
       item.name = 'item';
       item.position.y = onSurface ? 0.008 : 0.17;
-      if (onSurface) item.rotation.y = -0.28;
+      if (onSurface) item.rotation.y = o.id === 'fuda' ? -Math.PI / 2 : -0.28;
       item.traverse((c) => { const m = c as THREE.Mesh; if (m.isMesh) m.castShadow = true; });
       g.add(item);
       orb.visible = false;
@@ -268,14 +271,15 @@ export class Rules {
       const item = g.getObjectByName('item');
       if (item) {
         // 실물은 떠 있지 않는다 — 아주 느리게만 돈다(놓인 물건을 한 바퀴 보여주는 정도)
-        if (id !== 'kushi') item.rotation.y += dt * 0.35;
+        if (id !== 'kushi' && id !== 'geta') item.rotation.y += dt * 0.35;
       } else {
         const orb = g.getObjectByName('orb');
         if (orb) { orb.position.y = 0.5 + bob; orb.rotation.y += dt * 0.8; }
       }
       // 표식 불빛이 대신 맥동한다 — 실물이 오면 자체 발광이 사라지므로 이게 유일한 눈길이다
       const l = this.pickupLights.get(id);
-      if (l) l.intensity = 1.0 + 0.35 * Math.sin(this.t * 3.1);
+      // 게다의 진위는 발자국과 수선 흔적으로 구별한다. 정답만 빛나면 퍼즐을 건너뛴다.
+      if (l) l.intensity = id === 'geta' ? 0.001 : 1.0 + 0.35 * Math.sin(this.t * 3.1);
     }
     for (const [, m] of this.glowMats) m.emissiveIntensity = 1.2 + 0.4 * Math.sin(this.t * 3.1);
 
@@ -299,7 +303,9 @@ export class Rules {
         const def = this.offerings.find((o) => o.id === first)!;
         prompt = L(`[E] ${def.name} — 받침대에 놓는다`, `[E] ${def.name} — 台座に置く`);
       } else if (!this.fudaRefused) {
-        prompt = L('[E] 봉인패 — 받침대에 놓는다', '[E] 封印札 — 台座に置く');
+        prompt = (this.events.canPresentFuda?.() ?? true)
+          ? L('[E] 봉인패 — 받침대의 문양과 대조한다', '[E] 封印札 — 台座の紋と照合する')
+          : L('[E] 봉인패 — 남은 기억을 확인한다', '[E] 封印札 — 残る記憶を確かめる');
       }
     }
     if (prompt !== this.lastPrompt) { this.lastPrompt = prompt; this.events.onPrompt?.(prompt); }
@@ -341,6 +347,7 @@ export class Rules {
         return true;
       }
       if (!this.fudaRefused) {
+        if (!(this.events.canPresentFuda?.() ?? true)) { this.events.onFudaBlocked?.(); return true; }
         // 받침대가 봉인패를 받지 않는다 — ACT 17
         this.fudaRefused = true;
         this.events.onFudaRefused?.();

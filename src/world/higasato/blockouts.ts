@@ -4,6 +4,7 @@ import type { Physics } from '@/core/physics';
 import { Props } from '@/world/props';
 import { SITES, type HigasatoGround, type Site } from './ground';
 import { MIO_CLEAR_DOOR_HEIGHT, PartsBuilder, textCanvas } from './kit';
+import { fitManorFurniture, manorMaterials } from './manorCraft';
 
 /**
  * 스토리 구역 블록아웃 (PLAN-STORY §2.3) — 폐교·폐여관·촌장 저택 셸 + 공동우물 + 버스 정류장.
@@ -33,6 +34,8 @@ export class Shell {
   readonly featurePos: THREE.Vector3;
   /** 폐여관 큰 거울 조사 지점. 다른 셸은 null. */
   readonly mirrorPos: THREE.Vector3 | null;
+  /** 와쿄 세계도 실제 경대·공물 받침을 공유한다. 실패하면 각 세계의 폴백을 유지한다. */
+  readonly innFurnitureReady: Promise<THREE.Group | null> = Promise.resolve(null);
   /** 촌장 저택의 세 기록물. 다른 셸은 빈 배열. */
   readonly recordPositions: THREE.Vector3[] = [];
   private b: { x0: number; z0: number; x1: number; z1: number; y0: number; y1: number };
@@ -49,10 +52,11 @@ export class Shell {
     const w = def.site.w - 5, d = def.site.d - 5, h = def.h ?? 3.4;
     const gy = ground.heightAt(cx, cz);
     const k = new PartsBuilder(physics);
-    const mWall = k.mat(0x2c241a, 0.95);
-    const mTrim = k.mat(0x1f1811, 0.95);
+    const manorSurface = def.id === 'manor' ? manorMaterials() : null;
+    const mWall = manorSurface?.plaster ?? k.mat(0x2c241a, 0.95);
+    const mTrim = manorSurface?.wood ?? k.mat(0x1f1811, 0.95);
     const mRoof = k.mat(0x15110e, 0.95);
-    const mStone = k.mat(0x474b44, 1.0);
+    const mStone = manorSurface?.stone ?? k.mat(0x474b44, 1.0);
     const T = 0.14, DOOR_W = 1.6, DOOR_H = MIO_CLEAR_DOOR_HEIGHT;
 
     this.b = { x0: cx - w / 2, z0: cz - d / 2, x1: cx + w / 2, z1: cz + d / 2, y0: gy, y1: gy + h + 0.4 };
@@ -92,7 +96,7 @@ export class Shell {
         k.box(0.78, 0.025, 0.5, px, gy + 0.3 + 0.74, pz, mPaperForStory(k));
         this.recordPositions.push(new THREE.Vector3(px, gy + 1.1, pz));
       }
-      kFeat.box(1.25, 0.86, 1.25, cx + 2.0, gy + 0.3 + 0.43, cz, mTrim);
+      // ManorInterior builds the open cabinet around the real seal; a solid fallback would occlude it.
       kFeat.collide(cx + 2.0, gy + 0.3 + 0.43, cz, 0.63, 0.43, 0.63);
       this.featurePos.set(cx + 2.0, gy + 1.22, cz);
     }
@@ -156,8 +160,9 @@ export class Shell {
     this.group.add(k.build(`shell-${def.id}`, { spatialCellSize: 14 }));
 
     /**
-     * 스토리 가구 실물화 — 화장대·손거울 받침(여관) = 단스 2벌, 기록 책상 3(저택) = 서안,
-     * 봉인패 장(저택) = 불단. **상판 높이를 절차 박스와 정확히 맞춰** 정규화한다 —
+     * 스토리 가구 실물화 — 화장대·손거울 받침(여관) = 단스 2벌, 기록 책상 3(저택) = 서안.
+     * 저택 불단은 manorDressing의 열린 내부와 dispatch의 여닫는 문이 한 벌을 이룬다.
+     * **상판 높이를 절차 박스와 정확히 맞춰** 정규화한다 —
      * 종이 평면·featurePos·recordPositions 가 그 높이에 굳어 있다 (main.ts 가 초기화 때 읽는다).
      */
     if (def.id === 'inn' || def.id === 'manor') {
@@ -170,34 +175,27 @@ export class Shell {
       };
       if (def.id === 'inn') {
         const mx = cx + w / 2 - 0.24;
-        void Props.loadNormalized('/models/props/tansu.glb', 0.76, 0.5).then((t) => {
+        this.innFurnitureReady = Props.loadNormalized('/models/props/tansu.glb', 0.76, 0.5).then((t) => {
+          const furniture = new THREE.Group(); furniture.name = 'inn-vanity-furniture';
           const vanity = longToZ(t.clone(true));
           vanity.position.set(mx - 0.34, gy + 0.31, cz);
-          this.group.add(vanity);
+          furniture.add(vanity);
           const stand = t.clone(true);
           stand.scale.multiplyScalar(0.68 / 0.76);
           stand.position.set(mx - 1.55, gy + 0.31, cz + 1.85);
-          this.group.add(stand);
+          furniture.add(stand); this.group.add(furniture);
           featProc.visible = false;
-        }).catch(() => { /* 모델 없으면 박스 유지 */ });
+          return furniture;
+        }).catch(() => null);
       } else {
-        void Promise.all([
-          Props.loadNormalized('/models/props/writing-desk.glb', 0.72, 0.5),
-          Props.loadNormalized('/models/props/butsudan.glb', 1.42, 0.55),
-        ]).then(([deskT, butsu]) => {
+        void Props.loadNormalized('/models/props/writing-desk.glb', 0.72, 0.5).then((deskT) => {
           const zs = [-2.1, 0, 2.1];
+          const desk = fitManorFurniture(deskT, 1.55, 0.72, 0.72);
           for (let i = 0; i < zs.length; i++) {
-            const m = deskT.clone(true);
-            const s = new THREE.Box3().setFromObject(m).getSize(new THREE.Vector3());
-            if (s.z > s.x) m.rotation.y = Math.PI / 2;   // 긴 변을 x 로 (절차 박스 1.55 방향)
+            const m = desk.clone(true); m.name = `manor-record-desk-${i}`;
             m.position.set(cx - 1.25 + (i % 2) * 0.45, gy + 0.31, cz + zs[i]!);
             this.group.add(m);
           }
-          const bs = new THREE.Box3().setFromObject(butsu).getSize(new THREE.Vector3());
-          butsu.scale.multiplyScalar(Math.min(1, 1.35 / Math.max(bs.x, bs.z)));
-          butsu.position.set(cx + 2.0, gy + 0.31, cz);
-          butsu.rotation.y = -Math.PI / 2;               // 문이 서쪽(대청)을 본다
-          this.group.add(butsu);
           featProc.visible = false;
         }).catch(() => { /* 모델 없으면 박스 유지 */ });
       }
@@ -304,7 +302,12 @@ export class Shell {
 function mPaperForStory(k: PartsBuilder) { return k.mat(0xaba28f, 0.96); }
 
 /** 공동우물 — 지상부만 (수직 샤프트는 S2). 끊어진 금줄이 둘러져 있다 */
+export function addWellSurfaceColliders(physics: Physics, x: number, y: number, z: number) {
+  physics.addStaticBox(new THREE.Vector3(x, y + 0.45, z), new THREE.Vector3(1, 0.45, 1));
+}
+
 export class Well {
+  readonly ready: Promise<void>;
   readonly group = new THREE.Group();
   readonly pos: THREE.Vector3;
   /** 끊어진 금줄 말뚝에 남은 구조용 매듭 — 선택 복선 조사점. */
@@ -314,8 +317,8 @@ export class Well {
   private eyeMat: THREE.MeshBasicMaterial;
   private faceFlash = 0;
 
-  constructor(scene: THREE.Scene, physics: Physics, ground: HigasatoGround) {
-    const s = SITES.well!;
+  constructor(scene: THREE.Scene, physics: Physics, ground: Pick<HigasatoGround, 'heightAt'>, site: {x:number;z:number} = SITES.well!) {
+    const s = site;
     const cx = s.x, cz = s.z;
     const gy = ground.heightAt(cx, cz);
     this.pos = new THREE.Vector3(cx, gy, cz);
@@ -327,7 +330,7 @@ export class Well {
     // 우물통(석조 링) — 8각 낮은 벽
     k.cyl(0.95, 1.05, 0.85, cx, gy + 0.42, cz, mStone, 8);
     k.cyl(0.78, 0.78, 0.9, cx, gy + 0.46, cz, k.mat(0x0a0c0e, 1.0), 8); // 어두운 구멍
-    k.collide(cx, gy + 0.45, cz, 1.0, 0.45, 1.0);
+    addWellSurfaceColliders(physics, cx, gy, cz);
     // 두레박틀: 기둥 2 + 도리 + 지붕
     for (const sx of [-1, 1]) k.box(0.14, 2.2, 0.14, cx + sx * 1.15, gy + 1.1, cz, mTimber);
     k.box(2.5, 0.12, 0.12, cx, gy + 2.2, cz, mTimber);
@@ -372,7 +375,7 @@ export class Well {
      * 콜라이더(`k.collide`)는 이미 물리에 들어갔고 둘의 발자국이 같으므로 그대로 둔다.
      * 어두운 구멍만은 절차적 원기둥을 남긴다 — 모델의 안쪽은 막혀 있어 「깊이」가 없다.
      */
-    void Props.loadNormalized('/models/props/well.glb', 2.5, 0.5).then((m) => {
+    this.ready = Props.loadNormalized('/models/props/well.glb', 2.5, 0.5).then((m) => {
       m.position.set(cx, gy - 0.02, cz);
       this.group.add(m);
       proc.visible = false;

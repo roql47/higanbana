@@ -33,12 +33,13 @@ export async function playPrologue(deps: {
   scene: THREE.Scene;
   sequencer: Sequencer;
   dialogue: Dialogue;
-  village: Higasato;
+  village: { ground: Pick<Higasato['ground'], 'sAtZ' | 'roadAt' | 'roadLength' | 'heightAt' | 'nearestRoad'>; busStop: { pos: THREE.Vector3 } };
   controller: CharacterController;
   fp: FirstPerson;
   pursuers: Pursuers;
   /** ACT 1 에서 앞서 달리는 언니 (`story/sayo.ts`). ACT 1 이 끝나면 여기서 정리한다 */
   sayo: Sayo | null;
+  companionFollowsPlayer?: boolean;
   rain: Rain;
   /** ACT 1 의 번개 — `rainNight` 에서 앞이 안 보이므로 이것이 유일하게 길을 보여준다 */
   lightning: Lightning;
@@ -85,6 +86,7 @@ export async function playPrologue(deps: {
   const act1 = new Act1({
     village, controller, fp, pursuers, dialogue, sequencer, rain, lightning, sfx,
     sayo: deps.sayo,
+    companionFollowsPlayer: deps.companionFollowsPlayer,
     setSurfaceOverride: deps.setSurfaceOverride,
     setDread: deps.setDread,
   });

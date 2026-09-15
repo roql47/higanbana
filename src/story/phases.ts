@@ -37,7 +37,7 @@ export const STORY_PHASES: readonly StoryPhaseDef[] = [
   },
   {
     id: 'truth', no: 3, acts: [16, 23], title: '피안제의 진상',
-    purpose: '참사의 진실, 사요와의 재회, 퀘스트 UI의 배신', implementation: 'planned',
+    purpose: '참사의 진실, 사요와의 재회, 퀘스트 UI의 배신', implementation: 'partial',
   },
   {
     id: 'restoration', no: 4, acts: [24, 26], title: '일곱 개의 미련',
@@ -57,6 +57,7 @@ export interface StoryActDef {
   no: number;
   title: string;
   phase: StoryPhaseId;
+  implementation: 'playable' | 'partial' | 'planned';
 }
 
 /** 개정본 부록의 35 ACT 목록. 후속 구현은 임의 chapter 문자열 대신 이 표를 기준으로 붙인다. */
@@ -72,7 +73,8 @@ const ACT_TITLES = [
 
 export const STORY_ACTS: readonly StoryActDef[] = ACT_TITLES.map((title, i) => {
   const no = i + 1;
-  return { no, title, phase: phaseForActNumber(no).id };
+  return { no, title, phase: phaseForActNumber(no).id,
+    implementation: no > 18 ? 'planned' : no === 16 || no === 17 ? 'partial' : 'playable' };
 });
 
 export interface MutableStoryProgress {

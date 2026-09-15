@@ -409,14 +409,14 @@ export class LifeSigns {
       x.beginPath(); x.moveTo(8, yy); x.lineTo(248, yy + Math.cos(i) * 3); x.stroke();
     }
     x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.font = '700 62px "Noto Serif KR", "Noto Serif JP", serif';
+    x.font = '700 62px "Higanbana Serif KR", "Higanbana Serif JP", serif';
     x.fillStyle = 'rgba(37,28,28,.82)';
     const lines = L('대답\n하지\n마', '返事を\nするな').split('\n');
     lines.forEach((line, i) => x.fillText(line, 128, 126 + i * 104));
     if (this.storyStage >= 3) {
       x.save();
       x.translate(132, 338); x.rotate(-0.08);
-      x.font = '700 58px "Noto Serif KR", "Noto Serif JP", serif';
+      x.font = '700 58px "Higanbana Serif KR", "Higanbana Serif JP", serif';
       x.fillStyle = 'rgba(125,8,17,.92)';
       x.shadowColor = 'rgba(80,0,4,.55)'; x.shadowBlur = 7;
       x.fillText(L('미오야.', 'ミオ。'), 0, 0);

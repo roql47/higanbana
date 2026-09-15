@@ -1,0 +1,9 @@
+{
+  "regions": 2,
+  "buildingsBefore": 456,
+  "buildingsAfter": 453,
+  "removedBuildings": 3,
+  "fieldsBefore": 101,
+  "fieldsAfter": 101,
+  "backgroundMarginMeters": 30
+}

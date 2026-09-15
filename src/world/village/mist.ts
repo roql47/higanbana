@@ -83,6 +83,7 @@ export class Mist {
     const h = settings.night.mistHeight;
     this.uniforms.uOpacity.value = settings.night.mistOpacity;
     this.layers.forEach((m, i) => {
+      m.visible = settings.night.mistOpacity > 0;
       m.position.set(center.x, this.baseY[i]! * h, center.z);
     });
   }
@@ -91,17 +92,18 @@ export class Mist {
 /** 타일링 fBm 알파 텍스처 */
 function makeNoiseTexture(size: number) {
   const s = new Simplex2D(1717);
-  const data = new Uint8Array(size * size * 4);
+  // 셰이더는 .r만 읽는다. 동일한 값을 RGB 세 채널과 불필요한 알파로 복제하지 않는다.
+  const data = new Uint8Array(size * size);
   const scale = 3;
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     const a = (x / size) * Math.PI * 2, b = (y / size) * Math.PI * 2;
     const nx = Math.cos(a) * scale, ny = Math.sin(a) * scale, nz = Math.cos(b) * scale, nw = Math.sin(b) * scale;
     const v = s.fbm(nx + nz * 0.7, ny + nw * 0.7, 4) * 0.5 + 0.5;
-    const i = (y * size + x) * 4;
+    const i = y * size + x;
     const c = Math.max(0, Math.min(255, v * 255));
-    data[i] = c; data[i + 1] = c; data[i + 2] = c; data[i + 3] = 255;
+    data[i] = c;
   }
-  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  const tex = new THREE.DataTexture(data, size, size, THREE.RedFormat);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;

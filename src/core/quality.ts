@@ -47,28 +47,28 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
   ultra: { level: 'ultra', lightBudget: 10, pixelRatio: 2, pixelBudget: 2.2, shadowMap: 4096, shadowRadius: 32, grassCount: 140000, ao: 'Medium', aoHalfRes: true, treeScale: 1, moonShadow: true },
 };
 
-/** 픽셀비 하한 — 이보다 낮추면 화면이 뭉개져서, 여기까지 내려도 느리면 품질 단계를 낮추는 게 맞다 */
-const MIN_PIXEL_RATIO = 0.75;
-
 /**
  * 이 창 크기에서 실제로 쓸 픽셀비.
  * `min(devicePixelRatio, 프로필 상한)` 에서 시작해, 렌더 픽셀 총량이 `pixelBudget` 을 넘으면 그만큼 더 낮춘다.
  * 창이 커질수록(전체화면·4K) 자동으로 내려가므로 부하가 화면 크기와 무관하게 일정해진다.
  * `scale` 은 Esc 메뉴의 수동 렌더 해상도 배율(축 기준 0.5~1) — 사용자가 직접 고른 값이므로
- * MIN_PIXEL_RATIO 하한의 **바깥**에서 곱한다(하한은 자동 예산이 뭉개는 것을 막는 장치다).
+ * 예산을 적용한 뒤 곱한다. CSS 픽셀비 하한은 두지 않는다: 4K에서 0.75를 강제하면
+ * high의 1.1 MP 예산이 4.67 MP로 늘어난다. HTML 메뉴·자막은 이 배율의 영향을 받지 않는다.
  */
 export function effectivePixelRatio(profile: QualityProfile, cssWidth: number, cssHeight: number, dpr = window.devicePixelRatio, scale = 1): number {
   const cap = Math.min(dpr, profile.pixelRatio);
   const cssPixels = Math.max(1, cssWidth * cssHeight);
   const byBudget = Math.sqrt((profile.pixelBudget * 1e6) / cssPixels);
-  return Math.max(MIN_PIXEL_RATIO, Math.min(cap, byBudget)) * scale;
+  return Math.min(cap, byBudget) * scale;
 }
 
 export function detectQuality(gl?: WebGLRenderingContext | WebGL2RenderingContext | null): QualityProfile {
   const url = new URLSearchParams(location.search).get('quality') as QualityLevel | null;
-  if (url && PROFILES[url]) return PROFILES[url];
-  const saved = localStorage.getItem('3dm.quality') as QualityLevel | null;
-  if (saved && PROFILES[saved]) return PROFILES[saved];
+  if (url && Object.hasOwn(PROFILES, url)) return PROFILES[url];
+  try {
+    const saved = localStorage.getItem('3dm.quality') as QualityLevel | null;
+    if (saved && Object.hasOwn(PROFILES, saved)) return PROFILES[saved];
+  } catch { /* 저장소가 차단되어도 기본 화질로 시작한다 */ }
 
   // 최초 실행 기본은 **높음**. URL과 사용자가 저장한 선택이 있으면 그 값을 우선한다.
   // 런타임 적응형 하향은 그대로 동작해 프레임이 지속적으로 낮을 때만 한 단계씩 낮춘다.
@@ -76,7 +76,9 @@ export function detectQuality(gl?: WebGLRenderingContext | WebGL2RenderingContex
   return PROFILES.high;
 }
 
-export function saveQuality(level: QualityLevel) { localStorage.setItem('3dm.quality', level); }
+export function saveQuality(level: QualityLevel) {
+  try { localStorage.setItem('3dm.quality', level); } catch { /* 이번 실행에는 그대로 적용한다 */ }
+}
 
 /** Esc 메뉴의 수동 렌더 해상도 배율(축 기준 0.5~1). 화질 프리셋과 별개로 저장한다 */
 const SCALE_KEY = '3dm.renderscale';

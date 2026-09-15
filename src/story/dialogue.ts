@@ -5,6 +5,8 @@
  * 타자기 출력으로 "말하는 중"을 표현한다. 시퀀서와 필드 연출이 같은 창구를 쓴다.
  */
 
+import { modalInput } from '@/ui/modalInput';
+
 export interface DialogueLine {
   /** 화자 표기 (없으면 지문) */
   who?: string;
@@ -126,7 +128,7 @@ export class Dialogue {
     this.syncChoiceSelection();
 
     this.choiceKeyHandler = (e) => {
-      if (!this.choosing) return;
+      if (!this.choosing || !modalInput.allows(this.root) || e.repeat) return;
       const digit = /^(?:Digit|Numpad)([1-4])$/.exec(e.code);
       if (digit) {
         const index = Number(digit[1]) - 1;

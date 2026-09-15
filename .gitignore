@@ -1,6 +1,12 @@
 .env
 node_modules/
 dist/
+dist-desktop/
+dist-ogimachi/
+.build-tools/
+src-tauri/target/
+src-tauri/gen/
+release/
 .DS_Store
 *.blend1
 artifacts/

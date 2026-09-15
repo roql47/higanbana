@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Higanbana",
+  "version": "0.1.0",
+  "identifier": "com.higanbana.game",
+  "build": {
+    "beforeDevCommand": "npm run dev -- --port 5188",
+    "devUrl": "http://127.0.0.1:5188",
+    "beforeBuildCommand": "npm run build:desktop",
+    "frontendDist": "frontend"
+  },
+  "app": {
+    "windows": [{ "label": "main", "create": false, "title": "피안화 · Higanbana", "width": 1280, "height": 720, "minWidth": 960, "minHeight": 540, "center": true, "backgroundColor": "#07090c", "dragDropEnabled": false, "devtools": false }],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' blob: data: ipc: http://ipc.localhost; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "category": "Game",
+    "shortDescription": "Higanbana — folk horror adventure",
+    "resources": { "../dist-desktop/": "content/" },
+    "icon": ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"],
+    "macOS": { "minimumSystemVersion": "13.0" },
+    "windows": { "webviewInstallMode": { "type": "embedBootstrapper", "silent": true } }
+  }
+}

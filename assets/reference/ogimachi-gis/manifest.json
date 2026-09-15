@@ -1,0 +1,687 @@
+{
+  "source": "\u56fd\u571f\u5730\u7406\u9662 / GSI",
+  "tileList": "https://maps.gsi.go.jp/development/ichiran.html",
+  "acquired": "2026-09-10",
+  "tiles": [
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14420,
+      "y": 6417,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14420/6417.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14420-6417.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14420,
+      "y": 6418,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14420/6418.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14420-6418.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14420,
+      "y": 6419,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14420/6419.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14420-6419.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14420,
+      "y": 6420,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14420/6420.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14420-6420.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14420,
+      "y": 6421,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14420/6421.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14420-6421.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14421,
+      "y": 6417,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14421/6417.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14421-6417.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14421,
+      "y": 6418,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14421/6418.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14421-6418.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14421,
+      "y": 6419,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14421/6419.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14421-6419.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14421,
+      "y": 6420,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14421/6420.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14421-6420.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14421,
+      "y": 6421,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14421/6421.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14421-6421.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14422,
+      "y": 6417,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14422/6417.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14422-6417.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14422,
+      "y": 6418,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14422/6418.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14422-6418.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14422,
+      "y": 6419,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14422/6419.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14422-6419.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14422,
+      "y": 6420,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14422/6420.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14422-6420.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14422,
+      "y": 6421,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14422/6421.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14422-6421.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14423,
+      "y": 6417,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14423/6417.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14423-6417.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14423,
+      "y": 6418,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14423/6418.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14423-6418.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14423,
+      "y": 6419,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14423/6419.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14423-6419.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14423,
+      "y": 6420,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14423/6420.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14423-6420.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14423,
+      "y": 6421,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14423/6421.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14423-6421.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14424,
+      "y": 6417,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14424/6417.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14424-6417.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14424,
+      "y": 6418,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14424/6418.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14424-6418.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14424,
+      "y": 6419,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14424/6419.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14424-6419.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14424,
+      "y": 6420,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14424/6420.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14424-6420.txt"
+    },
+    {
+      "layer": "dem",
+      "z": 14,
+      "x": 14424,
+      "y": 6421,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/dem/14/14424/6421.txt",
+      "file": "assets/reference/ogimachi-gis/dem/14-14424-6421.txt"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115379,
+      "y": 51349,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115379/51349.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115379-51349.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115379,
+      "y": 51350,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115379/51350.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115379-51350.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115379,
+      "y": 51351,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115379/51351.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115379-51351.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115379,
+      "y": 51352,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115379/51352.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115379-51352.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115379,
+      "y": 51353,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115379/51353.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115379-51353.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115379,
+      "y": 51354,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115379/51354.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115379-51354.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115379,
+      "y": 51355,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115379/51355.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115379-51355.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115379,
+      "y": 51356,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115379/51356.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115379-51356.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115379,
+      "y": 51357,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115379/51357.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115379-51357.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115379,
+      "y": 51358,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115379/51358.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115379-51358.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115380,
+      "y": 51349,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115380/51349.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115380-51349.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115380,
+      "y": 51350,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115380/51350.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115380-51350.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115380,
+      "y": 51351,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115380/51351.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115380-51351.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115380,
+      "y": 51352,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115380/51352.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115380-51352.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115380,
+      "y": 51353,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115380/51353.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115380-51353.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115380,
+      "y": 51354,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115380/51354.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115380-51354.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115380,
+      "y": 51355,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115380/51355.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115380-51355.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115380,
+      "y": 51356,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115380/51356.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115380-51356.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115380,
+      "y": 51357,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115380/51357.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115380-51357.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115380,
+      "y": 51358,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115380/51358.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115380-51358.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115381,
+      "y": 51349,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115381/51349.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115381-51349.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115381,
+      "y": 51350,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115381/51350.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115381-51350.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115381,
+      "y": 51351,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115381/51351.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115381-51351.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115381,
+      "y": 51352,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115381/51352.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115381-51352.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115381,
+      "y": 51353,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115381/51353.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115381-51353.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115381,
+      "y": 51354,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115381/51354.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115381-51354.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115381,
+      "y": 51355,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115381/51355.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115381-51355.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115381,
+      "y": 51356,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115381/51356.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115381-51356.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115381,
+      "y": 51357,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115381/51357.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115381-51357.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115381,
+      "y": 51358,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115381/51358.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115381-51358.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115382,
+      "y": 51349,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115382/51349.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115382-51349.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115382,
+      "y": 51350,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115382/51350.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115382-51350.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115382,
+      "y": 51351,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115382/51351.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115382-51351.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115382,
+      "y": 51352,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115382/51352.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115382-51352.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115382,
+      "y": 51353,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115382/51353.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115382-51353.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115382,
+      "y": 51354,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115382/51354.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115382-51354.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115382,
+      "y": 51355,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115382/51355.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115382-51355.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115382,
+      "y": 51356,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115382/51356.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115382-51356.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115382,
+      "y": 51357,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115382/51357.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115382-51357.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115382,
+      "y": 51358,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115382/51358.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115382-51358.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115383,
+      "y": 51349,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115383/51349.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115383-51349.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115383,
+      "y": 51350,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115383/51350.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115383-51350.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115383,
+      "y": 51351,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115383/51351.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115383-51351.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115383,
+      "y": 51352,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115383/51352.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115383-51352.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115383,
+      "y": 51353,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115383/51353.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115383-51353.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115383,
+      "y": 51354,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115383/51354.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115383-51354.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115383,
+      "y": 51355,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115383/51355.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115383-51355.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115383,
+      "y": 51356,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115383/51356.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115383-51356.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115383,
+      "y": 51357,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115383/51357.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115383-51357.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115383,
+      "y": 51358,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115383/51358.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115383-51358.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115384,
+      "y": 51349,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115384/51349.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115384-51349.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115384,
+      "y": 51350,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115384/51350.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115384-51350.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115384,
+      "y": 51351,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115384/51351.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115384-51351.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115384,
+      "y": 51352,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115384/51352.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115384-51352.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115384,
+      "y": 51353,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115384/51353.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115384-51353.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115384,
+      "y": 51354,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115384/51354.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115384-51354.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115384,
+      "y": 51355,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115384/51355.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115384-51355.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115384,
+      "y": 51356,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115384/51356.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115384-51356.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115384,
+      "y": 51357,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115384/51357.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115384-51357.jpg"
+    },
+    {
+      "layer": "seamlessphoto",
+      "z": 17,
+      "x": 115384,
+      "y": 51358,
+      "url": "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/17/115384/51358.jpg",
+      "file": "assets/reference/ogimachi-gis/seamlessphoto/17-115384-51358.jpg"
+    }
+  ]
+}

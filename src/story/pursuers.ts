@@ -30,7 +30,7 @@ export class Pursuers {
   private snuffK = 1;
   private snuffRate = 0;
 
-  constructor(scene: THREE.Scene, private ground: HigasatoGround, opts: { count?: number } = {}) {
+  constructor(scene: THREE.Scene, private ground: Pick<HigasatoGround, 'roadAt' | 'heightAt'>, opts: { count?: number } = {}) {
     const n = opts.count ?? 5;
     this.mat = new THREE.MeshStandardMaterial({
       color: 0xffd9a0, emissive: new THREE.Color(0xff8828), emissiveIntensity: 2.4, roughness: 1,

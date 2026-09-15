@@ -1,0 +1,199 @@
+{
+  "workflow": "One mapped building at a time: identify, inspect visible faces, author, orient, compare. Unknown faces remain unverified.",
+  "buildings": {
+    "236248693": {
+      "reviewId": "B001",
+      "name": "白水園 / 백수원",
+      "model": "hakusuien",
+      "status": "observed-front-authored",
+      "frontLocal": "-X",
+      "frontBearingDegrees": 270,
+      "angleRule": "west-half-plane",
+      "dimensionBasis": "OSM/aerial roof envelope, not measured wall dimensions",
+      "roofEnvelopeMetres": [
+        11.894,
+        19.555
+      ],
+      "verified": [
+        "thatched gable roof",
+        "long timber street facade",
+        "recessed lattice glazing",
+        "purple split noren",
+        "low benches",
+        "wood slab sign",
+        "exposed stone footing"
+      ],
+      "unverified": [
+        "north and south gable window layouts",
+        "rear facade",
+        "exact roof height",
+        "exact entrance offset",
+        "interior"
+      ],
+      "sources": [
+        "https://shirakawa-go.gr.jp/shop/23/",
+        "https://www.vill.shirakawa.lg.jp/1575.htm",
+        "https://japantravel.navitime.com/zh-tw/area/jp/spot/02301-4100048/",
+        "https://www.cocolocala.jp/spots/44194"
+      ]
+    },
+    "236248710": {
+      "reviewId": "B002",
+      "name": "お食事処 いろり / 이로리 식당",
+      "model": "irori-restaurant",
+      "status": "observed-front-authored",
+      "frontLocal": "-X",
+      "angleRule": "west-half-plane",
+      "dimensionBasis": "OSM roof envelope; photo-based wall proportions, estimated heights",
+      "roofEnvelopeMetres": [
+        10.386,
+        13.514
+      ],
+      "verified": [
+        "timber lattice entrance",
+        "wood slab sign and twin paper lamps",
+        "umbrella rack",
+        "stone lantern and tanuki pottery",
+        "planted pots"
+      ],
+      "unverified": [
+        "assignment of restaurant to larger southern footprint is inferred",
+        "rear and gable faces",
+        "exact heights and door offset",
+        "connection between buildings",
+        "interior"
+      ],
+      "sources": [
+        "https://www.shirakawagou.jp/",
+        "https://www.shirakawagou.jp/menu",
+        "https://shirakawa-go.gr.jp/shop/16/"
+      ]
+    },
+    "236248704": {
+      "reviewId": "B002-S",
+      "parentReviewId": "B002",
+      "name": "いろり 売店 / 이로리 매점",
+      "model": "irori-shop",
+      "status": "observed-front-authored",
+      "frontLocal": "-X and +Z",
+      "angleRule": "west-half-plane",
+      "dimensionBasis": "OSM roof envelope; photo-based wall proportions, estimated heights",
+      "roofEnvelopeMetres": [
+        8.769,
+        10.526
+      ],
+      "verified": [
+        "steep thatch gable",
+        "three lower lattice attic windows and two upper panels",
+        "wrapping low metal canopy",
+        "red counter curtains",
+        "wagon wheel fascia",
+        "drink refrigerator and benches"
+      ],
+      "unverified": [
+        "assignment of shop to smaller northern footprint is inferred",
+        "rear and north gable",
+        "exact heights",
+        "shared ground level and building connection",
+        "interior"
+      ],
+      "sources": [
+        "https://www.shirakawagou.jp/menu",
+        "https://www.trip.com/restaurant/japan/shirakawa-village/detail/shirakawago-restaurant-irori-20333624/"
+      ]
+    },
+    "236248644": {
+      "reviewId": "B003",
+      "name": "森の伝承塾 / 숲의 전승관",
+      "model": "mori-workshop",
+      "status": "observed-front-authored",
+      "frontLocal": "+X",
+      "angleRule": "west-half-plane",
+      "referenceDate": "2010-08",
+      "dimensionBasis": "OSM roof envelope; street-photo facade proportions and estimated heights",
+      "roofEnvelopeMetres": [
+        11.42,
+        14.274
+      ],
+      "verified": [
+        "readable Mori no Densho Juku facade sign",
+        "two-storey timber workshop rather than a thatched house",
+        "long upper window row and narrow-board aprons",
+        "pale irregular wooden sign",
+        "rose curtains at central sliding entrance",
+        "north projecting bay with upper window guard",
+        "eave gutter and downpipes",
+        "flower pots and blue tub"
+      ],
+      "unverified": [
+        "changes after August 2010",
+        "exact roof pitch and ridge height",
+        "rear and end facades",
+        "precise entrance and bay dimensions",
+        "interior beyond visible displays"
+      ],
+      "sources": [
+        "https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=36.26095,136.90677&heading=260&pitch=14&fov=110",
+        "https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=36.26107,136.90676&heading=220&pitch=8&fov=95"
+      ]
+    },
+    "236248626": {
+      "reviewId": "B004",
+      "name": "白川郷の湯",
+      "status": "entry-reference-pass",
+      "unverified": [
+        "long building wings",
+        "street frontage",
+        "river frontage",
+        "precise dimensions and capture date",
+        "canopy and repeated facade proportions",
+        "rear facade",
+        "full reference reconstruction"
+      ],
+      "model": "onsen",
+      "runtimeAsset": "models/ogimachi/onsen-v3.glb",
+      "sources": [
+        "https://www.vill.shirakawa.lg.jp/1175.htm"
+      ],
+      "verified": [
+        "reference observed: horizontal timber siding",
+        "reference observed: lighter entrance frame and side lattice",
+        "reference observed: short centre noren"
+      ]
+    }
+  },
+  "roads": {
+    "1268046903": {
+      "reviewId": "R001",
+      "name": "마을 주도로",
+      "width": 6.2,
+      "widthBasis": "aerial estimate; no OSM width tag",
+      "centreline": "OSM unchanged",
+      "surface": "asphalt"
+    },
+    "34320767": {
+      "reviewId": "R002",
+      "name": "백수원 옆 갈림길 → 와다 북쪽",
+      "width": 3.4,
+      "widthBasis": "aerial estimate; no OSM width tag",
+      "centreline": "OSM unchanged",
+      "surface": "asphalt"
+    },
+    "540155249": {
+      "reviewId": "R003",
+      "name": "북쪽 논 가장자리 길",
+      "width": 1.65,
+      "widthBasis": "aerial estimate; no OSM width tag",
+      "centreline": "OSM unchanged",
+      "surface": "fine_gravel"
+    },
+    "236248800": {
+      "reviewId": "R004",
+      "name": "와다 서쪽 진입로",
+      "width": 1.5,
+      "widthBasis": "provisional pedestrian width",
+      "centreline": "OSM unchanged",
+      "surface": "gravel"
+    }
+  }
+}

@@ -33,7 +33,45 @@
    "license": "CC BY 3.0",
    "durations": [
     47
-   ]
+   ],
+   "stream": {
+    "sampleRate": 44100,
+    "channels": 2,
+    "chunks": [
+     {
+      "file": "amb/frogs/stream/0.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/frogs/stream/1.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/frogs/stream/2.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/frogs/stream/3.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/frogs/stream/4.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/frogs/stream/5.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/frogs/stream/6.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/frogs/stream/7.flac",
+      "frames": 220500
+     }
+    ]
+   }
   },
   "amb/furin": {
    "files": [
@@ -65,7 +103,69 @@
    "license": "CC BY 4.0",
    "durations": [
     80
-   ]
+   ],
+   "stream": {
+    "sampleRate": 44100,
+    "channels": 2,
+    "chunks": [
+     {
+      "file": "amb/higurashi/stream/0.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/higurashi/stream/1.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/higurashi/stream/2.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/higurashi/stream/3.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/higurashi/stream/4.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/higurashi/stream/5.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/higurashi/stream/6.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/higurashi/stream/7.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/higurashi/stream/8.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/higurashi/stream/9.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/higurashi/stream/10.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/higurashi/stream/11.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/higurashi/stream/12.flac",
+      "frames": 264600
+     },
+     {
+      "file": "amb/higurashi/stream/13.flac",
+      "frames": 88200
+     }
+    ]
+   }
   },
   "amb/hototogisu": {
    "files": [

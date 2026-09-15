@@ -41,6 +41,7 @@ const FOOTSTEP_MARKERS: Record<GaitState, readonly FootstepMarker[]> = {
  */
 export class CharacterAnimator {
   state: LocoState = 'idle';
+  idleVariations = true;
   /** true 면 상태 클립 전환을 보류 (전신 공격 중) */
   suspended = false;
   private airTime = 0;
@@ -114,7 +115,7 @@ export class CharacterAnimator {
         else {
           next = 'idle';
           this.idleTime += dt;
-          if (this.idleTime > this.nextVariationAt) {
+          if (this.idleVariations && this.idleTime > this.nextVariationAt) {
             const pool = ['look_around', 'standing_relax'].filter(has);
             if (pool.length) {
               const pick = pool[Math.floor(Math.random() * pool.length)]!;

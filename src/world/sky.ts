@@ -10,6 +10,8 @@ import { DEG } from '@/core/math';
 export function createSky(renderer: THREE.WebGLRenderer, scene: THREE.Scene, shadowMapSize = 4096) {
   const sky = new Sky();
   sky.scale.setScalar(2000);
+  // Sky의 최원거리 깊이를 이용해 지형 뒤의 대기 셰이딩을 생략한다.
+  sky.renderOrder = 10000;
   scene.add(sky);
 
   const sun = new THREE.DirectionalLight(0xffffff, settings.render.sunIntensity);

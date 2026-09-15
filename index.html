@@ -7,15 +7,9 @@
     <meta name="theme-color" content="#0a0f1a" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏮</text></svg>" />
     <title>피안화 - 꺼지지 않는 등불 · 彼岸花</title>
-    <!--
-      퀘스트 보이스 서체 (PLAN-STORY §4.1): 명조 = 히간누시, 손글씨 = 사요.
-      한국어판과 일본어판이 서체가 다르다 — 명조·손글씨를 두 언어분 다 받아 두고
-      style.css 가 html[lang] 으로 갈라 쓴다. 오프라인이면 시스템 서체 폴백.
-    -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600&family=Nanum+Pen+Script&family=Noto+Serif+JP:wght@400;600&family=Yomogi&display=swap" />
+    <!-- 명조/손글씨는 오프라인 서브셋을 사용한다. boot.ts가 선택한 언어만 준비한다. -->
     <link rel="stylesheet" href="/src/style.css" />
+    <link rel="stylesheet" href="/src/ui/presentation.css" />
   </head>
   <body>
     <canvas id="app"></canvas>

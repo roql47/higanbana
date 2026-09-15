@@ -1,0 +1,11 @@
+import {NodeIO} from '@gltf-transform/core';
+import {ALL_EXTENSIONS} from '@gltf-transform/extensions';
+import {textureCompress,dedup,prune} from '@gltf-transform/functions';
+import sharp from 'sharp';
+import {statSync,writeFileSync} from 'node:fs';
+const path='artifacts/ogimachi-phases/phase3-hakusuien.glb',io=new NodeIO().registerExtensions(ALL_EXTENSIONS),doc=await io.read(path),before=statSync(path).size;
+await doc.transform(dedup(),prune(),textureCompress({encoder:sharp,targetFormat:'webp',resize:[1024,1024],quality:88}));
+await io.write('artifacts/ogimachi-phases/phase3-hakusuien-web.glb',doc);
+const check=await io.read('artifacts/ogimachi-phases/phase3-hakusuien-web.glb');
+if(!check.getRoot().listMeshes().length||!check.getRoot().listTextures().length)throw Error('Missing model/texture');
+const report={beforeBytes:before,afterBytes:statSync('artifacts/ogimachi-phases/phase3-hakusuien-web.glb').size,meshes:check.getRoot().listMeshes().length,materials:check.getRoot().listMaterials().length,textures:check.getRoot().listTextures().length};writeFileSync('artifacts/ogimachi-phases/phase3-model-report.json',JSON.stringify(report,null,2));console.log(report);

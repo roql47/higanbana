@@ -1,5 +1,6 @@
 import type { Inventory } from './inventory';
 import { L } from '@/core/i18n';
+import { modalInput } from '@/ui/modalInput';
 
 /**
  * 인벤토리 창의 조작 목록.
@@ -22,7 +23,6 @@ const KEYS: [string, string][] = [
   ['<kbd>J</kbd>', L('조사 기록과 현재 가설', '調査記録と現在の仮説')],
   ['<kbd>Esc</kbd>', L('<b>일시정지 · 설정</b> — 언어 · 화질 · 소리 · HUD (마우스 커서도 여기서 나온다)',
     '<b>一時停止 · 設定</b> — 言語 · 画質 · 音量 · HUD（マウスカーソルもここで出る）')],
-  ['<kbd>R</kbd>', L('리셋', 'リセット')],
   ['<kbd>M</kbd>', L('음소거', '消音')],
   ['<kbd>F</kbd>', L('전체화면', '全画面')],
 ];
@@ -51,7 +51,7 @@ export class InventoryUI {
     this.el.className = 'inv hidden';
     this.el.innerHTML = `
       <div class="inv-panel">
-        <div class="inv-head"><span class="inv-title">${L('인벤토리', '持ち物')}</span><span class="inv-hint">${L('<kbd>Tab</kbd> 닫기 · 클릭 열기 · 드래그 이동', '<kbd>Tab</kbd> 閉じる · クリックで開く · ドラッグで移動')}</span></div>
+        <div class="inv-head"><span class="inv-title" id="inventory-heading">${L('소지품', '持ち物')}</span><span class="inv-hint">${L('클릭해서 읽기 · 드래그로 정리', 'クリックで読む · ドラッグで整理')}</span><button class="inv-close" type="button" aria-label="${L('소지품 닫기', '持ち物を閉じる')}">×</button></div>
         <div class="inv-body">
           <div class="inv-grid"></div>
           <div class="inv-detail" aria-live="polite"></div>
@@ -62,6 +62,8 @@ export class InventoryUI {
         </details>
       </div>`;
     document.body.appendChild(this.el);
+    this.el.setAttribute('aria-labelledby', 'inventory-heading');
+    this.el.querySelector('.inv-close')!.addEventListener('click', () => this.toggle(false));
     this.grid = this.el.querySelector('.inv-grid')!;
     this.detail = this.el.querySelector('.inv-detail')!;
 
@@ -116,6 +118,7 @@ export class InventoryUI {
     inv.on('change', () => this.render());
     inv.on('equip', () => this.render());
     window.addEventListener('keydown', (e) => {
+      if (e.repeat || !modalInput.allows(this.el)) return;
       if (e.code === 'Tab') {
         e.preventDefault();
         if (!this.isOpen && this.canOpen && !this.canOpen()) return;
@@ -132,6 +135,8 @@ export class InventoryUI {
     // 끝난 뒤에야 진짜 그림이 되고(`photoThumb()`), ACT 30 에서 얼룩이 걷히면 또 바뀐다.
     if (this.isOpen) this.render();
     this.el.classList.toggle('hidden', !this.isOpen);
+    if (this.isOpen) modalInput.open(this.el, () => this.toggle(false), () => this.toggle(false));
+    else modalInput.close(this.el);
     if (this.isOpen && document.pointerLockElement) document.exitPointerLock();
     this.onToggle?.(this.isOpen);
   }

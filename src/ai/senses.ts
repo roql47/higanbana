@@ -27,7 +27,9 @@ export class Senses {
   update(dt: number) {
     this.time += dt;
     // 4초 지난 소음은 잊는다
-    this.noises = this.noises.filter((n) => this.time - n.t < 4);
+    let live = 0;
+    for (const n of this.noises) if (this.time - n.t < 4) this.noises[live++] = n;
+    this.noises.length = live;
   }
 
   /** 발소리·던진 돌 등 — main 루프가 밀어넣는다 */
@@ -40,8 +42,9 @@ export class Senses {
     let best: NoiseEvent | null = null;
     let bestScore = 0;
     for (const n of this.noises) {
-      const d = earPos.distanceTo(n.pos);
-      if (d > n.radius) continue;
+      const d2 = earPos.distanceToSquared(n.pos);
+      if (n.radius <= 0 || d2 > n.radius * n.radius) continue;
+      const d = Math.sqrt(d2);
       const score = n.strength * (1 - d / n.radius) * (1 - (this.time - n.t) / 4);
       if (score > bestScore) { bestScore = score; best = n; }
     }
@@ -62,16 +65,18 @@ export class Senses {
    */
   canSee(eye: THREE.Vector3, facing: THREE.Vector3, playerPos: THREE.Vector3, playerMoving: boolean, extraMul = 1): boolean {
     this.dir.copy(playerPos).setY(playerPos.y + 1.2).sub(eye);
-    const dist = this.dir.length();
-    if (dist > this.detectionRange(playerMoving, extraMul)) return false;
-    this.dir.normalize();
+    const dist2 = this.dir.lengthSq();
+    const range = this.detectionRange(playerMoving, extraMul);
+    if (dist2 > range * range) return false;
     // 시야콘 90° (전방 ±45°) — 아주 가까우면(2 m) 뒤라도 알아챈다
-    const flat = Math.atan2(this.dir.x, this.dir.z);
-    const face = Math.atan2(facing.x, facing.z);
-    let dyaw = flat - face;
-    while (dyaw > Math.PI) dyaw -= Math.PI * 2;
-    while (dyaw < -Math.PI) dyaw += Math.PI * 2;
-    if (Math.abs(dyaw) > Math.PI / 4 && dist > 2) return false;
+    const fx = facing.x, fz = facing.x === 0 && facing.z === 0 ? 1 : facing.z;
+    const dx = this.dir.x, dz = this.dir.x === 0 && this.dir.z === 0 ? 1 : this.dir.z;
+    const dot = dx * fx + dz * fz;
+    const h2 = dx * dx + dz * dz;
+    if (dist2 > 4 && (dot < 0 || 2 * dot * dot < h2 * (fx * fx + fz * fz))) return false;
+    const dist = Math.sqrt(dist2);
+    if (dist <= 0.6) return true;
+    this.dir.multiplyScalar(1 / dist);
     // 차폐
     this.ray.origin.x = eye.x; this.ray.origin.y = eye.y; this.ray.origin.z = eye.z;
     this.ray.dir.x = this.dir.x; this.ray.dir.y = this.dir.y; this.ray.dir.z = this.dir.z;

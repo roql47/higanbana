@@ -29,7 +29,7 @@ import * as THREE from 'three';
  */
 export class LightPool {
   /** 무대에서 내린 원본들 — 소유 모듈이 계속 들고 흔든다 */
-  private sources: THREE.PointLight[] = [];
+  private sources: { src: THREE.PointLight; d2: number }[] = [];
   /** 실제로 씬에 켜져 있는 라이트. 개수 불변 */
   private slots: THREE.PointLight[] = [];
   private tmp = new THREE.Vector3();
@@ -38,7 +38,7 @@ export class LightPool {
   private frustum = new THREE.Frustum();
   /** 재정렬 주기 — 매 프레임 36개를 정렬할 이유가 없다 */
   private t = 0;
-  private scored: { src: THREE.PointLight; d2: number; pos: THREE.Vector3 }[] = [];
+  private scored: { src: THREE.PointLight; d2: number }[] = [];
   private activeSlots = 0;
   private offscreenSources = 0;
 
@@ -53,9 +53,9 @@ export class LightPool {
       if (!l.isPointLight || skip.has(l)) return;
       // 그림자를 만드는 라이트는 건드리지 않는다 — 초칭처럼 연출의 주인공이다
       if (l.castShadow) return;
-      this.sources.push(l);
+      this.sources.push({ src: l, d2: 0 });
     });
-    for (const l of this.sources) l.visible = false;   // 로딩 중 1회 재컴파일
+    for (const { src } of this.sources) src.visible = false;   // 로딩 중 1회 재컴파일
     for (let i = 0; i < budget; i++) {
       const s = new THREE.PointLight(0xffffff, 0, 8, 2);
       s.castShadow = false;
@@ -68,10 +68,37 @@ export class LightPool {
   get sourceCount() { return this.sources.length; }
   get slotCount() { return this.slots.length; }
 
+  private sourceActive(src: THREE.PointLight) {
+    if (src.intensity <= 0.01) return false;
+    // 원본 자체의 visible은 풀이 false로 고정한다. 부모가 숨겨지거나 씬에서 빠지면
+    // 버스·컷신·실내 소유자가 끈 빛이므로 슬롯에서도 제외한다.
+    for (let parent = src.parent; parent; parent = parent.parent) {
+      if (!parent.visible) return false;
+      if (parent === this.scene) return true;
+    }
+    return false;
+  }
+
   /** 카메라(또는 플레이어) 기준으로 가까운 활성 광원을 슬롯에 싣는다 */
   update(dt: number, viewer: THREE.Vector3, camera?: THREE.Camera) {
     this.t -= dt;
-    if (this.t > 0) return;
+    if (this.t <= 0 || dt === 0) this.select(viewer, camera);
+    // 후보 정렬만 8 Hz로 제한한다. 움직이는 횃불·명멸·장면 숨김은 매 프레임 반영한다.
+    this.activeSlots = 0;
+    for (let i = 0; i < this.slots.length; i++) {
+      const slot = this.slots[i]!;
+      const pick = this.scored[i];
+      if (!pick || !this.sourceActive(pick.src)) { slot.intensity = 0; continue; }
+      pick.src.getWorldPosition(slot.position);
+      slot.color.copy(pick.src.color);
+      slot.intensity = pick.src.intensity;
+      slot.distance = pick.src.distance;
+      slot.decay = pick.src.decay;
+      this.activeSlots++;
+    }
+  }
+
+  private select(viewer: THREE.Vector3, camera?: THREE.Camera) {
     this.t = 0.12;   // 8 Hz — 등불은 정지물이고 플레이어는 초속 몇 미터다
 
     if (camera) {
@@ -84,8 +111,9 @@ export class LightPool {
 
     this.scored.length = 0;
     this.offscreenSources = 0;
-    for (const src of this.sources) {
-      if (src.intensity <= 0.01) continue;                 // 꺼져 있는 표식은 후보가 아니다
+    for (const entry of this.sources) {
+      const { src } = entry;
+      if (!this.sourceActive(src)) continue;
       src.getWorldPosition(this.tmp);
       const d2 = this.tmp.distanceToSquared(viewer);
       // 제 사거리 밖에서는 어차피 아무것도 못 비춘다 — 여유 1.5 배까지만 후보로
@@ -99,21 +127,10 @@ export class LightPool {
         this.lightSphere.radius = src.distance;
         if (!this.frustum.intersectsSphere(this.lightSphere)) { this.offscreenSources++; continue; }
       }
-      this.scored.push({ src, d2, pos: this.tmp.clone() });
+      entry.d2 = d2;
+      this.scored.push(entry);
     }
     this.scored.sort((a, b) => a.d2 - b.d2);
-
-    for (let i = 0; i < this.slots.length; i++) {
-      const slot = this.slots[i]!;
-      const pick = this.scored[i];
-      if (!pick) { slot.intensity = 0; continue; }
-      slot.position.copy(pick.pos);
-      slot.color.copy(pick.src.color);
-      slot.intensity = pick.src.intensity;
-      slot.distance = pick.src.distance;
-      slot.decay = pick.src.decay;
-    }
-    this.activeSlots = Math.min(this.slots.length, this.scored.length);
   }
 
   /** DEV HUD용 — 실제 셰이딩에 기여하는 슬롯과 화면 밖에서 제거한 광원 수. */
@@ -131,5 +148,6 @@ export class LightPool {
       this.slots.push(s);
     }
     this.budget = n;
+    this.t = 0;
   }
 }

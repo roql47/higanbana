@@ -9,6 +9,10 @@ import titleContinueJaUrl from '@/assets/title-menu-continue-ja-brush-v1.png?url
 import titleSettingsJaUrl from '@/assets/title-menu-settings-ja-brush-v1.png?url';
 import titleCreditsJaUrl from '@/assets/title-menu-credits-ja-brush-v1.png?url';
 import { StorySave } from '@/story/flags';
+import { modalInput } from '@/ui/modalInput';
+import { isDesktop, isFullscreen, fullscreenAvailable, toggleFullscreen, closeDesktop, prepareLocalFonts, installDesktopDiagnostics } from '@/core/desktop';
+import './fonts.css';
+installDesktopDiagnostics();
 
 /**
  * 부팅 — **언어를 먼저 정하고 그다음에 게임을 읽는다.**
@@ -246,14 +250,13 @@ function fillShell() {
 
   const fullscreen = $('title-fullscreen') as HTMLButtonElement;
   const syncFullscreen = () => {
-    fullscreen.textContent = document.fullscreenElement
+    fullscreen.textContent = isFullscreen()
       ? L('전체 화면 나가기', 'フルスクリーンを終了')
       : L('전체 화면', 'フルスクリーン');
-    fullscreen.disabled = !document.fullscreenEnabled;
+    fullscreen.disabled = !fullscreenAvailable();
   };
   fullscreen.addEventListener('click', () => {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void document.documentElement.requestFullscreen?.();
+    void toggleFullscreen();
   });
   document.addEventListener('fullscreenchange', syncFullscreen);
   syncFullscreen();
@@ -286,14 +289,15 @@ function fillShell() {
   const panels = [settingsPanel, creditsPanel];
   const closeTitlePanel = (panel: HTMLElement) => {
     panel.classList.remove('show');
+    modalInput.close(panel);
     setTimeout(() => { if (!panel.classList.contains('show')) panel.hidden = true; }, 180);
   };
   const openTitlePanel = (panel: HTMLElement) => {
     for (const other of panels) if (other !== panel && !other.hidden) closeTitlePanel(other);
     panel.hidden = false;
+    modalInput.open(panel, () => closeTitlePanel(panel));
     requestAnimationFrame(() => {
       panel.classList.add('show');
-      panel.querySelector<HTMLButtonElement>('[data-title-close]')?.focus();
     });
   };
   $('title-settings-btn').addEventListener('click', () => openTitlePanel(settingsPanel));
@@ -302,15 +306,6 @@ function fillShell() {
     panel.addEventListener('pointerdown', (e) => { if (e.target === panel) closeTitlePanel(panel); });
     panel.querySelector('[data-title-close]')!.addEventListener('click', () => closeTitlePanel(panel));
   }
-  window.addEventListener('keydown', (e) => {
-    if (e.code !== 'Escape') return;
-    const panel = panels.find((p) => !p.hidden);
-    if (!panel) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    closeTitlePanel(panel);
-  });
-
   const language = $('title-language');
   for (const b of language.querySelectorAll<HTMLButtonElement>('button[data-lang]')) {
     const buttonLang = b.dataset['lang'] as Lang;
@@ -327,9 +322,7 @@ function fillShell() {
   const loading = $('loading');
   const actions = $('title-actions');
   const start = $('start-btn') as HTMLButtonElement;
-  start.addEventListener('click', closeTitleBgm, { once: true });
-  const continueTitleButton = $('continue-btn') as HTMLButtonElement;
-  continueTitleButton.addEventListener('click', closeTitleBgm, { once: true });
+  window.addEventListener('game-started', closeTitleBgm, { once: true });
   const syncReady = () => {
     const ready = !start.hidden;
     loading.classList.toggle('ready', ready);
@@ -340,9 +333,15 @@ function fillShell() {
   syncReady();
 }
 
-function boot() {
+async function boot() {
   fillShell();
   $('lang-gate').remove();
+  if (isDesktop()) {
+    const quit = document.createElement('button'); quit.className = 'title-native-quit';
+    quit.textContent = L('게임 종료', 'ゲームを終了'); quit.addEventListener('click', () => { void closeDesktop(); });
+    $('title-language').appendChild(quit);
+  }
+  await prepareLocalFonts(lang());
   void import('./main');
 }
 

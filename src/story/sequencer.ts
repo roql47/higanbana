@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Dialogue, DialogueLine } from './dialogue';
+import { modalInput } from '@/ui/modalInput';
 
 /**
  * 인게임 시퀀서 (PLAN-STORY §8.3) — 프리렌더 영상 0개 원칙의 본체.
@@ -31,6 +32,8 @@ export interface Sequence {
   duration: number;
   /** 2개 이상이면 카메라를 가져간다. 없으면 카메라는 게임 것 그대로 (연출만 얹기) */
   cam?: CamKey[];
+  /** 좁은 공간은 키 사이를 벗어나지 않는 보간을 쓴다. */
+  cameraPath?: 'spline' | 'bounded';
   events?: SeqEvent[];
   /** 기본: cam 이 있으면 true */
   letterbox?: boolean;
@@ -78,8 +81,10 @@ export class Sequencer {
     this.skipEl = mk('seq-skip');
     this.skipEl.innerHTML = '<span>SPACE 꾹 — 넘기기</span><div class="bar"><i></i></div>';
     this.skipBar = this.skipEl.querySelector('i') as HTMLElement;
-    window.addEventListener('keydown', (e) => { if (e.code === 'Space' && this.active) { this.holding = true; e.preventDefault(); } });
+    window.addEventListener('keydown', (e) => { if (e.code === 'Space' && this.active && !modalInput.active) { this.holding = true; e.preventDefault(); } });
     window.addEventListener('keyup', (e) => { if (e.code === 'Space') this.holding = false; });
+    window.addEventListener('blur', () => { this.holding = false; this.skipHold = 0; });
+    modalInput.subscribe(() => { this.holding = false; this.skipHold = 0; });
     if (import.meta.env.DEV) this.buildScrubber();
   }
 
@@ -158,8 +163,19 @@ export class Sequencer {
     const s = THREE.MathUtils.clamp((this.t - a.t) / Math.max(1e-4, b.t - a.t), 0, 1);
     // 곡선은 키 인덱스 균일 매개변수 — 시간 배분은 키의 t 가, 공간 모양은 카트멀롬이 정한다
     const u = (i + s) / (keys.length - 1);
-    this.camera.position.copy(this.posCurve!.getPoint(u));
-    this.camera.lookAt(this.lookCurve!.getPoint(u, this.lookTmp));
+    if (this.seq?.cameraPath === 'bounded') {
+      const eased = s * s * (3 - 2 * s);
+      this.camera.position.fromArray(a.pos).lerp(this.lookTmp.fromArray(b.pos), eased);
+      this.lookTmp.set(
+        a.look[0] + (b.look[0] - a.look[0]) * eased,
+        a.look[1] + (b.look[1] - a.look[1]) * eased,
+        a.look[2] + (b.look[2] - a.look[2]) * eased,
+      );
+      this.camera.lookAt(this.lookTmp);
+    } else {
+      this.camera.position.copy(this.posCurve!.getPoint(u));
+      this.camera.lookAt(this.lookCurve!.getPoint(u, this.lookTmp));
+    }
     const fa = a.fov ?? this.baseFov, fb = b.fov ?? this.baseFov;
     const fov = fa + (fb - fa) * s;
     if (Math.abs(fov - this.camera.fov) > 0.01) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }

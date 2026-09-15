@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import type { Physics } from '@/core/physics';
 import { Props } from '@/world/props';
+import { StreamedDetail } from '@/world/streamedDetail';
+import { RoomOcclusion } from '@/world/roomOcclusion';
+import { investigationPaper } from '@/world/investigationProps';
 import { SITES, type HigasatoGround } from './ground';
 // 거울 세계는 **단색 재질**이라 `makePartitions`(색 속성 없음)를 그대로 써도 안전하다.
 // 현실 쪽만 정점색 폐가 세트라 자체 partX/partZ 를 따로 짓는다(아래 주석 참고).
@@ -8,6 +11,8 @@ import { makePartitions, MIO_CLEAR_DOOR_HEIGHT, PartsBuilder, textCanvas } from 
 import { makeHouseMaterials } from '../village/houseMaterials';
 import { grunge, projectUV } from './minka';
 import { L } from '@/core/i18n';
+import { innMirrorFactory, innLedger, innReturnedKey, innLuggageTag, innLuggageScuffs, layFlatBook } from './innProps';
+import { InnAfterimageProps } from './innAfterimageProps';
 
 /**
  * 폐여관 「히간장」 실내 — 깨진 거울(공물 5)의 무대 (PLAN-STORY §2.3, §5.3.5)
@@ -25,21 +30,47 @@ import { L } from '@/core/i18n';
  */
 export class InnInterior {
   readonly group = new THREE.Group();
+  readonly detail: StreamedDetail;
+  readonly occlusion = new RoomOcclusion();
   /** 못질된 2층 계단 — 조사 지문 자리 (「위층은 무너졌다」) */
   readonly stairsPos: THREE.Vector3;
   /** 접수대 숙박부 — 조사 지문 자리 */
   readonly registerPos: THREE.Vector3;
   /** 가짜 벽(거울 속에서만 문) 중심 — 거울 대조의 정답 지점 */
   readonly secretPos: THREE.Vector3;
+  readonly passageEntryPos: THREE.Vector3;
+  readonly passageReturnPos: THREE.Vector3;
+  readonly passageLandings: readonly [THREE.Vector3, THREE.Vector3];
   /** 복도 벽거울 — **손거울을 얻기 전의 도구**(§5.3.5 「획득 전엔 벽거울」) */
   readonly wallMirrorPos: THREE.Vector3;
   /** 와쿄(和鏡) — 손잡이 없는 청동 거울. 객실1 좌탁 위, 이 방의 진짜 도구 */
   readonly wakyoPos: THREE.Vector3;
+  readonly guestCluePositions: THREE.Vector3[] = [];
+  readonly guestResolvePositions: THREE.Vector3[] = [];
+  readonly memoryCluePositions: THREE.Vector3[];
+  readonly memoryResolvePositions: THREE.Vector3[];
+  private readonly afterimageProps: InnAfterimageProps;
+  private screens: THREE.Object3D[] = [];
+  private screenOpened = false;
+  setMemoryProgress(boxOpened: boolean, screenOpened: boolean, complete: boolean) {
+    this.afterimageProps.setProgress(boxOpened, complete);
+    this.screenOpened = screenOpened;
+  }
+  update(dt: number) {
+    this.afterimageProps.update(dt);
+    // 언로드된 DetailBundle을 붙들어 GLB 버퍼 수명을 늘리지 않는다.
+    if (!this.detail.resident) { this.screens.length = 0; return; }
+    const target = this.screenOpened ? -0.12 : -0.7;
+    for (const screen of this.screens) screen.rotation.y = THREE.MathUtils.lerp(screen.rotation.y, target, 1 - Math.exp(-Math.max(0, dt) * 4));
+  }
+  private guestExitSign: THREE.Mesh | null = null;
+  setGuestRouteKnown(known: boolean) { if (this.guestExitSign) this.guestExitSign.visible = !known; }
   /** 거울 속 세계 — 별도 씬에 담긴 **온전한 여관**. 손거울이 이걸 비춘다 */
   readonly mirrorScene = new THREE.Scene();
 
   /** 좌탁 위 와쿄 프롭 — 주우면 숨긴다 */
   private wakyoProp: THREE.Object3D;
+  private wakyoTaken = false;
   /** 거울 속 절차 가구 — GLB 클론 도착 시 감춘다 */
   private mirrorFurnProc: THREE.Group | null = null;
   /** 미오의 초칭이 거울에 비친 몫 — main 이 매 프레임 현실 초칭 값을 복사한다 */
@@ -49,7 +80,7 @@ export class InnInterior {
   /** 시선 이벤트 지점 — 각 인파가 서 있는 자리(월드) */
   readonly crowdSpots: THREE.Vector3[] = [];
   /** 와쿄를 주웠다 — 프롭을 치운다 */
-  takeWakyo() { this.wakyoProp.visible = false; }
+  takeWakyo() { this.wakyoTaken = true; this.wakyoProp.visible = false; }
 
   /** i 번 인파가 플레이어 쪽으로 **돌아본다** (금기 三 시선 이벤트 시작) */
   watch(i: number, player: THREE.Vector3) {
@@ -67,7 +98,7 @@ export class InnInterior {
     c.root.rotation.y = c.home;
   }
 
-  constructor(scene: THREE.Scene, physics: Physics, ground: HigasatoGround) {
+  constructor(scene: THREE.Scene, physics: Physics, ground: HigasatoGround, furnitureReady?: Promise<THREE.Group | null>) {
     const s = SITES.inn!;
     const cx = s.x, cz = s.z;
     const w = s.w - 5, d = s.d - 5;            // 셸과 같은 산식 (12 × 9)
@@ -86,6 +117,7 @@ export class InnInterior {
      * `sootTint` 가 그 위에 숯 색을 곱한다. 텍스처의 나뭇결·회벽 요철은 그대로 남고 색만 타 버린다.
      */
     const tex = makeHouseMaterials();
+    const makeMirror = innMirrorFactory(tex.plankDark.map);
     const mWall = tex.mud;                     // 그을린 회벽 (정점색으로 태운다)
     const mChar = tex.plankDark;               // 탄 목재
     const mWood = tex.plank;
@@ -102,6 +134,8 @@ export class InnInterior {
     const H_TOP = 2.7;
     const tput = (bw: number, bh: number, bd: number, x: number, y: number, z: number,
                   mat: THREE.Material, su: number, sv: number, soot = 0.5, yaw = 0) => {
+      if (!yaw && !mat.transparent && mat.opacity === 1 && !mat.alphaTest)
+        this.occlusion.addBox(x, y, z, bw, bh, bd);
       const g = new THREE.BoxGeometry(bw, bh, bd);
       if (yaw) g.rotateY(yaw);
       g.translate(x, y - gy, z);
@@ -188,22 +222,15 @@ export class InnInterior {
      * 일본 괴담 문법 그대로다 — 벽을 몸으로 뚫는 것보다 이쪽이 이 여관답다.
      */
     this.secretPos = new THREE.Vector3(mirrorWall, floorY + 1.3, secZ);
+    this.passageEntryPos = new THREE.Vector3(mirrorWall - 0.075, floorY + 1.5, secZ);
+    this.passageReturnPos = new THREE.Vector3(mirrorWall + 0.075, floorY + 1.5, secZ);
+    this.passageLandings = [new THREE.Vector3(mirrorWall - 1.35, floorY + 0.08, secZ),
+      new THREE.Vector3(mirrorWall + 1.35, floorY + 0.08, secZ)];
     tput(0.1, 2.6, 1.5, mirrorWall, floorY + 1.3, secZ, mWall, 0.7, 0.7);
     k.collide(mirrorWall, floorY + 1.3, secZ, 0.06, 1.3, 0.75);
-    /**
-     * 벽에 걸린 그을린 거울 — 서쪽(객실2)을 본다. 와쿄와 마주 보는 짝.
-     * ⚠️ 액자는 **벽이 뻗는 축**을 따라 넓어야 한다. 이 벽(mirrorWall)은 **Z 축으로** 뻗으므로
-     * 폭 0.9 는 Z, 두께 0.07 이 X 다. 처음엔 (0.9, 1.25, 0.07) 로 둬서 액자가 X 로 0.9 m
-     * 튀어나와 **벽을 관통한 널빤지**가 됐다(유리 법선은 맞았는데 액자만 90° 돌아가 있었다).
-     */
-    tput(0.07, 1.25, 0.9, mirrorWall - 0.06, floorY + 1.5, secZ, mChar, 1.2, 1.2, 0.8);
-    const fmGlass = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.72, 1.05),
-      new THREE.MeshStandardMaterial({ color: 0x10141a, roughness: 0.14, metalness: 0.8 }),
-    );
-    fmGlass.position.set(mirrorWall - 0.11, floorY + 1.5, secZ);
-    fmGlass.rotation.y = -Math.PI / 2;
-    this.group.add(fmGlass);
+    // 왕복 통로는 두 벽면 모두 실물 거울을 갖는다. 유리의 정면이 각 방을 향한다.
+    this.group.add(makeMirror(true, 'inn-passage-entry', this.passageEntryPos, -Math.PI / 2));
+    this.group.add(makeMirror(true, 'inn-passage-return', this.passageReturnPos, Math.PI / 2));
     // 복도 북벽: 객실1 문 + 객실2 문
     partZ(corrZ0, x0, nDiv, x0 + 2.1);
     partZ(corrZ0, nDiv, mirrorWall, nDiv + 2.1);
@@ -225,13 +252,8 @@ export class InnInterior {
     // ⚠️ **북벽**이다. 처음엔 남벽에 걸었는데 하필 복도 잔해와 같은 벽·같은 x 라 다가갈 수가 없었다
     // (실측: 입구→벽거울 경로가 막힘). 잔해는 남쪽, 거울은 북쪽 — 서로 반대 차선에 둔다.
     const wmX = x0 + 3.4, wmZ = corrZ0 + 0.06;
-    tput(1.15, 1.5, 0.09, wmX, floorY + 1.45, wmZ, mChar, 1.2, 1.2, 0.8);   // 그을린 테두리
-    const wmGlass = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.95, 1.3),
-      new THREE.MeshStandardMaterial({ color: 0x0d1114, roughness: 0.16, metalness: 0.72 }),
-    );
-    wmGlass.position.set(wmX, floorY + 1.45, wmZ + 0.06);
-    this.group.add(wmGlass);
+    const corridorMirrorPos = new THREE.Vector3(wmX, floorY + 1.45, wmZ);
+    this.group.add(makeMirror(true, 'inn-corridor-mirror', corridorMirrorPos, 0, 1.2));
     this.wallMirrorPos = new THREE.Vector3(wmX, floorY + 1.45, wmZ + 0.55);
 
     // ---------- 로비 — 접수대 + 못질된 계단 ----------
@@ -239,7 +261,16 @@ export class InnInterior {
     const counterX = x0 + 1.9, counterZ = z1 - 1.15;
     kFurn.box(1.9, 0.95, 0.6, counterX, floorY + 0.475, counterZ, mFurn);
     kFurn.collide(counterX, floorY + 0.475, counterZ, 0.95, 0.475, 0.3);
-    this.registerPos = new THREE.Vector3(counterX, floorY + 1.02, counterZ);
+    this.registerPos = new THREE.Vector3(counterX, floorY + 0.998, counterZ);
+    const ledgerProc = innLedger(this.registerPos); this.group.add(ledgerProc);
+    const returnedKey = innReturnedKey(this.group, new THREE.Vector3(counterX + 0.59, floorY + 0.963, counterZ));
+    this.afterimageProps = new InnAfterimageProps(this.group, this.mirrorScene,
+      new THREE.Vector3(x1 - 0.82, floorY + 0.76, cz - 0.72),
+      new THREE.Vector3(mirrorWall - 1.2, floorY, z1 - 1.2),
+      new THREE.Vector3(x0 + 1.47, floorY + 0.65, corrZ1 + 1.2),
+      new THREE.Vector3(counterX + 0.59, floorY + 0.96, counterZ));
+    this.memoryCluePositions = this.afterimageProps.clues;
+    this.memoryResolvePositions = this.afterimageProps.steps;
     // 계단 — 세 단 오르다 판자에 막힌다. 오르는 동선은 없다(콜라이더가 벽이다)
     const stX = sDiv - 0.75, stZ = z1 - 0.75;
     for (let i = 0; i < 3; i++) tput(1.1, 0.18, 0.3, stX, floorY + 0.09 + i * 0.18, stZ + 0.45 - i * 0.3, mWood, 1.0, 1.0, 0.45);
@@ -286,7 +317,17 @@ export class InnInterior {
      * 같은 방에 넣으면 데드락이다, v5.16 실측). 절차 원반은 wakyo.glb 도착 시 교체된다.
      */
     const wkSpot = chabudaiSpots[0]!;
-    this.wakyoPos = new THREE.Vector3(wkSpot.x + 0.12, floorY + 0.42, wkSpot.z - 0.08);
+    this.wakyoPos = new THREE.Vector3(wkSpot.x + 0.12, floorY + 0.345, wkSpot.z - 0.08);
+    const guestTable = chabudaiSpots[1]!;
+    this.guestCluePositions.push(this.registerPos.clone(),
+      new THREE.Vector3(guestTable.x, floorY + 0.35, guestTable.z),
+      this.secretPos.clone().add(new THREE.Vector3(-0.45, -0.35, 0)));
+    this.guestResolvePositions.push(this.registerPos.clone(), this.guestCluePositions[2]!.clone());
+    investigationPaper(this.group, this.guestCluePositions[1]!, L('소나무', '松の間'), [L('열쇠 → 접수대', '鍵 → 帳場'), L('현관으로', '玄関へ'), L('이층 폐쇄', '二階閉鎖')]);
+    innLuggageTag(this.group, this.guestCluePositions[1]!);
+    innLuggageScuffs(this.group, floorY, guestTable, this.secretPos);
+    this.guestExitSign = investigationPaper(this.mirrorScene, this.secretPos.clone().add(new THREE.Vector3(-0.15, 0.45, 0)), L('출구', '出口'), [L('이층 ↑', '二階 ↑')], 0.55);
+    this.guestExitSign.rotation.set(0, -Math.PI / 2, 0);
     const wakyoProc = new THREE.Group();
     const mBronze = new THREE.MeshStandardMaterial({ color: 0x6e5a34, roughness: 0.35, metalness: 0.85 });
     const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.018, 22), mBronze);
@@ -301,6 +342,7 @@ export class InnInterior {
       m.scale.multiplyScalar(0.3 / Math.max(sz.x, sz.z, 0.01));
       m.position.copy(this.wakyoPos);
       m.rotation.y = 0.7;
+      m.name = 'inn-wakyo'; m.visible = !this.wakyoTaken;
       this.group.add(m);
       wakyoProc.visible = false;
       this.wakyoProp = m;
@@ -441,27 +483,30 @@ export class InnInterior {
      * 유리는 온전한(깨지지도 그을리지도 않은) 밝은 금속면이다.
      */
     const mGlassOk = new THREE.MeshStandardMaterial({ color: 0x39424c, roughness: 0.08, metalness: 0.9 });
-    // ① 마주 거울 — 온전한 테 + 유리 (서쪽 = 객실2 를 본다). 현실과 같은 축: 폭은 Z, 두께는 X
-    kM.box(0.07, 1.25, 0.9, mirrorWall - 0.06, floorY + 1.5, secZ, mDarkOk);
-    const mgFace = new THREE.PlaneGeometry(0.72, 1.05);
-    mgFace.rotateY(-Math.PI / 2);
-    mgFace.translate(mirrorWall - 0.11, floorY + 1.5, secZ);
-    kM.add(mgFace, mGlassOk);
-    // ② 복도 벽거울 — 북벽, 남쪽을 본다
-    kM.box(1.15, 1.5, 0.09, wmX, floorY + 1.45, wmZ, mDarkOk);
-    const wmFace = new THREE.PlaneGeometry(0.95, 1.3);
-    wmFace.translate(wmX, floorY + 1.45, wmZ + 0.06);
-    kM.add(wmFace, mGlassOk);
+    // ① 마주 거울 양면, ② 복도 벽거울. 같은 모델·좌표로 과거에도 놓는다.
+    this.mirrorScene.add(makeMirror(false, 'inn-passage-entry', this.passageEntryPos, -Math.PI / 2));
+    this.mirrorScene.add(makeMirror(false, 'inn-passage-return', this.passageReturnPos, Math.PI / 2));
+    this.mirrorScene.add(makeMirror(false, 'inn-corridor-mirror', corridorMirrorPos, 0, 1.2));
+    this.mirrorScene.add(returnedKey.clone(true));
     // ③ 거울 방 — 큰 거울 + 경대 + 화장대 (셸 `blockouts.ts` 와 같은 산식: mx = x1 − 0.24)
     const bmX = x1 - 0.24;
-    kM.box(0.62, 0.76, 2.25, bmX - 0.34, floorY + 0.38, cz, mDarkOk);                  // 경대
-    kM.box(0.82, 0.68, 0.82, bmX - 1.55, floorY + 0.34, cz + 1.85, mDarkOk);           // 화장대
-    kM.box(0.08, 1.95, 2.6, bmX - 0.36, floorY + 1.35, cz, mWoodOk);                   // 큰 거울 테
+    const kVanity = new PartsBuilder(physics, { ghost: true });
+    kVanity.box(0.62, 0.76, 2.25, bmX - 0.34, gy + 0.3 + 0.38, cz, mDarkOk);
+    kVanity.box(0.82, 0.68, 0.82, bmX - 1.55, gy + 0.3 + 0.34, cz + 1.85, mDarkOk);
+    const vanityProc = kVanity.build('inn-mirror-vanity-fallback'); this.mirrorScene.add(vanityProc);
+    void furnitureReady?.then(furniture => {
+      if (!furniture) return;
+      this.mirrorScene.add(furniture.clone(true)); vanityProc.visible = false;
+    });
+    // 큰 거울도 실제 셸과 같은 벽면에 둔다. 옛 복제본은 유리가 50 cm 앞으로 나와 있었다.
+    for (const z of [cz - 1.27, cz + 1.27]) kM.box(0.12, 2.08, 0.12, x1 - 0.10, gy + 1.48, z, mWoodOk);
+    for (const y of [gy + 0.48, gy + 2.48]) kM.box(0.12, 0.12, 2.66, x1 - 0.10, y, cz, mWoodOk);
     const bigFace = new THREE.PlaneGeometry(2.4, 1.75);
     bigFace.rotateY(-Math.PI / 2);
-    bigFace.translate(bmX - 0.42, floorY + 1.12, cz);
+    bigFace.translate(x1 - 0.16, gy + 1.48, cz);
     kM.add(bigFace, mGlassOk);
     const mirrorFurnProc = kMF.build('inn-mirror-furniture');
+    mirrorFurnProc.add(ledgerProc.clone(true));
     this.mirrorScene.add(mirrorFurnProc);
     this.mirrorFurnProc = mirrorFurnProc;
     /**
@@ -541,36 +586,44 @@ export class InnInterior {
     this.group.add(furnProc);
 
     // ---------- 실물 교체 (폐교와 같은 패턴 — 전부 오면 절차 가구를 감춘다) ----------
-    void Promise.all([
-      Props.loadNormalized('/models/props/inn-counter.glb', 1.0, 0.45),
-      Props.loadNormalized('/models/props/chabudai.glb', 0.34, 0.5),
-      Props.loadNormalized('/models/props/futon.glb', 0.42, 0.55),
-      Props.loadNormalized('/models/props/tansu.glb', 0.85, 0.5),
-    ]).then(([counterM, chabuM, futonM, tansuM]) => {
+    this.detail = new StreamedDetail(this.group, { minX: x0, maxX: x1, minZ: z0, maxZ: z1 }, async (detail) => {
+      const [counterM, chabuM, futonM, tansuM, ledgerRaw] = await detail.models([
+        ['/models/props/inn-counter.glb', 1.0, 0.45],
+        ['/models/props/chabudai.glb', 0.34, 0.5],
+        ['/models/props/futon.glb', 0.42, 0.55],
+        ['/models/props/tansu.glb', 0.85, 0.5],
+        ['/models/props/ledger.glb', 0.045, 0.65],
+      ]);
+
       const clampXZ = (m: THREE.Group, max: number) => {
         const sz = new THREE.Box3().setFromObject(m).getSize(new THREE.Vector3());
         m.scale.multiplyScalar(Math.min(1, max / Math.max(sz.x, sz.z)));
       };
       clampXZ(counterM, 2.1);
+      // 가로 폭을 줄여도 상판 높이는 조사 앵커·충돌의 95 cm에 맞춘다.
+      counterM.scale.y *= 0.95 / new THREE.Box3().setFromObject(counterM).getSize(new THREE.Vector3()).y;
       counterM.position.set(counterX, floorY, counterZ);
-      this.group.add(counterM);                 // 정면이 북쪽(입구)을 보게 — 축 확인 후 조정
+      detail.root.add(counterM);                 // 정면이 북쪽(입구)을 보게 — 축 확인 후 조정
       clampXZ(chabuM, 0.95);
+      chabuM.scale.y *= 0.34 / new THREE.Box3().setFromObject(chabuM).getSize(new THREE.Vector3()).y;
       for (const sp of chabudaiSpots) {
         const m = chabuM.clone(true);
         m.position.set(sp.x, floorY, sp.z);
-        this.group.add(m);
+        detail.root.add(m);
       }
       clampXZ(futonM, 1.1);
       for (const sp of futonSpots) {
         const m = futonM.clone(true);
         m.position.set(sp.x, floorY, sp.z);
         m.rotation.y = sp.yaw;
-        this.group.add(m);
+        detail.root.add(m);
       }
       clampXZ(tansuM, 1.15);
       tansuM.position.set(tanX, floorY, tanZ);
-      this.group.add(tansuM);
-      furnProc.visible = false;
+      detail.root.add(tansuM);
+      const ledgerM = layFlatBook(ledgerRaw, 0.5);
+      ledgerM.name = 'inn-ledger';
+      ledgerM.position.set(counterX, floorY + 0.955, counterZ); detail.root.add(ledgerM);
       /**
        * ---- 여관 전용 소품 (2차 확장으로 285 m² 가 되며 방이 비었다) ----
        * 넣는 기준은 **방마다 이야기 하나**다. 장식으로 채우면 넓은 방이 창고가 된다:
@@ -578,44 +631,48 @@ export class InnInterior {
        *   · 병풍 — 객실3. 찢어진 종이 뒤가 보인다(가릴 것을 못 가리는 물건)
        *   · 히바치 — 객실2 좌탁 곁. 재가 식은 자리가 곧 「생활이 멈춘 시각」이다
        *   · 우산 — 복도 벽. 비 오는 날 두고 간 것이 10년째 그대로다
-       * 실패해도 조용히 넘어간다 — 방은 이미 성립한다(`.catch` 없이 Promise.allSettled 로 개별 처리)
+       * 모델 배치가 모두 준비되면 원래 가구와 교체한다. 실패하면 절차 가구를 유지한다.
        */
       const put = (m: THREE.Group, x: number, z: number, yaw: number, maxXZ: number) => {
         clampXZ(m, maxXZ);
         m.position.set(x, floorY, z);
         m.rotation.y = yaw;
-        this.group.add(m);
+        detail.root.add(m);
       };
-      void Promise.allSettled([
-        Props.loadNormalized('/models/props/getabako.glb', 1.35, 0.5),
-        Props.loadNormalized('/models/props/byobu.glb', 1.5, 0.55),
-        Props.loadNormalized('/models/props/hibachi.glb', 0.45, 0.5),
-        Props.loadNormalized('/models/props/wagasa.glb', 1.05, 0.6),
-      ]).then(([gb, by, hb, wg]) => {
-        if (gb.status === 'fulfilled') put(gb.value, x0 + 0.9, corrZ1 + 1.2, Math.PI / 2, 1.1);
-        if (by.status === 'fulfilled') put(by.value, mirrorWall - 1.2, z1 - 1.2, -0.7, 1.9);
-        if (hb.status === 'fulfilled') {
-          const c2 = chabudaiSpots[1];
-          if (c2) put(hb.value, c2.x + 1.25, c2.z + 0.35, 0.4, 0.7);
-        }
-        if (wg.status === 'fulfilled') put(wg.value, x0 + 5.2, corrZ0 + 0.22, 0.15, 0.4);
-      });
+      const [gb, by, hb, wg] = await detail.models([
+        ['/models/props/getabako.glb', 1.35, 0.5],
+        ['/models/props/byobu.glb', 1.5, 0.55],
+        ['/models/props/hibachi.glb', 0.45, 0.5],
+        ['/models/props/wagasa.glb', 1.05, 0.6],
+      ]);
+      gb.name = 'inn-getabako'; by.name = 'inn-byobu'; hb.name = 'inn-hibachi'; wg.name = 'inn-wagasa';
+      put(gb, x0 + 0.9, corrZ1 + 1.2, Math.PI / 2, 1.1);
+      put(by, mirrorWall - 1.2, z1 - 1.2, -0.7, 1.9);
+      const c2 = chabudaiSpots[1];
+      if (c2) put(hb, c2.x + 1.25, c2.z + 0.35, 0.4, 0.7);
+      put(wg, x0 + 5.2, corrZ0 + 0.22, 0.15, 0.4);
       /**
        * **같은 실물을 거울 속에도 놓는다** — 절차 복제로는 「같은 방」이 안 읽힌다(실측:
        * 소품이 안 보인다는 지적). 클론이라 지오메트리는 공유되고 배치 행렬만 든다.
        */
+      const mirrorDetails = detail.attachTo(this.mirrorScene);
       const mirrorPut = (src: THREE.Object3D, x: number, z: number, yaw = 0) => {
         const m = src.clone(true);
         m.position.set(x, floorY, z);
         m.rotation.y = yaw;
-        this.mirrorScene.add(m);
+        mirrorDetails.add(m);
       };
       mirrorPut(counterM, counterX, counterZ);
       for (const sp of chabudaiSpots) mirrorPut(chabuM, sp.x, sp.z);
       for (const sp of futonSpots) mirrorPut(futonM, sp.x, sp.z, sp.yaw);
       mirrorPut(tansuM, tanX, tanZ);
-      if (this.mirrorFurnProc) this.mirrorFurnProc.visible = false;
-    }).catch((e) => console.warn('[inn] 가구 모델 로드 실패 — 절차 가구 유지:', e));
+      // 여관 전용 소품도 와쿄 속에서 빠지지 않게 같은 위치·지오메트리를 복제한다.
+      for (const prop of [ledgerM, gb, hb, wg]) mirrorDetails.add(prop.clone(true));
+      const mirrorByobu = by.clone(true); mirrorDetails.add(mirrorByobu);
+      this.screens = [by, mirrorByobu];
+      for (const screen of this.screens) screen.rotation.y = this.screenOpened ? -0.12 : -0.7;
+
+    }, [furnProc, ledgerProc, ...(this.mirrorFurnProc ? [this.mirrorFurnProc] : [])], 'inn');
 
     scene.add(this.group);
   }
